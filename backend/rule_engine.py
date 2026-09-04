@@ -1,0 +1,1065 @@
+"""
+Deterministic compliance rule engine.
+
+Core principle:
+    AI/CV/OCR extracts evidence.
+    This module evaluates that evidence against versioned legal rules.
+    It does not use an LLM to decide legality.
+
+The engine is intentionally evidence-first:
+    - "not detected" is not automatically equivalent to "legally absent"
+      when the inspection does not have sufficient package coverage.
+    - verified evidence can produce FAIL.
+    - insufficient/uncertain evidence produces UNCERTAIN.
+    - exemptions are evaluated before ordinary declaration checks.
+    - legal thresholds are read from rules.json rather than duplicated here.
+
+The public run_inspection() signature retains compatibility with the original
+prototype while accepting optional multi-surface evidence from schema.py.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+
+from schema import (
+    BBox,
+    EvidenceReference,
+    FactStatus,
+    ExtractedFact,
+    GeometryType,
+    MeasurementMode,
+    ProductInspection,
+    RuleFinding,
+    SurfaceObservation,
+)
+
+from exemption import ExemptionInput, classify_exemption
+from unit_price import compute_unit_sale_price, convert_declared_price_to_standard
+
+
+RULES_PATH = Path(__file__).resolve().parent.parent / "rules" / "rules.json"
+DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.55
+
+
+@dataclass
+class RawExtraction:
+    """
+    Compatibility adapter for OCR/CV output.
+
+    OCR/CV should progressively populate:
+      - value/raw_text
+      - confidence
+      - numeric_value/numeric_unit
+      - bbox
+      - evidence
+      - measured_height_mm + measurement_mode
+
+    The rule engine never performs OCR or fuzzy text extraction.
+    """
+
+    field: str
+    value: Optional[str]
+    confidence: float
+    bbox: Optional[Any] = None
+    measured_height_mm: Optional[float] = None
+    measurement_mode: MeasurementMode = MeasurementMode.UNCERTAIN
+    numeric_value: Optional[float] = None
+    numeric_unit: Optional[str] = None
+    raw_text: Optional[str] = None
+    normalized_value: Optional[str] = None
+    evidence: Optional[List[EvidenceReference]] = None
+    evidence_complete: bool = True
+
+    def __post_init__(self) -> None:
+        self.confidence = max(0.0, min(1.0, float(self.confidence)))
+        if self.raw_text is None:
+            self.raw_text = self.value
+
+
+def load_rules(path: Path = RULES_PATH) -> Dict[str, dict]:
+    """Load the machine-readable legal rule dataset."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
+        raise ValueError("rules.json must contain a top-level 'rules' array")
+
+    rules: Dict[str, dict] = {}
+    for rule in data["rules"]:
+        rule_id = rule.get("rule_id")
+        if not rule_id:
+            raise ValueError("Every legal rule must have a rule_id")
+        if rule_id in rules:
+            raise ValueError(f"Duplicate rule_id in rules.json: {rule_id}")
+        rules[rule_id] = rule
+    return rules
+
+
+def _find_rule(rules: Mapping[str, dict], *rule_ids: str) -> Optional[dict]:
+    for rule_id in rule_ids:
+        if rule_id in rules:
+            return rules[rule_id]
+    return None
+
+
+def _rule_status(rule: Optional[dict]) -> Optional[str]:
+    if not rule:
+        return None
+    return rule.get("verification_status")
+
+
+def _bbox_from_any(value: Any) -> Optional[BBox]:
+    if value is None:
+        return None
+    if isinstance(value, BBox):
+        return value
+    if isinstance(value, Mapping):
+        try:
+            return BBox(
+                x=float(value["x"]),
+                y=float(value["y"]),
+                width=float(value["width"]),
+                height=float(value["height"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if len(value) == 4:
+            try:
+                return BBox(
+                    x=float(value[0]),
+                    y=float(value[1]),
+                    width=float(value[2]),
+                    height=float(value[3]),
+                )
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _evidence_for_extraction(extraction: Optional[RawExtraction]) -> List[EvidenceReference]:
+    if extraction is None:
+        return []
+
+    if extraction.evidence:
+        return extraction.evidence
+
+    bbox = _bbox_from_any(extraction.bbox)
+    if bbox is None:
+        return []
+
+    return [
+        EvidenceReference(
+            image_id="unknown",
+            bbox=bbox,
+            evidence_note="Evidence supplied by OCR/CV extraction."
+        )
+    ]
+
+
+def _make_fact(
+    *,
+    field: str,
+    extraction: Optional[RawExtraction],
+    status: FactStatus,
+    rule: Optional[dict],
+    reason: str,
+    review_required: bool,
+    extracted_value: Optional[str] = None,
+    measurement_mode: Optional[MeasurementMode] = None,
+    measured_value: Optional[float] = None,
+    measured_unit: Optional[str] = None,
+    evidence: Optional[List[EvidenceReference]] = None,
+    confidence_override: Optional[float] = None,
+) -> ExtractedFact:
+    confidence = (
+        confidence_override
+        if confidence_override is not None
+        else (extraction.confidence if extraction else 0.0)
+    )
+
+    return ExtractedFact(
+        field=field,
+        extracted_value=(
+            extracted_value
+            if extracted_value is not None
+            else (extraction.value if extraction else None)
+        ),
+        status=status,
+        confidence=max(0.0, min(1.0, float(confidence))),
+        rule_id=rule.get("rule_id") if rule else None,
+        rule_version=rule.get("version") if rule else None,
+        evidence_image=None,
+        bbox=_bbox_from_any(extraction.bbox) if extraction else None,
+        evidence=evidence if evidence is not None else _evidence_for_extraction(extraction),
+        measurement_mode=measurement_mode,
+        measured_value=measured_value,
+        measured_unit=measured_unit,
+        raw_text=extraction.raw_text if extraction else None,
+        normalized_value=extraction.normalized_value if extraction else None,
+        reason=reason,
+        review_required=review_required,
+        extraction_confidence=extraction.confidence if extraction else None,
+        decision_confidence=confidence,
+    )
+
+
+def _finding(
+    *,
+    rule: dict,
+    status: FactStatus,
+    reason: str,
+    evidence: Optional[List[EvidenceReference]] = None,
+    missing_evidence: Optional[List[str]] = None,
+    requirement_id: Optional[str] = None,
+    requirement_description: Optional[str] = None,
+    confidence: float = 0.0,
+    review_required: bool = False,
+) -> RuleFinding:
+    return RuleFinding(
+        rule_id=rule["rule_id"],
+        rule_version=rule.get("version"),
+        status=status,
+        requirement_id=requirement_id,
+        requirement_description=requirement_description,
+        reason=reason,
+        evidence=evidence or [],
+        required_evidence=rule.get("evidence_required", []),
+        missing_evidence=missing_evidence or [],
+        confidence=max(0.0, min(1.0, confidence)),
+        review_required=review_required,
+        verification_status=rule.get("verification_status"),
+    )
+
+
+def _is_low_confidence(extraction: Optional[RawExtraction], threshold: float) -> bool:
+    return extraction is None or extraction.confidence < threshold
+
+
+def _has_value(extraction: Optional[RawExtraction]) -> bool:
+    return bool(extraction and extraction.value and str(extraction.value).strip())
+
+
+def _inspection_coverage(captures: Sequence[SurfaceObservation]) -> float:
+    if not captures:
+        return 0.0
+    # Multiple captures are evidence observations. We use the strongest observed
+    # coverage rather than summing percentages, because overlapping photos should
+    # not magically create >100% evidence.
+    return max(float(c.evidence_coverage) for c in captures)
+
+
+def _evidence_sufficient_for_missing_field(
+    captures: Sequence[SurfaceObservation],
+    *,
+    required_coverage: float = 0.70,
+) -> bool:
+    """
+    Conservative absence rule.
+
+    A declaration can be called FAIL for absence only when the available
+    observations provide substantial package evidence. Otherwise the result is
+    UNCERTAIN because "not seen" is not equivalent to "not present".
+    """
+    if not captures:
+        return False
+
+    usable = [
+        c for c in captures
+        if c.image_quality.status.value in {"USABLE", "PARTIAL"}
+    ]
+    if not usable:
+        return False
+
+    return _inspection_coverage(usable) >= required_coverage
+
+
+def _field_requirements(rule: dict) -> List[dict]:
+    return list(rule.get("requirements", []))
+
+
+def _condition_is_applicable(requirement: dict, context: Mapping[str, Any]) -> bool:
+    condition = requirement.get("condition")
+    if not condition:
+        return True
+
+    if condition == "imported_product":
+        return bool(context.get("is_imported"))
+    if condition == "commodity_dimensions_are_relevant":
+        return bool(context.get("dimensions_relevant"))
+    if condition == "commodity_may_become_unfit_for_human_consumption":
+        return bool(context.get("best_before_applicable"))
+    if condition == "rule_6_subrule_11_applies":
+        return bool(context.get("unit_price_rule_applies", True))
+
+    return True
+
+
+def _build_requirement_map(rule: dict, context: Mapping[str, Any]) -> Dict[str, dict]:
+    result: Dict[str, dict] = {}
+    for req in _field_requirements(rule):
+        field = req.get("field")
+        if not field:
+            continue
+        if _condition_is_applicable(req, context):
+            result[field] = req
+    return result
+
+
+def _evaluate_rule6_declarations(
+    *,
+    rules: Mapping[str, dict],
+    extractions: Mapping[str, RawExtraction],
+    captures: Sequence[SurfaceObservation],
+    context: Mapping[str, Any],
+    low_confidence_threshold: float,
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    rule = _find_rule(rules, "LMPC-2011-R6-DECLARATIONS", "LMPC-2011-R6")
+    if rule is None:
+        raise ValueError("rules.json does not contain a Rule 6 declaration record")
+
+    facts: List[ExtractedFact] = []
+    findings: List[RuleFinding] = []
+    requirements = _build_requirement_map(rule, context)
+
+    for field, req in requirements.items():
+        extraction = extractions.get(field)
+
+        if _has_value(extraction):
+            if extraction.confidence < low_confidence_threshold:
+                status = FactStatus.UNCERTAIN
+                reason = (
+                    f"'{field}' was detected, but extraction confidence "
+                    f"{extraction.confidence:.2f} is below the configured "
+                    f"threshold {low_confidence_threshold:.2f}."
+                )
+                review = True
+            else:
+                status = FactStatus.PASS
+                reason = f"'{field}' is evidenced by the OCR/CV pipeline."
+                review = False
+
+            fact = _make_fact(
+                field=field,
+                extraction=extraction,
+                status=status,
+                rule=rule,
+                reason=reason,
+                review_required=review,
+            )
+            facts.append(fact)
+            findings.append(_finding(
+                rule=rule,
+                status=status,
+                reason=reason,
+                evidence=fact.evidence,
+                requirement_id=req.get("id"),
+                requirement_description=req.get("description"),
+                confidence=fact.confidence,
+                review_required=review,
+            ))
+            continue
+
+        if _evidence_sufficient_for_missing_field(captures):
+            status = FactStatus.FAIL
+            reason = (
+                f"Required declaration '{field}' was not evidenced after "
+                "sufficient package coverage."
+            )
+        else:
+            status = FactStatus.UNCERTAIN
+            reason = (
+                f"Required declaration '{field}' was not observed, but the "
+                "available package evidence is insufficient to conclude that "
+                "the declaration is absent."
+            )
+
+        fact = _make_fact(
+            field=field,
+            extraction=None,
+            status=status,
+            rule=rule,
+            reason=reason,
+            review_required=True,
+            confidence_override=1.0 if status == FactStatus.FAIL else 0.0,
+        )
+        facts.append(fact)
+        findings.append(_finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            missing_evidence=[f"field:{field}"],
+            requirement_id=req.get("id"),
+            requirement_description=req.get("description"),
+            confidence=fact.confidence,
+            review_required=True,
+        ))
+
+    return facts, findings
+
+
+def _min_numeral_height_mm(pdp_area_cm2: float, rule: dict) -> Optional[float]:
+    threshold = rule.get("threshold", {})
+    bands = threshold.get("min_height_bands_mm", [])
+    for band in bands:
+        maximum = band.get("pdp_area_cm2_max")
+        if maximum is None or pdp_area_cm2 <= float(maximum):
+            return float(band["min_numeral_height_mm"])
+    return None
+
+
+def _evaluate_font_height(
+    *,
+    rules: Mapping[str, dict],
+    extractions: Mapping[str, RawExtraction],
+    pdp_area_cm2: Optional[float],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    rule = _find_rule(rules, "LMPC-2011-R7-2-FONT", "LMPC-2011-R7-2")
+    if rule is None:
+        return [], []
+
+    if pdp_area_cm2 is None:
+        reason = "PDP area is unavailable, so the applicable font-height threshold cannot be selected."
+        return [
+            _make_fact(
+                field="mrp_numeral_height",
+                extraction=extractions.get("mrp"),
+                status=FactStatus.UNCERTAIN,
+                rule=rule,
+                reason=reason,
+                review_required=True,
+                measurement_mode=MeasurementMode.UNCERTAIN,
+            )
+        ], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                missing_evidence=["calibrated_pdp_area_cm2"],
+                confidence=0.0,
+                review_required=True,
+            )
+        ]
+
+    minimum = _min_numeral_height_mm(float(pdp_area_cm2), rule)
+    if minimum is None:
+        reason = "No applicable PDP-area threshold was found in the loaded rule data."
+        return [
+            _make_fact(
+                field="mrp_numeral_height",
+                extraction=extractions.get("mrp"),
+                status=FactStatus.UNCERTAIN,
+                rule=rule,
+                reason=reason,
+                review_required=True,
+                measurement_mode=MeasurementMode.UNCERTAIN,
+            )
+        ], [
+            _finding(rule=rule, status=FactStatus.UNCERTAIN, reason=reason,
+                     confidence=0.0, review_required=True)
+        ]
+
+    extraction = extractions.get("mrp")
+    if extraction is None or extraction.measured_height_mm is None:
+        reason = (
+            "No declaration-height measurement was captured. The engine will "
+            "not infer millimetres from an uncalibrated image."
+        )
+        return [
+            _make_fact(
+                field="mrp_numeral_height",
+                extraction=extraction,
+                status=FactStatus.UNCERTAIN,
+                rule=rule,
+                reason=reason,
+                review_required=True,
+                measurement_mode=MeasurementMode.UNCERTAIN,
+            )
+        ], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                missing_evidence=["measured_declaration_height_mm"],
+                confidence=0.0,
+                review_required=True,
+            )
+        ]
+
+    mode = extraction.measurement_mode
+    measured = float(extraction.measured_height_mm)
+
+    if mode != MeasurementMode.VERIFIED:
+        reason = (
+            f"Measured height is {measured:.3f} mm, but the measurement mode "
+            f"is {mode.value}. A non-verified measurement cannot produce a "
+            "definitive legal PASS/FAIL."
+        )
+        status = FactStatus.UNCERTAIN
+    elif measured >= minimum:
+        reason = f"Verified height {measured:.3f} mm meets required minimum {minimum:.3f} mm."
+        status = FactStatus.PASS
+    else:
+        reason = f"Verified height {measured:.3f} mm is below required minimum {minimum:.3f} mm."
+        status = FactStatus.FAIL
+
+    fact = _make_fact(
+        field="mrp_numeral_height",
+        extraction=extraction,
+        status=status,
+        rule=rule,
+        reason=reason,
+        review_required=status != FactStatus.PASS,
+        measurement_mode=mode,
+        measured_value=measured,
+        measured_unit="mm",
+    )
+
+    return [fact], [
+        _finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            evidence=fact.evidence,
+            confidence=fact.confidence if mode == MeasurementMode.VERIFIED else 0.0,
+            review_required=status != FactStatus.PASS,
+        )
+    ]
+
+
+def _evaluate_unit_sale_price(
+    *,
+    rules: Mapping[str, dict],
+    extractions: Mapping[str, RawExtraction],
+    net_quantity_value: float,
+    net_quantity_unit: str,
+    mrp: Optional[float],
+    sale_type: str,
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    rule = _find_rule(
+        rules,
+        "LMPC-2011-R6-11-UNIT-PRICE",
+        "LMPC-2011-R12",
+    )
+    if rule is None or mrp is None:
+        return [], []
+
+    # Wholesale packages follow a different declaration path. Do not run the
+    # retail unit-price check over them.
+    if sale_type.lower() == "wholesale":
+        reason = "Retail unit-sale-price check is not applied to wholesale packages."
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extractions.get("unit_sale_price"),
+            status=FactStatus.EXEMPT,
+            rule=rule,
+            reason=reason,
+            review_required=False,
+            confidence_override=1.0,
+        )
+        return [fact], [
+            _finding(rule=rule, status=FactStatus.EXEMPT, reason=reason, confidence=1.0)
+        ]
+
+    try:
+        calculation = compute_unit_sale_price(
+            net_quantity_value,
+            net_quantity_unit,
+            mrp,
+        )
+    except (TypeError, ValueError, InvalidOperation, ZeroDivisionError) as exc:
+        reason = f"Unit-sale-price calculation could not be completed: {exc}"
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extractions.get("unit_sale_price"),
+            status=FactStatus.UNCERTAIN,
+            rule=rule,
+            reason=reason,
+            review_required=True,
+        )
+        return [fact], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                missing_evidence=["valid_net_quantity", "valid_mrp"],
+                confidence=0.0,
+                review_required=True,
+            )
+        ]
+
+    if not getattr(calculation, "declaration_required", True):
+        reason = getattr(calculation, "reason", "Unit sale price declaration is not required.")
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extractions.get("unit_sale_price"),
+            status=FactStatus.EXEMPT,
+            rule=rule,
+            reason=reason,
+            review_required=False,
+            confidence_override=1.0,
+        )
+        return [fact], [
+            _finding(rule=rule, status=FactStatus.EXEMPT, reason=reason, confidence=1.0)
+        ]
+
+    extraction = extractions.get("unit_sale_price")
+    if not _has_value(extraction):
+        # Absence is FAIL only if the inspection had enough evidence to search
+        # the relevant declaration area. At this layer, lack of a capture
+        # coverage signal means uncertainty is safer.
+        reason = (
+            f"Unit sale price is required ({getattr(calculation, 'reason', '')}) "
+            "but no declared value was supplied by OCR/CV."
+        )
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=None,
+            status=FactStatus.UNCERTAIN,
+            rule=rule,
+            reason=reason + " Confirm package evidence before treating it as absent.",
+            review_required=True,
+        )
+        return [fact], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=fact.reason,
+                missing_evidence=["field:unit_sale_price"],
+                confidence=0.0,
+                review_required=True,
+            )
+        ]
+
+    # Numeric extraction is required for a numerical correctness conclusion.
+    if extraction.numeric_value is None or not extraction.numeric_unit:
+        reason = (
+            "Unit-sale-price text is present, but OCR/CV did not provide a "
+            "structured numeric value and unit. Presence alone is not enough "
+            "to verify the mathematical declaration."
+        )
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extraction,
+            status=FactStatus.UNCERTAIN,
+            rule=rule,
+            reason=reason,
+            review_required=True,
+        )
+        return [fact], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                evidence=fact.evidence,
+                confidence=extraction.confidence,
+                review_required=True,
+            )
+        ]
+
+    declared_standard = convert_declared_price_to_standard(
+        extraction.numeric_value,
+        extraction.numeric_unit,
+    )
+    if declared_standard is None:
+        reason = (
+            f"Declared unit '{extraction.numeric_unit}' is not recognized by "
+            "the deterministic unit-price converter."
+        )
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extraction,
+            status=FactStatus.UNCERTAIN,
+            rule=rule,
+            reason=reason,
+            review_required=True,
+        )
+        return [fact], [
+            _finding(rule=rule, status=FactStatus.UNCERTAIN, reason=reason,
+                     evidence=fact.evidence, confidence=extraction.confidence,
+                     review_required=True)
+        ]
+
+    expected = Decimal(str(calculation.unit_sale_price))
+    declared = Decimal(str(declared_standard))
+
+    # The legal declaration is rounded to two decimal places. Compare against
+    # the legally rounded expected value rather than adding an arbitrary 2%
+    # tolerance. A 2% tolerance can incorrectly accept materially wrong prices.
+    expected_rounded = expected.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    declared_rounded = declared.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    if declared_rounded == expected_rounded:
+        status = FactStatus.PASS
+        reason = (
+            f"Declared unit price {declared_rounded} matches the deterministically "
+            f"calculated value {expected_rounded} after prescribed two-decimal rounding."
+        )
+        review = False
+    else:
+        status = FactStatus.FAIL
+        reason = (
+            f"Declared unit price {declared_rounded} does not match the calculated "
+            f"value {expected_rounded} after two-decimal rounding."
+        )
+        review = True
+
+    fact = _make_fact(
+        field="unit_sale_price",
+        extraction=extraction,
+        status=status,
+        rule=rule,
+        reason=reason,
+        review_required=review,
+    )
+
+    return [fact], [
+        _finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            evidence=fact.evidence,
+            confidence=extraction.confidence,
+            review_required=review,
+        )
+    ]
+
+
+def _evaluate_placement(
+    *,
+    rules: Mapping[str, dict],
+    captures: Sequence[SurfaceObservation],
+    extractions: Mapping[str, RawExtraction],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    rule = _find_rule(rules, "LMPC-2011-R8-PLACEMENT", "LMPC-2011-R8")
+    if rule is None:
+        return [], []
+
+    if not captures:
+        reason = (
+            "No surface observations are available. Placement on the principal "
+            "display panel cannot be established."
+        )
+        return [
+            _make_fact(
+                field="declaration_placement",
+                extraction=None,
+                status=FactStatus.UNCERTAIN,
+                rule=rule,
+                reason=reason,
+                review_required=True,
+            )
+        ], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                missing_evidence=["declaration_bboxes", "pdp_boundary"],
+                confidence=0.0,
+                review_required=True,
+            )
+        ]
+
+    # We intentionally do not require every declaration to share one rectangular
+    # visual block. The legal test is represented as PDP presence plus the
+    # specific quantity-declaration clearance checks where measurable.
+    missing_pdp = [c.surface_id for c in captures if c.pdp_bbox is None]
+    if len(missing_pdp) == len(captures):
+        reason = (
+            "Package surfaces were captured, but no PDP boundary was supplied. "
+            "The engine cannot establish declaration placement from surface "
+            "orientation alone."
+        )
+        status = FactStatus.UNCERTAIN
+        confidence = 0.0
+    else:
+        reason = (
+            "PDP evidence is available for at least one captured surface. "
+            "Specific declaration-to-PDP placement still depends on declaration "
+            "bounding boxes supplied by OCR/CV."
+        )
+        status = FactStatus.PASS
+        confidence = 0.75
+
+    fact = _make_fact(
+        field="declaration_placement",
+        extraction=None,
+        status=status,
+        rule=rule,
+        reason=reason,
+        review_required=status == FactStatus.UNCERTAIN,
+        confidence_override=confidence,
+    )
+
+    return [fact], [
+        _finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            missing_evidence=["pdp_boundary"] if status == FactStatus.UNCERTAIN else [],
+            confidence=confidence,
+            review_required=status == FactStatus.UNCERTAIN,
+        )
+    ]
+
+
+def _aggregate_status(facts: Iterable[ExtractedFact]) -> FactStatus:
+    statuses = [fact.status for fact in facts]
+    if not statuses:
+        return FactStatus.UNCERTAIN
+
+    if FactStatus.FAIL in statuses:
+        return FactStatus.FAIL
+    if FactStatus.UNCERTAIN in statuses:
+        return FactStatus.UNCERTAIN
+    if all(status == FactStatus.EXEMPT for status in statuses):
+        return FactStatus.EXEMPT
+    return FactStatus.PASS
+
+
+def _summary(
+    facts: Sequence[ExtractedFact],
+    findings: Sequence[RuleFinding],
+    captures: Sequence[SurfaceObservation],
+) -> Dict[str, Any]:
+    counts = {
+        FactStatus.PASS: 0,
+        FactStatus.FAIL: 0,
+        FactStatus.UNCERTAIN: 0,
+        FactStatus.EXEMPT: 0,
+    }
+    for finding in findings:
+        counts[finding.status] += 1
+
+    review_count = sum(
+        1 for finding in findings if finding.review_required
+    )
+
+    coverage = _inspection_coverage(captures)
+    evidence_complete = (
+        bool(captures)
+        and coverage >= 0.70
+        and all(
+            c.image_quality.status.value in {"USABLE", "PARTIAL"}
+            for c in captures
+        )
+    )
+
+    return {
+        "total_rules_evaluated": len(findings),
+        "passed": counts[FactStatus.PASS],
+        "failed": counts[FactStatus.FAIL],
+        "uncertain": counts[FactStatus.UNCERTAIN],
+        "exempt": counts[FactStatus.EXEMPT],
+        "review_required": review_count,
+        "evidence_complete": evidence_complete,
+        "coverage_score": coverage,
+    }
+
+
+def run_inspection(
+    inspection_id: str,
+    sale_type: str,
+    product_category: str,
+    net_quantity_value: float,
+    net_quantity_unit: str,
+    mrp: Optional[float],
+    extractions: Dict[str, RawExtraction],
+    pdp_area_cm2: Optional[float] = None,
+    is_export_only: bool = False,
+    retail_bundle_count: Optional[int] = None,
+    low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+    sticker_suspects: Optional[List[Any]] = None,
+    captures: Optional[List[SurfaceObservation]] = None,
+    is_imported: bool = False,
+    dimensions_relevant: bool = False,
+    best_before_applicable: bool = False,
+    geometry: GeometryType = GeometryType.UNKNOWN,
+) -> ProductInspection:
+    """
+    Main inspection entry point.
+
+    Backward-compatible with the original prototype while adding:
+      - multi-surface captures
+      - evidence-aware absence handling
+      - rule-level findings
+      - versioned rule references
+      - correct Rule 6(11) unit-price handling
+    """
+
+    if not 0.0 <= low_confidence_threshold <= 1.0:
+        raise ValueError("low_confidence_threshold must be between 0 and 1")
+
+    if net_quantity_value is None or float(net_quantity_value) <= 0:
+        raise ValueError("net_quantity_value must be greater than zero")
+
+    captures = captures or []
+    rules = load_rules()
+    facts: List[ExtractedFact] = []
+    findings: List[RuleFinding] = []
+
+    # ------------------------------------------------------------------
+    # 1. Scope / exemption comes first.
+    # ------------------------------------------------------------------
+    exemption = classify_exemption(ExemptionInput(
+        sale_type=sale_type,
+        net_quantity_value=net_quantity_value,
+        net_quantity_unit=net_quantity_unit,
+        product_category=product_category,
+        is_export_only=is_export_only,
+        retail_bundle_count=retail_bundle_count,
+    ))
+
+    if exemption.is_exempt:
+        scope_rule = _find_rule(
+            rules,
+            exemption.rule_id,
+            "LMPC-2011-R3-SCOPE",
+        )
+        scope_fact = _make_fact(
+            field="__scope__",
+            extraction=None,
+            status=FactStatus.EXEMPT,
+            rule=scope_rule,
+            reason=exemption.reason,
+            review_required=False,
+            confidence_override=1.0,
+        )
+        facts.append(scope_fact)
+
+        if scope_rule:
+            findings.append(_finding(
+                rule=scope_rule,
+                status=FactStatus.EXEMPT,
+                reason=exemption.reason,
+                confidence=1.0,
+                review_required=False,
+            ))
+
+        return ProductInspection(
+            inspection_id=inspection_id,
+            product_category=product_category,
+            sale_type=sale_type,
+            package_weight_or_volume=net_quantity_value,
+            package_weight_unit=net_quantity_unit,
+            geometry=geometry,
+            captures=captures,
+            facts=facts,
+            findings=findings,
+            overall_status=FactStatus.EXEMPT,
+            exempt_reason=exemption.reason,
+            evidence_complete=bool(captures),
+            review_required=False,
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Build contextual applicability facts.
+    # ------------------------------------------------------------------
+    context = {
+        "is_imported": is_imported,
+        "dimensions_relevant": dimensions_relevant,
+        "best_before_applicable": best_before_applicable,
+        "unit_price_rule_applies": True,
+    }
+
+    # ------------------------------------------------------------------
+    # 3. Rule 6 mandatory declarations.
+    # ------------------------------------------------------------------
+    if sale_type.lower() == "retail":
+        r6_facts, r6_findings = _evaluate_rule6_declarations(
+            rules=rules,
+            extractions=extractions,
+            captures=captures,
+            context=context,
+            low_confidence_threshold=low_confidence_threshold,
+        )
+        facts.extend(r6_facts)
+        findings.extend(r6_findings)
+
+    # ------------------------------------------------------------------
+    # 4. Rule 7 font height / PDP evidence.
+    # ------------------------------------------------------------------
+    if sale_type.lower() == "retail":
+        r7_facts, r7_findings = _evaluate_font_height(
+            rules=rules,
+            extractions=extractions,
+            pdp_area_cm2=pdp_area_cm2,
+        )
+        facts.extend(r7_facts)
+        findings.extend(r7_findings)
+
+    # ------------------------------------------------------------------
+    # 5. Rule 6(11) unit sale price.
+    # ------------------------------------------------------------------
+    if sale_type.lower() == "retail":
+        usp_facts, usp_findings = _evaluate_unit_sale_price(
+            rules=rules,
+            extractions=extractions,
+            net_quantity_value=net_quantity_value,
+            net_quantity_unit=net_quantity_unit,
+            mrp=mrp,
+            sale_type=sale_type,
+        )
+        facts.extend(usp_facts)
+        findings.extend(usp_findings)
+
+    # ------------------------------------------------------------------
+    # 6. Rule 8 placement.
+    # ------------------------------------------------------------------
+    if sale_type.lower() == "retail":
+        placement_facts, placement_findings = _evaluate_placement(
+            rules=rules,
+            captures=captures,
+            extractions=extractions,
+        )
+        facts.extend(placement_facts)
+        findings.extend(placement_findings)
+
+    # ------------------------------------------------------------------
+    # 7. Advisory sticker/alteration evidence.
+    # ------------------------------------------------------------------
+    if sticker_suspects:
+        for region in sticker_suspects:
+            bbox = getattr(region, "bbox", None)
+            confidence = float(getattr(region, "confidence", 0.0))
+            reason = str(getattr(region, "reason", "possible alteration"))
+            facts.append(ExtractedFact(
+                field="__possible_alteration__",
+                extracted_value=str(bbox),
+                status=FactStatus.UNCERTAIN,
+                confidence=max(0.0, min(1.0, confidence)),
+                rule_id=None,
+                reason=(
+                    "Vision heuristic flagged a possible sticker/alteration "
+                    f"region ({reason}). This is advisory evidence only."
+                ),
+                review_required=True,
+            ))
+
+    # ------------------------------------------------------------------
+    # 8. Final status and summary.
+    # ------------------------------------------------------------------
+    overall = _aggregate_status(facts)
+    summary_data = _summary(facts, findings, captures)
+
+    return ProductInspection(
+        inspection_id=inspection_id,
+        product_category=product_category,
+        sale_type=sale_type,
+        package_weight_or_volume=net_quantity_value,
+        package_weight_unit=net_quantity_unit,
+        geometry=geometry,
+        captures=captures,
+        facts=facts,
+        findings=findings,
+        overall_status=overall,
+        summary=summary_data,
+        evidence_complete=summary_data["evidence_complete"],
+        review_required=(
+            summary_data["review_required"] > 0
+            or overall == FactStatus.UNCERTAIN
+        ),
+    )

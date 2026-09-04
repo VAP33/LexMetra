@@ -1,0 +1,28 @@
+# Core API
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+pydantic>=2.6,<3.0
+python-multipart>=0.0.9,<1.0
+
+# Computer vision / image processing
+opencv-python-headless>=4.9,<5.0
+numpy>=1.26,<3.0
+Pillow>=10.0,<12.0
+imagehash>=4.3,<5.0
+
+# HTTP / API testing
+httpx>=0.27,<1.0
+
+# Database
+psycopg2-binary>=2.9,<3.0
+
+# Optional semantic verification
+# Only required when VLM verification is enabled.
+anthropic>=0.34,<1.0
+
+# OCR
+# PaddleOCR is intentionally optional for the first lightweight MVP install.
+# The current OCR module has a fallback path, so the backend can start without
+# a heavyweight OCR model/runtime. Install a tested PaddleOCR version when
+# enabling the production OCR pipeline.
+# paddleocr>=2.7,<3.0
