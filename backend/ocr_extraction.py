@@ -254,8 +254,9 @@ FIELD_PATTERNS = {
         re.I,
     ),
     "mfg_date": re.compile(
-        r"\b(?:mfg|mfd|manufactur(?:ed|e|ing)?)\.?\s*"
-        r"(?:date|dt)?\b|date\s+of\s+manufactur\w*",
+        r"\b(?:mfg|mfd)\.?\s*(?:date|dt)\b|"
+        r"\bmanufactur(?:ed|e|ing)?\.?\s*(?:date|dt)\b|"
+        r"\bdate\s+of\s+manufactur\w*\b",
         re.I,
     ),
     "expiry_date": re.compile(

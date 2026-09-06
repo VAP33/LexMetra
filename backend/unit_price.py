@@ -395,3 +395,9 @@ def compute_unit_sale_price(
         declaration_required=True,
         reason=(
             f"Computed from MRP {price} divided by {quantity_in_display_units} "
+            f"{display_unit} to yield the unit sale price of {unit_price} per "
+            f"{display_unit}."
+        ),
+        quantity_family=definition.family,
+        normalized_quantity=normalized_quantity,
+    )

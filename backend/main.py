@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 
 from schema import MeasurementMode, ProductInspection
-from rule_engine import RawExtraction, run_inspection
+from rule_engine import RawExtraction, run_inspection, _has_value
 from sticker_detection import detect_sticker_regions
 from product_similarity import (
     detect_price_or_label_change,
@@ -315,12 +315,49 @@ def _prepare_extractions(classified: Dict[str, dict]) -> Dict[str, RawExtraction
     Convert every classified OCR field into the shared rule-engine contract.
 
     Auxiliary keys beginning with '_' are evidence metadata, not legal fields.
+
+    FIELD-NAME BRIDGE (important): ocr_extraction.py and rules.json were
+    authored independently and use different field vocabularies for the same
+    legal facts — e.g. OCR emits 'manufacturer_name' / 'packer_name' /
+    'importer_name' as separate fields, but LMPC-2011-R6-DECLARATIONS' single
+    combined requirement reads key 'manufacturer_name_address'; OCR emits
+    'expiry_date', but the rule reads 'best_before_use_by'. Without this
+    bridge, rule_engine.py's exact-key lookup (`extractions.get(field)`) would
+    never find these values even when OCR extracted them correctly, and the
+    engine would silently report FAIL/UNCERTAIN for a field that is actually
+    present on the package. This function is the single place that
+    reconciles the two vocabularies — add new aliases here, not by renaming
+    either module's own natural field names.
     """
-    return {
+    extractions = {
         field: _field_to_raw_extraction(field, data)
         for field, data in classified.items()
         if not field.startswith("_")
     }
+
+    # manufacturer_name_address <- first available of manufacturer/packer/importer
+    if "manufacturer_name_address" not in extractions:
+        for source_field in ("manufacturer_name", "packer_name", "importer_name"):
+            if source_field in extractions and _has_value(extractions[source_field]):
+                src = extractions[source_field]
+                extractions["manufacturer_name_address"] = RawExtraction(
+                    field="manufacturer_name_address", value=src.value, confidence=src.confidence,
+                    measured_height_mm=src.measured_height_mm, measurement_mode=src.measurement_mode,
+                    numeric_value=src.numeric_value, numeric_unit=src.numeric_unit,
+                )
+                break
+
+    # best_before_use_by <- expiry_date (OCR's name for the same fact)
+    if "best_before_use_by" not in extractions and "expiry_date" in extractions:
+        src = extractions["expiry_date"]
+        if _has_value(src):
+            extractions["best_before_use_by"] = RawExtraction(
+                field="best_before_use_by", value=src.value, confidence=src.confidence,
+                measured_height_mm=src.measured_height_mm, measurement_mode=src.measurement_mode,
+                numeric_value=src.numeric_value, numeric_unit=src.numeric_unit,
+            )
+
+    return extractions
 
 
 # ---------------------------------------------------------------------------

@@ -59,11 +59,24 @@ the whole stack.**
   with a note). No build step — open the file directly, talks to the API over CORS.
 - **`backend/ocr_extraction.py`** — REAL OCR (Tesseract, pretrained) + rule-based
   field classification, tested against your uploaded photos. Correctly extracts
-  manufacturer/marketer paragraphs, dates, quantities. Has a known real bug:
-  in cramped multi-value label columns it can mis-pair adjacent numeric fields
-  (confirmed: swapped MRP and unit-sale-price on a real box) — the dashboard
-  always shows raw extracted text next to the verdict specifically so this is
-  catchable by a human, not hidden.
+  manufacturer/marketer paragraphs, dates, quantities, MRP, and unit sale price.
+  The earlier MRP/USP column mis-pairing bug (confirmed on the Hair Vitamin box)
+  is now FIXED via three layered improvements, each confirmed against real
+  photos: (1) splitting Tesseract lines at large horizontal gaps, since it was
+  merging label-column and value-column words into one line purely because they
+  overlapped vertically; (2) merging digit fragments that stamped/dot-matrix
+  printing splits across near-identical heights (e.g. '470' + '-00' → '470.00');
+  (3) rank-based (order, not distance) pairing of stacked labels to stacked
+  values, restricted to only the fields with a pending label so an unmatched
+  extra value can't throw off the count. All three were necessary — removing
+  any one regresses the fix (verified). One harder case remains open: the
+  *other* real product photo (Hair Actives) has lower print/scan quality and
+  Tesseract's dictionary bias still misreads some digits as letters badly
+  enough (`800.00` → `goo.o00`) that even a targeted digit-whitelist re-OCR
+  pass doesn't fully recover it — that fix is included (`_reocr_digits`) and
+  helps on moderate cases, but isn't a complete fix for heavily degraded prints.
+  The dashboard always shows raw extracted text next to the verdict so any
+  remaining misreads are visible to a human, not hidden.
 - **`backend/db/`** (`schema.sql` + `persistence.py`) — real Postgres, not a
   mock. 3 tables (products, inspections, inspection_facts). Tested end-to-end:
   scan → save → list → detail → mark-reviewed → product-history, all confirmed
@@ -95,10 +108,12 @@ Two real products you photographed were run through the full pipeline:
 ## What is NOT in here yet (and can't be faked)
 
 - **Trained OCR/CV field detector** — `ocr_extraction.py` is real and working
-  (Tesseract + regex classification), but it's not the trained YOLO-style
-  detector your plan describes; that needs training data and GPU time your team
-  will have to invest. The known MRP/USP column mis-pairing bug is the clearest
-  symptom of this gap.
+  (Tesseract + regex classification with several targeted repair passes — see
+  above), but it's not the trained YOLO-style layout detector your plan
+  describes; that needs training data and GPU time your team will have to
+  invest. The Hair Actives box's degraded-print misreads are the clearest
+  remaining symptom of this gap — no amount of regex/heuristic tuning fully
+  substitutes for a model that's actually learned what these labels look like.
 - **Real product dataset at scale** — several hundred to ~1,500 real Indian SKU
   photos, human-verified. Two real products are tested end-to-end (above);
   that's proof the pipeline works on real data, not a substitute for the real
@@ -141,12 +156,11 @@ python3 generate_dataset.py   # regenerate the 50-image synthetic set
    and populate Rule 32 for your actual demo commodity categories.
 2. Data Lead: start real photo collection this week — even 30-40 real SKUs beats
    any amount of synthetic data for your actual demo credibility.
-3. CV/ML Lead: the biggest concrete bug to fix is `ocr_extraction.py`'s column
-   mis-pairing (MRP vs unit-sale-price) — either improve the layout heuristic
-   (explicit label/value column clustering by x-position) or train a real
-   layout model once you have labeled real photos. If you get paired
-   original/altered photos, retrain `sticker_detection.py` into a real
-   classifier — the function signature can stay the same.
+3. CV/ML Lead: the OCR column mis-pairing bug is fixed (see above), but photo
+   quality still matters a lot — the degraded-print real box is the clearest
+   remaining case. Train a real layout/OCR model once you have labeled real
+   photos; retrain `sticker_detection.py` similarly if you get paired
+   original/altered photos. Function signatures can stay the same either way.
 4. Backend Lead: add auth/roles around the now-working Postgres-backed endpoints.
 5. Frontend Lead: the dashboard is functional — visual design, mobile layout,
    and drawing the `bbox` field (already returned per fact) over the photo are
