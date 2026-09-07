@@ -139,6 +139,76 @@ CREATE INDEX IF NOT EXISTS idx_facts_review
 
 
 -- ---------------------------------------------------------------------------
+-- inspection_findings
+--
+-- The legal verdicts themselves, one row per evaluated rule.
+--
+-- WHY THIS TABLE WAS ADDED. It did not exist. `save_inspection()` persisted
+-- products, inspections and inspection_facts only, so every RuleFinding — the
+-- object that carries the requirement evaluated, the rule version applied, the
+-- evidence it rested on, and what evidence was MISSING — was discarded the
+-- moment the request ended. `get_inspection_detail()` returned no findings, and
+-- because `report.py` falls back to facts when findings are absent
+-- (`rows_source = findings if findings else facts`), the generated PDF silently
+-- rendered facts in their place. The fallback meant the omission produced a
+-- plausible-looking document instead of an error, which is why it survived.
+--
+-- A finding must remain traceable to its evidence and to the rule version that
+-- produced it after persistence and reload, not merely while it is in memory.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS inspection_findings (
+    id                      SERIAL PRIMARY KEY,
+
+    inspection_id           TEXT NOT NULL
+                            REFERENCES inspections(inspection_id)
+                            ON DELETE CASCADE,
+
+    rule_id                 TEXT NOT NULL,
+    rule_version            TEXT,
+
+    status                  TEXT NOT NULL,
+    -- PASS | FAIL | UNCERTAIN | EXEMPT
+
+    requirement_id          TEXT,
+    requirement_description TEXT,
+
+    reason                  TEXT,
+
+    confidence              NUMERIC,
+    review_required         BOOLEAN NOT NULL DEFAULT FALSE,
+
+    verification_status     TEXT,
+
+    -- Same structure as inspection_facts.evidence_json: a list of
+    -- EvidenceReference objects, each naming a source image_id and the region
+    -- within it. See schema.UNATTRIBUTED_IMAGE_ID for how a missing source
+    -- image is recorded so it cannot be mistaken for a real filename.
+    evidence_json           JSONB,
+
+    -- Evidence the rule REQUIRED versus what was actually absent. Kept
+    -- separate from `reason` because "no evidence was observed" and "evidence
+    -- was observed and contradicts the declaration" are different legal
+    -- positions and must stay machine-distinguishable after reload.
+    required_evidence_json  JSONB,
+    missing_evidence_json    JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_findings_inspection
+    ON inspection_findings(inspection_id);
+
+CREATE INDEX IF NOT EXISTS idx_findings_rule
+    ON inspection_findings(rule_id);
+
+CREATE INDEX IF NOT EXISTS idx_findings_status
+    ON inspection_findings(status);
+
+CREATE INDEX IF NOT EXISTS idx_findings_review
+    ON inspection_findings(review_required)
+    WHERE review_required = TRUE;
+
+
+-- ---------------------------------------------------------------------------
 -- Lightweight data-integrity constraints
 -- ---------------------------------------------------------------------------
 --

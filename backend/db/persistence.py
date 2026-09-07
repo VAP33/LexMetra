@@ -21,8 +21,22 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
-import psycopg2
-import psycopg2.extras
+try:
+    import psycopg2
+    import psycopg2.extras
+
+    _DRIVER_ERROR: type[BaseException] = psycopg2.Error
+except ModuleNotFoundError:  # pragma: no cover - exercised in driverless envs
+    # The PostgreSQL driver is a hard requirement to TALK to a database, but not
+    # to reason about what this module writes. `build_finding_row`,
+    # `hydrate_finding_row` and `decode_json_column` decide whether evidence and
+    # provenance survive a round trip, and they are pure. Making the import
+    # fatal put them behind a dependency that is absent in offline test
+    # environments, which meant the code most capable of silently dropping legal
+    # evidence was the code least able to be tested. Anything that actually
+    # needs a connection still fails loudly, in `get_conn`.
+    psycopg2 = None  # type: ignore[assignment]
+    _DRIVER_ERROR = Exception
 
 import sys
 from pathlib import Path as _Path
@@ -43,6 +57,13 @@ def get_conn():
     """
     Open one database connection and commit/rollback as a single transaction.
     """
+    if psycopg2 is None:
+        raise RuntimeError(
+            "psycopg2 is not installed, so no database connection can be "
+            "opened. Install psycopg2-binary (see backend/requirements.txt). "
+            "The pure serialization helpers in this module do not need it."
+        )
+
     conn = psycopg2.connect(DATABASE_URL)
     try:
         yield conn
@@ -233,6 +254,114 @@ def _fact_evidence_payload(fact: Any) -> Optional[str]:
     if evidence is None:
         return None
     return _json_or_none(evidence)
+
+
+# ---------------------------------------------------------------------------
+# Findings
+#
+# These are deliberately pure functions taking a finding and returning plain
+# values. The database driver (psycopg2) and a PostgreSQL server are not
+# available in every environment this project is tested in, so anything that
+# only exists inside a `with get_conn()` block cannot be exercised by a test at
+# all. Keeping the row construction and the column decoding separate from the
+# SQL means the part that can silently lose evidence is testable on its own.
+# ---------------------------------------------------------------------------
+
+#: Column order used by both the INSERT and `build_finding_row`, so the two
+#: cannot drift apart silently.
+FINDING_COLUMNS = (
+    "inspection_id",
+    "rule_id",
+    "rule_version",
+    "status",
+    "requirement_id",
+    "requirement_description",
+    "reason",
+    "confidence",
+    "review_required",
+    "verification_status",
+    "evidence_json",
+    "required_evidence_json",
+    "missing_evidence_json",
+)
+
+
+def build_finding_row(inspection_id: str, finding: Any) -> Dict[str, Any]:
+    """
+    Flatten one RuleFinding into the `inspection_findings` column set.
+
+    `evidence_json` carries the EvidenceReference list verbatim, which is what
+    makes a reloaded finding traceable back to a specific region of a specific
+    source image. `required_evidence` and `missing_evidence` are kept as
+    separate columns rather than folded into the reason text because "nothing
+    was observed" and "something was observed and it contradicts the
+    declaration" are different legal positions, and a reviewer reading a
+    reloaded finding must still be able to tell them apart.
+    """
+    confidence = getattr(finding, "confidence", None)
+    try:
+        confidence = float(confidence) if confidence is not None else None
+    except (TypeError, ValueError):
+        confidence = None
+
+    return {
+        "inspection_id": inspection_id,
+        "rule_id": str(getattr(finding, "rule_id", "") or ""),
+        "rule_version": getattr(finding, "rule_version", None),
+        "status": _enum_value(getattr(finding, "status", None)),
+        "requirement_id": getattr(finding, "requirement_id", None),
+        "requirement_description": getattr(finding, "requirement_description", None),
+        "reason": getattr(finding, "reason", None),
+        "confidence": confidence,
+        "review_required": bool(getattr(finding, "review_required", False)),
+        "verification_status": _enum_value(
+            getattr(finding, "verification_status", None)
+        ),
+        "evidence_json": _json_or_none(getattr(finding, "evidence", None) or None),
+        "required_evidence_json": _json_or_none(
+            getattr(finding, "required_evidence", None) or None
+        ),
+        "missing_evidence_json": _json_or_none(
+            getattr(finding, "missing_evidence", None) or None
+        ),
+    }
+
+
+def decode_json_column(raw: Any) -> Any:
+    """
+    Return a JSONB column as native Python.
+
+    psycopg2 decodes JSONB automatically, but the same rows are also read from
+    fixtures and from older databases where the column may hold a JSON string.
+    Both shapes are handled rather than assuming one, and undecodable content
+    returns None instead of raising — a malformed evidence blob must not make an
+    entire inspection unreadable.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+    return raw
+
+
+def hydrate_finding_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Turn one persisted findings row back into the shape callers expect,
+    decoding the three JSON columns into `evidence`, `required_evidence` and
+    `missing_evidence`.
+    """
+    finding = dict(row)
+    finding["evidence"] = decode_json_column(row.get("evidence_json")) or []
+    finding["required_evidence"] = (
+        decode_json_column(row.get("required_evidence_json")) or []
+    )
+    finding["missing_evidence"] = (
+        decode_json_column(row.get("missing_evidence_json")) or []
+    )
+    return finding
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +564,41 @@ def save_inspection(
                     (review_required, inspection_id),
                 )
 
+            # ---------------- Findings ----------------
+            #
+            # The legal verdicts. Previously not persisted at all, so a reloaded
+            # inspection had facts but no findings, and the PDF report quietly
+            # rendered facts in their place. Guarded by a table-existence check
+            # so an older database that has not run the current schema.sql keeps
+            # working rather than failing every save.
+            cur.execute(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'inspection_findings'
+                """
+            )
+            has_findings_table = cur.fetchone() is not None
+
+            if has_findings_table:
+                cur.execute(
+                    "DELETE FROM inspection_findings WHERE inspection_id = %s",
+                    (inspection_id,),
+                )
+
+                findings = getattr(inspection, "findings", []) or []
+                placeholders = ", ".join(["%s"] * len(FINDING_COLUMNS))
+                columns = ", ".join(FINDING_COLUMNS)
+
+                for finding in findings:
+                    row = build_finding_row(inspection_id, finding)
+                    cur.execute(
+                        f"INSERT INTO inspection_findings ({columns}) "
+                        f"VALUES ({placeholders})",
+                        tuple(row[name] for name in FINDING_COLUMNS),
+                    )
+
 
 # ---------------------------------------------------------------------------
 # Read/list
@@ -530,13 +694,33 @@ def get_inspection_detail(inspection_id: str) -> Optional[dict]:
             # and an already-decoded list/dict defensively.
             for fact in inspection["facts"]:
                 raw_evidence = fact.get("evidence_json")
-                if isinstance(raw_evidence, str):
-                    try:
-                        fact["evidence"] = json.loads(raw_evidence)
-                    except (TypeError, ValueError):
-                        fact["evidence"] = None
-                elif raw_evidence is not None:
-                    fact["evidence"] = raw_evidence
+                decoded = decode_json_column(raw_evidence)
+                if decoded is not None:
+                    fact["evidence"] = decoded
+
+            # Findings: the legal verdicts. A reloaded inspection without these
+            # is not auditable, and `report.py` silently renders facts instead
+            # when the list is absent. Read defensively so a database that has
+            # not yet run the current schema.sql still returns the inspection
+            # rather than raising.
+            try:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM inspection_findings
+                    WHERE inspection_id = %s
+                    ORDER BY id ASC
+                    """,
+                    (inspection_id,),
+                )
+                inspection["findings"] = [
+                    hydrate_finding_row(dict(row)) for row in cur.fetchall()
+                ]
+            except _DRIVER_ERROR:
+                # Roll the failed statement back so the connection stays usable.
+                conn.rollback()
+                inspection["findings"] = []
+                inspection["findings_unavailable"] = True
 
             return dict(inspection)
 

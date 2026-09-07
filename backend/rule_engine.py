@@ -36,6 +36,7 @@ from schema import (
     ProductInspection,
     RuleFinding,
     SurfaceObservation,
+    UNATTRIBUTED_IMAGE_ID,
 )
 
 from exemption import ExemptionInput, classify_exemption
@@ -155,11 +156,21 @@ def _evidence_for_extraction(extraction: Optional[RawExtraction]) -> List[Eviden
     if bbox is None:
         return []
 
+    # An extraction that carries a region but no provenance is a defect in the
+    # caller, not a legitimate state. It is recorded with an unmistakable
+    # sentinel rather than the old "unknown", which was indistinguishable from a
+    # real filename once persisted, and the note says plainly that the chain is
+    # incomplete. Callers should supply `evidence` built by
+    # `capture_session.build_raw_extraction()`, which stamps the real image id.
     return [
         EvidenceReference(
-            image_id="unknown",
+            image_id=UNATTRIBUTED_IMAGE_ID,
             bbox=bbox,
-            evidence_note="Evidence supplied by OCR/CV extraction."
+            evidence_note=(
+                "Region supplied by OCR/CV extraction, but no source image was "
+                "recorded for this observation. Provenance is incomplete and "
+                "this finding cannot be shown to a reviewer in context."
+            ),
         )
     ]
 
@@ -185,6 +196,22 @@ def _make_fact(
         else (extraction.confidence if extraction else 0.0)
     )
 
+    evidence_refs = (
+        evidence if evidence is not None else _evidence_for_extraction(extraction)
+    )
+
+    # Keep the fact's top-level pointers consistent with its evidence list.
+    # `evidence_image` used to be hardcoded to None even when the evidence
+    # carried a perfectly good image id, which meant the field that reviewers
+    # and the report layer read first was always empty. The first ATTRIBUTED
+    # reference wins: an unattributed sentinel must not be copied up here, or it
+    # would look like a real image name at the top level of the fact.
+    primary = next((ref for ref in evidence_refs if ref.is_attributed()), None)
+
+    fact_bbox = _bbox_from_any(extraction.bbox) if extraction else None
+    if fact_bbox is None and primary is not None:
+        fact_bbox = primary.bbox
+
     return ExtractedFact(
         field=field,
         extracted_value=(
@@ -196,9 +223,9 @@ def _make_fact(
         confidence=max(0.0, min(1.0, float(confidence))),
         rule_id=rule.get("rule_id") if rule else None,
         rule_version=rule.get("version") if rule else None,
-        evidence_image=None,
-        bbox=_bbox_from_any(extraction.bbox) if extraction else None,
-        evidence=evidence if evidence is not None else _evidence_for_extraction(extraction),
+        evidence_image=primary.image_id if primary is not None else None,
+        bbox=fact_bbox,
+        evidence=evidence_refs,
         measurement_mode=measurement_mode,
         measured_value=measured_value,
         measured_unit=measured_unit,

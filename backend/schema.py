@@ -203,6 +203,18 @@ class SurfaceObservation(BaseModel):
     notes: List[str] = Field(default_factory=list)
 
 
+#: Recorded as `EvidenceReference.image_id` when an observation reaches the
+#: legal engine with no known source image.
+#:
+#: This is deliberately not a plausible filename. Earlier code used the string
+#: "unknown", which is indistinguishable from a photograph actually named
+#: unknown.jpg once it is sitting in a database row or a printed report — so a
+#: missing provenance record looked exactly like a real one. Every legal finding
+#: must be traceable to its evidence, which means a break in that chain has to
+#: be conspicuous rather than merely quiet.
+UNATTRIBUTED_IMAGE_ID = "UNATTRIBUTED-NO-SOURCE-IMAGE"
+
+
 class EvidenceReference(BaseModel):
     """
     Precise pointer to visual evidence supporting a fact or rule finding.
@@ -218,6 +230,19 @@ class EvidenceReference(BaseModel):
         PositionCoordinateSystem.IMAGE_PIXELS
     )
     evidence_note: Optional[str] = None
+
+    def is_attributed(self) -> bool:
+        """True when this reference names a real source image."""
+        return self.image_id != UNATTRIBUTED_IMAGE_ID
+
+    def is_locatable(self) -> bool:
+        """
+        True when a reviewer could actually be shown this evidence: a named
+        source image AND a region within it.
+        """
+        return self.is_attributed() and (
+            self.bbox is not None or bool(self.polygon)
+        )
 
 
 # ---------------------------------------------------------------------------

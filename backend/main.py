@@ -318,31 +318,16 @@ def _safe_filename(file: UploadFile) -> str:
 
 def _field_to_raw_extraction(field: str, data: Dict[str, Any]) -> RawExtraction:
     """
-    Translate OCR evidence into the rule engine's extraction contract.
+    Thin delegation to `capture_session.build_raw_extraction`.
 
-    OCR confidence is extraction confidence. The rule engine remains responsible
-    for the legal finding and should not treat this as legal confidence.
+    The real implementation moved into `capture_session` so it could be unit
+    tested: this module imports FastAPI, which is not installed in every
+    environment the project is tested in, so the OCR -> rule-engine evidence
+    contract was previously unreachable by any test. It dropped `bbox` and
+    `evidence` entirely for that reason. Kept here as a name so existing call
+    sites and tests continue to work.
     """
-    measurement_mode = data.get(
-        "measurement_mode",
-        MeasurementMode.UNCERTAIN,
-    )
-
-    if isinstance(measurement_mode, str):
-        try:
-            measurement_mode = MeasurementMode(measurement_mode)
-        except ValueError:
-            measurement_mode = MeasurementMode.UNCERTAIN
-
-    return RawExtraction(
-        field=field,
-        value=data.get("value"),
-        confidence=float(data.get("confidence", 0.0) or 0.0),
-        measured_height_mm=data.get("measured_height_mm"),
-        measurement_mode=measurement_mode,
-        numeric_value=data.get("numeric_value"),
-        numeric_unit=data.get("numeric_unit"),
-    )
+    return capture_session.build_raw_extraction(field, data)
 
 
 def _extract_numeric_field(
@@ -713,6 +698,12 @@ async def scan(
     # ------------------------- OCR / extraction -------------------------
     ocr_lines = run_ocr(pil_img)
     classified = classify_fields(ocr_lines)
+
+    # Record which photograph every declaration was read from, before anything
+    # downstream consumes it. Without this the resulting findings carry a
+    # region but no source image, and cannot be shown to a reviewer.
+    classified = capture_session.stamp_provenance(classified, image_id=image_id)
+
     extractions = _prepare_extractions(classified)
 
     # Resolve explicit numeric evidence. API values remain the fallback.
@@ -911,6 +902,18 @@ async def add_capture(
     ocr_lines = run_ocr(pil_img)
     classified = classify_fields(ocr_lines)
 
+    # Stamp provenance BEFORE the session merge. `merge_classified_fields`
+    # keeps whichever observation has the higher confidence, so in a
+    # multi-surface session the winning reading of `mrp` may come from a
+    # different photograph than the winning reading of `net_quantity`. Stamping
+    # per field means each surviving observation carries its own source image,
+    # rather than all of them inheriting the id of whichever capture happened
+    # to be last.
+    surface_id = capture_session.new_surface_id()
+    classified = capture_session.stamp_provenance(
+        classified, image_id=image_id, surface_id=surface_id
+    )
+
     quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines))
     pdp_bbox = image_quality_module.estimate_pdp_bbox(
         [line.bbox for line in ocr_lines],
@@ -956,6 +959,7 @@ async def add_capture(
         image_quality=quality,
         coverage=coverage,
         pdp_bbox_px=pdp_bbox,
+        surface_id=surface_id,
     )
 
     db.add_session_capture(
