@@ -37,6 +37,19 @@ dist/
 # Jupyter
 .ipynb_checkpoints/
 
+# Internal AI/dev working files
+CLAUDE*.txt
+CLAUDE*.md
+PROJECT_STATE.md
+PROJECT_MANIFEST.json
+IMPLEMENTATION_STATUS.md
+build_manifest.py
+ENGINE_UPGRADE_NOTES.md
+
+# Scratch/working folders
+vision upgrade/
+images dataset/
+
 # Generated files
 outputs/
 results/
