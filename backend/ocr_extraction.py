@@ -21,6 +21,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
+import config
+
 
 @dataclass
 class OcrLine:
@@ -193,12 +195,61 @@ def _dedupe_lines(lines: Iterable[OcrLine]) -> List[OcrLine]:
 
 def run_ocr(image: Image.Image) -> List[OcrLine]:
     """
-    Run OCR using multiple conservative image variants and page segmentation
-    modes.
+    Read an image and return text lines in ORIGINAL image coordinates.
 
-    Returned bounding boxes are expressed in the original image coordinate
-    system where possible. For scaled preprocessing variants, coordinates are
-    mapped back to the original image dimensions.
+    This is the single choke point for OCR in the whole application — `/scan`,
+    `/inspect` and `extract_from_image()` all arrive here — so it is where the
+    region-first pipeline is selected.
+
+    Two paths, chosen by `config.ENABLE_REGION_FIRST_OCR`:
+
+    REGION-FIRST (`ocr_engine.read_image`, default). Detects package surfaces and
+    text regions, preprocesses and orients EACH REGION on its own terms, runs an
+    OCR ensemble, then fuses the results deterministically. Only this path
+    produces the evidence semantics the legal engine is designed around:
+    CORROBORATED / SINGLE_SOURCE / CONFLICTING fusion states, per-region
+    NOT_OBSERVED coverage, and a conflict record when two readings of the same
+    pixels disagree. Readings withheld as symbology or typographic noise stay
+    available on the reading object for audit; they are simply not offered for
+    field extraction.
+
+    LEGACY (`_run_ocr_whole_image`). The original whole-image variant loop. It
+    still works and is retained as an escape hatch, but it has no orientation
+    handling, no fusion state and no coverage accounting — which means an unread
+    region is indistinguishable from an absent declaration. That is precisely the
+    "NOT_OBSERVED != MISSING" confusion the system exists to avoid, so it is not
+    the default.
+
+    Both paths return the same `List[OcrLine]` contract, so `classify_fields()`
+    and everything downstream are unaffected by the choice. A failure in the
+    region-first path falls back to the legacy path rather than losing the
+    inspection: fewer readings is a coverage problem, an exception is an outage.
+    """
+    if not config.ENABLE_REGION_FIRST_OCR:
+        return _run_ocr_whole_image(image)
+
+    try:
+        import numpy as np
+
+        import ocr_engine  # imported lazily to keep the module import graph acyclic
+
+        rgb = np.asarray(image.convert("RGB"))
+        bgr = rgb[:, :, ::-1].copy()  # ocr_engine works in OpenCV BGR order
+        return ocr_engine.read_image(bgr).lines
+    except Exception:
+        # The region-first path is the more complex of the two. If it raises, the
+        # inspection must still proceed on the legacy reader rather than 500.
+        # This is a degraded read, never a legal conclusion about the package.
+        return _run_ocr_whole_image(image)
+
+
+def _run_ocr_whole_image(image: Image.Image) -> List[OcrLine]:
+    """
+    Legacy whole-image OCR: several conservative variants x page-segmentation
+    modes, with bounding boxes mapped back to the original coordinate system.
+
+    Kept as the fallback for `run_ocr()`. See that function for why it is no
+    longer the default.
     """
     original = image.convert("RGB")
     orig_w, orig_h = original.size
@@ -330,6 +381,23 @@ _MONEY_RE = re.compile(
     re.I,
 )
 
+#: Units which, immediately following a number that carries NO currency marker,
+#: prove the number is a measurement rather than a price. See `_extract_money`.
+#:
+#: Anchored with `.match(text, pos)` at the end of the candidate, so only a unit
+#: DIRECTLY after the digits disqualifies it. This deliberately does not fire on
+#: the lawful unit-price form "45.00 per kg", where "per" intervenes and the
+#: number really is money.
+_NON_PRICE_UNIT_RE = re.compile(
+    r"\s*(?:(?:"
+    r"kgs?|gms?|grams?|gm|g|mg|"
+    r"ml|millilit(?:re|er)s?|lit(?:re|er)s?|l|"
+    r"mm|cm|centi(?:metre|meter)s?|met(?:re|er)s?|m|"
+    r"kcal|cal|kj"
+    r")\b|%)",
+    re.I,
+)
+
 # Avoid treating arbitrary 2-digit numbers as quantities. Support common OCR
 # punctuation around units, including "N", "No." and multiplication counts.
 _QTY_RE = re.compile(
@@ -372,24 +440,120 @@ _ADDRESS_HINT_RE = re.compile(
 # A generic "label: value" separator helps with OCR such as "MRP: ₹5".
 _LABEL_SEPARATOR_RE = re.compile(r"^\s*[:\-]\s*")
 
+# ---------------------------------------------------------------------------
+# The "17m" guard
+# ---------------------------------------------------------------------------
+#
+# WHAT ACTUALLY HAPPENS. On the Bru coffee jar in the dataset, a small print code
+# reading "17m" is printed on the label just above the top-right corner of the
+# barcode. OCR reads it correctly — it is real ink, not barcode noise, and it must
+# NOT be discarded as a reading. The defect was downstream: `_QTY_RE` matches
+# "17m" as 17 metres, and the unlabelled-quantity fallback below then promoted it
+# to `net_quantity`, producing a fabricated declaration of "17m" for a jar of
+# coffee. A fabricated net quantity is the most dangerous extraction error in this
+# system, because net quantity feeds the Rule 6 declaration check and the Second
+# Schedule standard-pack-size test directly: it does not weaken a finding, it
+# manufactures one.
+#
+# WHY LENGTH IS THE DISCRIMINATOR. Metres and centimetres ARE lawful net-quantity
+# units — Rule 26 and the Second Schedule cover commodities sold by length, such
+# as fabric, thread and cable — so they cannot simply be banned. But a BARE length
+# token with no net-quantity wording is far more often a print code, a batch
+# marking or a dimension than a declaration. Mass, volume and count units carry no
+# such ambiguity: "500g" alone on a front panel is a normal declaration.
+#
+# THE RULE. A length-unit quantity may become `net_quantity` only when the line
+# also carries explicit net-quantity wording. Otherwise it is not accepted.
+#
+# NOT_OBSERVED, NOT MISSING. Refusing the promotion does not delete the reading:
+# "17m" stays in `ocr_engine.ImageReading.observations` with full provenance, and
+# net_quantity is simply absent from the extraction — which downstream means
+# NOT_OBSERVED, never MISSING, and can never by itself become a FAIL.
+
+_LENGTH_UNITS = frozenset(
+    {
+        "m",
+        "metre",
+        "metres",
+        "meter",
+        "meters",
+        "cm",
+        "centimetre",
+        "centimetres",
+        "centimeter",
+        "centimeters",
+    }
+)
+
+#: Wording that makes a quantity a DECLARATION rather than an incidental number.
+_NET_CONTEXT_RE = re.compile(
+    r"\b(?:net|nett|qty|quantity|wt|weight|contents?|vol|volume|drained)\b",
+    re.I,
+)
+
 
 def _normalized_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
 def _extract_money(text: str) -> Optional[float]:
-    matches = _MONEY_RE.search(text)
-    if not matches:
-        return None
+    """
+    Parse a rupee amount, refusing numbers that are provably measurements.
 
-    raw = next((group for group in matches.groups() if group), None)
-    if raw is None:
-        return None
+    THE "16.89 gMs" GUARD — a sibling of the "17m" guard documented above
+    `_LENGTH_UNITS`, and found the same way: by dumping what this function
+    actually returned on the `images dataset` photographs.
 
-    try:
-        return float(raw.replace(",", ""))
-    except ValueError:
-        return None
+    On dataset image 3 the associated MRP value line was read as
+    `'i Pr : 16.89 gMs (Incj Of al] taxes : 40/ f'`. The second branch of
+    `_MONEY_RE` matches any bare number carrying exactly two decimals with NO
+    currency marker whatsoever, so `16.89` — a mass in GRAMS, printed in the
+    nutrition block — was returned as a price and stored as `mrp.numeric_value`
+    by the caller below.
+
+    WHY THAT IS A LEGAL-SAFETY BUG, NOT A COSMETIC ONE. `mrp.numeric_value`
+    is not merely displayed. It is the numerator of the Rule 6(11) unit-sale-price
+    consistency check, so a mass silently substituted for the retail price can
+    make a CORRECTLY priced package contradict its own declared unit price. That
+    is a fabricated FAIL against a compliant package, which is the worst outcome
+    this system can produce.
+
+    WHY THE BARE BRANCH CANNOT SIMPLY REQUIRE PRICE WORDING. This function is
+    called on the value line that was already ASSOCIATED with an MRP label, so
+    the words "MRP"/"Rs" usually sit on the LABEL line, not in `text`. Demanding
+    price wording here would reject the perfectly ordinary value line `45.00`.
+
+    THE RULE. Positive evidence AGAINST price-hood is used instead: a bare
+    number immediately followed by a unit of mass, volume, length, energy or
+    percentage is a measurement and is never a price. A number carrying an
+    explicit currency marker (₹ / Rs / INR) keeps its meaning and is not
+    second-guessed. Scanning continues past a rejected candidate, so a real
+    price later in the same line is still found.
+
+    NOT_OBSERVED, NOT MISSING. Refusing the number does not invent a value and
+    does not delete the reading: the OCR line keeps full provenance, and the
+    field simply carries no `numeric_value`, which downstream is NOT_OBSERVED
+    and can never by itself become a FAIL.
+    """
+    for match in _MONEY_RE.finditer(text):
+        raw = next((group for group in match.groups() if group), None)
+        if raw is None:
+            continue
+
+        # Group 1 is the currency-marked branch; a marker is strong enough
+        # evidence of price-hood that no further test is applied.
+        currency_marked = match.group(1) is not None
+
+        if not currency_marked and _NON_PRICE_UNIT_RE.match(text, match.end()):
+            # e.g. "16.89 gMs" -> a mass, not ₹16.89.
+            continue
+
+        try:
+            return float(raw.replace(",", ""))
+        except ValueError:
+            continue
+
+    return None
 
 
 def _canonical_numeric_unit(unit: str) -> Optional[str]:
@@ -776,7 +940,9 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
     else:
         # Fallback only for an unmistakable standalone quantity line. Do not
         # infer net quantity from arbitrary nutrition/ingredient text.
-        standalone_candidates: List[Tuple[float, OcrLine, Tuple[float, str]]] = []
+        standalone_candidates: List[
+            Tuple[float, OcrLine, Tuple[float, str], bool]
+        ] = []
 
         for line in ordered:
             qty = _extract_qty(line.text)
@@ -795,14 +961,63 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
             # A line containing "net" is stronger even if OCR missed the word
             # "quantity".
             score = line.confidence
+            has_context = bool(_NET_CONTEXT_RE.search(text))
             if re.search(r"\bnet\b", text, re.I):
                 score += 0.25
 
-            standalone_candidates.append((score, line, qty))
+            # THE "17m" GUARD. See the module comment above _LENGTH_UNITS: a bare
+            # length token with no net-quantity wording is a print code far more
+            # often than a declaration, and promoting it fabricates a net quantity.
+            # The reading itself is untouched and remains in the OCR provenance.
+            if str(qty[1]).lower() in _LENGTH_UNITS and not has_context:
+                continue
 
-        if standalone_candidates:
-            standalone_candidates.sort(key=lambda x: x[0], reverse=True)
-            score, line, qty = standalone_candidates[0]
+            standalone_candidates.append((score, line, qty, has_context))
+
+        # "Never average. Never silently choose."
+        #
+        # THE NUTRITION-PANEL GUARD, and why sorting was not enough. This block
+        # used to sort the candidates by score and take the winner. A nutrition
+        # panel is full of bare masses, so on a back-of-pack photograph the
+        # "winner" is decided by OCR confidence among numbers that have nothing
+        # to do with the net quantity. Measured on `images dataset` image 3: the
+        # fallback promoted '16.89 gms' — a nutrition row — to net_quantity at
+        # confidence 0.56, above the 0.55 legal threshold, so it would have been
+        # treated as the declared quantity.
+        #
+        # WHY THE KEYWORD FILTER ABOVE DOES NOT CATCH IT. That filter needs the
+        # nutrition wording to survive OCR. On image 3 it did not: 'Protein'
+        # came through as 'tein' and 'Carbohydrates' as 'Crates', so the lines
+        # slipped past a word-boundary match. A guard that depends on reading
+        # words correctly cannot protect against misread words.
+        #
+        # THE RULE, which does not depend on reading any word. A quantity that
+        # carries explicit net-quantity wording is labelled evidence and is
+        # preferred, exactly as before. But if EVERY candidate is bare and they
+        # disagree with each other, the extractor has several mutually exclusive
+        # readings and no basis to prefer one: that is ambiguity, not evidence,
+        # and choosing the highest-scoring one manufactures a declaration. Two
+        # bare readings of the SAME value are not a disagreement, so a pack that
+        # prints '500 g' on two panels is unaffected.
+        #
+        # NOT_OBSERVED, NOT MISSING. Refusing to choose leaves net_quantity
+        # absent from the extraction, which downstream is NOT_OBSERVED and can
+        # never by itself become a FAIL. Every reading stays in the OCR
+        # provenance.
+        labelled = [c for c in standalone_candidates if c[3]]
+        pool = labelled or standalone_candidates
+
+        if not labelled and len(pool) > 1:
+            distinct = {
+                (round(float(qty[0]), 4), str(qty[1]).lower())
+                for _, _, qty, _ in pool
+            }
+            if len(distinct) > 1:
+                pool = []
+
+        if pool:
+            pool.sort(key=lambda x: x[0], reverse=True)
+            score, line, qty, _ = pool[0]
 
             # Still label it as a fallback so downstream review can distinguish
             # it from explicit-label evidence.

@@ -39,7 +39,11 @@ from schema import (
 )
 
 from exemption import ExemptionInput, classify_exemption
-from unit_price import compute_unit_sale_price, convert_declared_price_to_standard
+from unit_price import (
+    compute_unit_sale_price,
+    convert_declared_price_to_standard,
+    expected_unit_price_in_declared_unit,
+)
 
 
 RULES_PATH = Path(__file__).resolve().parent.parent / "rules" / "rules.json"
@@ -281,45 +285,180 @@ def _field_requirements(rule: dict) -> List[dict]:
     return list(rule.get("requirements", []))
 
 
-def _condition_is_applicable(requirement: dict, context: Mapping[str, Any]) -> bool:
+#: Condition string in rules.json -> the context key that decides it.
+#: A condition that is NOT in this table is not understood by this engine
+#: version, and its applicability is UNKNOWN rather than assumed either way.
+_CONDITION_CONTEXT_KEYS: Dict[str, str] = {
+    "imported_product": "is_imported",
+    "commodity_dimensions_are_relevant": "dimensions_relevant",
+    "commodity_may_become_unfit_for_human_consumption": "best_before_applicable",
+    "rule_6_subrule_11_applies": "unit_price_rule_applies",
+    "pan_masala": "is_pan_masala",
+    "tobacco_or_tobacco_product": "is_tobacco",
+    "package_is_within_the_partial_relaxation_range": (
+        "small_pack_relaxation_applies"
+    ),
+}
+
+#: Conditions whose absence from the context has a default DECLARED BY THIS
+#: ENGINE'S OWN PUBLIC API, and which may therefore be resolved without a guess.
+#: Each entry mirrors the corresponding `run_inspection()` keyword default, and
+#: the two must be kept in step — `test_condition_defaults_match_the_public_api`
+#: fails if they drift.
+#:
+#: The distinction being drawn is deliberate. A default is legitimate when the
+#: engine publishes it as part of its contract, so a caller who omits the flag is
+#: accepting a documented answer. A default is NOT legitimate when it is invented
+#: at the point of use. `pan_masala`, `tobacco_or_tobacco_product` and
+#: `package_is_within_the_partial_relaxation_range` appear in rules.json but have
+#: no `run_inspection` parameter and therefore no published default, so this
+#: engine refuses to assume them in either direction.
+#:
+#: RESIDUAL RISK, STATED PLAINLY: because `best_before_applicable` defaults to
+#: False, a caller that forgets the flag on a perishable commodity will not have
+#: the best-before declaration checked. That is a caller responsibility inherited
+#: from the existing public signature, not something this table introduced, and
+#: it errs toward UNCERTAIN/no-finding rather than toward a false FAIL.
+_CONDITION_DEFAULTS: Dict[str, bool] = {
+    "imported_product": False,                              # is_imported=False
+    "commodity_dimensions_are_relevant": False,             # dimensions_relevant=False
+    "commodity_may_become_unfit_for_human_consumption": False,  # best_before_applicable=False
+    "rule_6_subrule_11_applies": True,   # Rule 6(11) applies unless narrowed
+}
+
+APPLICABLE = "APPLICABLE"
+NOT_APPLICABLE = "NOT_APPLICABLE"
+APPLICABILITY_UNKNOWN = "APPLICABILITY_UNKNOWN"
+
+
+def condition_applicability(
+    requirement: Mapping[str, Any], context: Mapping[str, Any]
+) -> str:
+    """
+    Whether a conditional requirement applies: APPLICABLE, NOT_APPLICABLE, or
+    APPLICABILITY_UNKNOWN.
+
+    WHY THIS IS A TRI-STATE AND NOT A BOOLEAN
+    -----------------------------------------
+    This function used to end in a bare `return True`, so any condition string
+    the engine did not recognise was treated as unconditionally applicable. That
+    is a legal-safety bug in the one direction the design forbids: an
+    unrecognised condition made a declaration MANDATORY for a package it never
+    applied to, and once package coverage was sufficient that absence hardened
+    into FAIL. Verified before fixing — a requirement conditioned on
+    `tobacco_or_tobacco_product` was returned as mandatory for a package whose
+    context said nothing about tobacco.
+
+    Returning False instead would trade a false FAIL for a false PASS: the
+    requirement would be silently dropped and never evaluated at all. Neither
+    guess is honest, so the third answer is explicit. An UNKNOWN requirement is
+    still evaluated and still reported, but its absence can only ever produce
+    UNCERTAIN, never FAIL. "Never average. Never silently choose."
+
+    A condition is only decided when it is recognised by this engine version AND
+    either resolvable from the supplied context or covered by a default this
+    engine publishes in `run_inspection()` (see `_CONDITION_DEFAULTS`). A
+    recognised condition with neither is UNKNOWN, because a caller that forgot to
+    pass `is_tobacco` must not thereby get a silent pass on a mandatory tobacco
+    warning.
+    """
     condition = requirement.get("condition")
     if not condition:
-        return True
+        return APPLICABLE
+    if not isinstance(condition, str):
+        # A structured condition object is a rules.json feature this engine
+        # version does not interpret. Unknown, not assumed.
+        return APPLICABILITY_UNKNOWN
 
-    if condition == "imported_product":
-        return bool(context.get("is_imported"))
-    if condition == "commodity_dimensions_are_relevant":
-        return bool(context.get("dimensions_relevant"))
-    if condition == "commodity_may_become_unfit_for_human_consumption":
-        return bool(context.get("best_before_applicable"))
-    if condition == "rule_6_subrule_11_applies":
-        return bool(context.get("unit_price_rule_applies", True))
+    key = _CONDITION_CONTEXT_KEYS.get(condition)
+    if key is None:
+        return APPLICABILITY_UNKNOWN
 
-    return True
+    if key in context:
+        return APPLICABLE if bool(context.get(key)) else NOT_APPLICABLE
+    if condition in _CONDITION_DEFAULTS:
+        return APPLICABLE if _CONDITION_DEFAULTS[condition] else NOT_APPLICABLE
+    return APPLICABILITY_UNKNOWN
+
+
+def _condition_is_applicable(requirement: dict, context: Mapping[str, Any]) -> bool:
+    """
+    Backward-compatible boolean view: is this requirement in scope at all?
+
+    UNKNOWN counts as in-scope so the requirement is still evaluated and
+    reported. What UNKNOWN changes is the WORST status it may reach, which is
+    enforced in `_evaluate_declaration_rule`, not here.
+    """
+    return condition_applicability(requirement, context) != NOT_APPLICABLE
 
 
 def _build_requirement_map(rule: dict, context: Mapping[str, Any]) -> Dict[str, dict]:
+    """
+    Applicable requirements, keyed by field name.
+
+    Requirements whose applicability could not be determined are INCLUDED and
+    tagged with `_applicability_uncertain`, so they are still evidenced and
+    still reported, but cannot be failed for absence. The tag is written onto a
+    shallow COPY — `load_rules()` hands back the parsed rules.json objects, and
+    mutating them would let one inspection's context leak into the next.
+    """
     result: Dict[str, dict] = {}
     for req in _field_requirements(rule):
         field = req.get("field")
         if not field:
             continue
-        if _condition_is_applicable(req, context):
-            result[field] = req
+        applicability = condition_applicability(req, context)
+        if applicability == NOT_APPLICABLE:
+            continue
+        if applicability == APPLICABILITY_UNKNOWN:
+            req = {**req, "_applicability_uncertain": True}
+        result[field] = req
     return result
 
 
-def _evaluate_rule6_declarations(
-    *,
+def required_declaration_fields(
     rules: Mapping[str, dict],
+    sale_type: str,
+    context: Mapping[str, Any],
+) -> List[str]:
+    """
+    Public helper: the list of mandatory-declaration field names applicable
+    right now, given sale_type and applicability context (is_imported,
+    best_before_applicable, etc.).
+
+    Used by the multi-surface capture-session layer to compute genuine
+    evidence coverage (how many of the *actually applicable* declarations
+    have been evidenced across all captures so far) rather than guessing.
+    Returns [] if the corresponding rule record is not present.
+    """
+    if sale_type.lower() == "wholesale":
+        rule = _find_rule(rules, "LMPC-2011-R24-WHOLESALE")
+    else:
+        rule = _find_rule(rules, "LMPC-2011-R6-DECLARATIONS", "LMPC-2011-R6")
+
+    if rule is None:
+        return []
+
+    return list(_build_requirement_map(rule, context).keys())
+
+
+def _evaluate_declaration_rule(
+    *,
+    rule: dict,
     extractions: Mapping[str, RawExtraction],
     captures: Sequence[SurfaceObservation],
     context: Mapping[str, Any],
     low_confidence_threshold: float,
 ) -> tuple[List[ExtractedFact], List[RuleFinding]]:
-    rule = _find_rule(rules, "LMPC-2011-R6-DECLARATIONS", "LMPC-2011-R6")
-    if rule is None:
-        raise ValueError("rules.json does not contain a Rule 6 declaration record")
+    """
+    Generic mandatory-declaration evaluator.
+
+    Shared by Rule 6 (retail mandatory declarations) and Rule 24 (wholesale
+    package declarations) — both rules have the same shape in rules.json:
+    a list of {id, field, description} requirements that must each be
+    evidenced, with conservative FAIL-only-when-evidence-is-sufficient
+    semantics for absence.
+    """
 
     facts: List[ExtractedFact] = []
     findings: List[RuleFinding] = []
@@ -363,7 +502,20 @@ def _evaluate_rule6_declarations(
             ))
             continue
 
-        if _evidence_sufficient_for_missing_field(captures):
+        if req.get("_applicability_uncertain"):
+            # This engine version could not determine whether the requirement
+            # applies to this package (unrecognised condition, or a context key
+            # the caller never supplied). An undetermined requirement must never
+            # be failed for absence — that would accuse a package of breaching a
+            # declaration that may not apply to it at all.
+            status = FactStatus.UNCERTAIN
+            reason = (
+                f"Required declaration '{field}' was not observed, and whether "
+                f"it applies to this package could not be determined from "
+                f"condition '{req.get('condition')}'. Absence cannot be "
+                "assessed until applicability is resolved by a reviewer."
+            )
+        elif _evidence_sufficient_for_missing_field(captures):
             status = FactStatus.FAIL
             reason = (
                 f"Required declaration '{field}' was not evidenced after "
@@ -399,6 +551,62 @@ def _evaluate_rule6_declarations(
         ))
 
     return facts, findings
+
+
+def _evaluate_rule6_declarations(
+    *,
+    rules: Mapping[str, dict],
+    extractions: Mapping[str, RawExtraction],
+    captures: Sequence[SurfaceObservation],
+    context: Mapping[str, Any],
+    low_confidence_threshold: float,
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    rule = _find_rule(rules, "LMPC-2011-R6-DECLARATIONS", "LMPC-2011-R6")
+    if rule is None:
+        raise ValueError("rules.json does not contain a Rule 6 declaration record")
+
+    return _evaluate_declaration_rule(
+        rule=rule,
+        extractions=extractions,
+        captures=captures,
+        context=context,
+        low_confidence_threshold=low_confidence_threshold,
+    )
+
+
+def _evaluate_rule24_wholesale_declarations(
+    *,
+    rules: Mapping[str, dict],
+    extractions: Mapping[str, RawExtraction],
+    captures: Sequence[SurfaceObservation],
+    context: Mapping[str, Any],
+    low_confidence_threshold: float,
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    """
+    Rule 24 — wholesale package declarations.
+
+    Applies only when sale_type == "wholesale". Uses the same evidence-first,
+    conservative-absence logic as Rule 6. Requirement fields per rules.json:
+    manufacturer_name_address, common_name, wholesale_count_or_net_quantity.
+
+    Note: 'wholesale_count_or_net_quantity' is not produced by the current
+    OCR field classifier (ocr_extraction.py only emits 'net_quantity'). Until
+    that alias/extraction is added, this requirement will correctly surface
+    as UNCERTAIN (insufficient evidence) rather than a fabricated PASS/FAIL.
+    """
+    rule = _find_rule(rules, "LMPC-2011-R24-WHOLESALE")
+    if rule is None:
+        # Rule not present in this rules.json build — skip rather than crash,
+        # but do not silently claim wholesale compliance.
+        return [], []
+
+    return _evaluate_declaration_rule(
+        rule=rule,
+        extractions=extractions,
+        captures=captures,
+        context=context,
+        low_confidence_threshold=low_confidence_threshold,
+    )
 
 
 def _min_numeral_height_mm(pdp_area_cm2: float, rule: dict) -> Optional[float]:
@@ -538,6 +746,7 @@ def _evaluate_unit_sale_price(
     net_quantity_unit: str,
     mrp: Optional[float],
     sale_type: str,
+    low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
 ) -> tuple[List[ExtractedFact], List[RuleFinding]]:
     rule = _find_rule(
         rules,
@@ -562,6 +771,54 @@ def _evaluate_unit_sale_price(
         )
         return [fact], [
             _finding(rule=rule, status=FactStatus.EXEMPT, reason=reason, confidence=1.0)
+        ]
+
+    # THE MRP SIDE OF THE SAME PROBLEM.
+    #
+    # `mrp` arrives as a plain float from the caller, but it originates in an OCR
+    # reading, and `extractions['mrp']` is that reading. The unit-price check is
+    # the only place in this module where the MRP becomes an ARITHMETIC INPUT
+    # rather than a presence observation: it is the numerator of the expected
+    # value. So a weak MRP corrupts `expected` even when the declared unit price
+    # itself was read perfectly, and the mismatch branch below would blame the
+    # package for the extractor's error.
+    #
+    # MEASURED. Dataset image 3 produced mrp numeric 11.68 at confidence 0.24
+    # from 'tein 11.68 gins' — the protein row of the nutrition panel.
+    #
+    # Checked deliberately BEFORE `compute_unit_sale_price` so no expected value
+    # is ever derived from a number this weak, and reported as UNCERTAIN with
+    # review rather than PASS.
+    mrp_extraction = extractions.get("mrp")
+    if (
+        mrp_extraction is not None
+        and mrp_extraction.confidence < low_confidence_threshold
+    ):
+        reason = (
+            f"The MRP used to calculate the expected unit sale price was read "
+            f"with confidence {mrp_extraction.confidence:.2f}, below the "
+            f"{low_confidence_threshold:.2f} threshold. The expected unit price "
+            "is therefore not calculated, because an unreliable MRP would make "
+            "any comparison meaningless and could contradict a correctly printed "
+            "unit price. Confirm the MRP before assessing Rule 6(11)."
+        )
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extractions.get("unit_sale_price"),
+            status=FactStatus.UNCERTAIN,
+            rule=rule,
+            reason=reason,
+            review_required=True,
+        )
+        return [fact], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                missing_evidence=["valid_mrp"],
+                confidence=mrp_extraction.confidence,
+                review_required=True,
+            )
         ]
 
     try:
@@ -660,14 +917,87 @@ def _evaluate_unit_sale_price(
             )
         ]
 
-    declared_standard = convert_declared_price_to_standard(
-        extraction.numeric_value,
+    # A NUMBER THE READER COULD BARELY SEE IS NOT A DECLARED AMOUNT.
+    #
+    # "Low OCR confidence must NEVER itself become legal non-compliance." The
+    # declaration path already honours `low_confidence_threshold` (see the
+    # `_is_low_confidence` branch above), but this arithmetic path did not: it
+    # fell straight through to the equality test below, whose mismatch branch is
+    # an unconditional FAIL. `extraction.confidence` was only ever *reported* in
+    # the finding, never allowed to affect the verdict.
+    #
+    # MEASURED, NOT HYPOTHETICAL. On `images dataset` image 3 the extractor
+    # returned unit_sale_price numeric 573.18 at confidence 0.31 from the line
+    # 'Crates 573.18 op' — a CARBOHYDRATE mass out of the nutrition panel, whose
+    # unit OCR had garbled beyond recognition — and mrp numeric 11.68 at
+    # confidence 0.24 from 'tein 11.68 gins', a PROTEIN mass. Two such numbers
+    # will essentially never satisfy the equality test, so the pre-fix engine
+    # would have announced a Rule 6(11) FAIL on the strength of a reading it
+    # could not read.
+    #
+    # WHY THE GATE BELONGS HERE AS WELL AS IN EXTRACTION. Extraction is being
+    # tightened separately, but the deterministic engine is the component that
+    # actually issues the verdict, and it must not be able to convict on weak
+    # evidence regardless of which extractor feeds it. Defence in depth is
+    # appropriate for the one operation in this module that can turn a misread
+    # digit into a legal accusation.
+    #
+    # UNCERTAIN, NOT PASS. This deliberately does not exonerate the package
+    # either: the finding is UNCERTAIN with review_required, so a genuinely wrong
+    # unit price still reaches a human instead of being waved through.
+    if extraction.confidence < low_confidence_threshold:
+        reason = (
+            f"Declared unit-sale-price text was read with confidence "
+            f"{extraction.confidence:.2f}, below the {low_confidence_threshold:.2f} "
+            "threshold required to treat a number as a declared amount. The "
+            "arithmetic check is not performed, because a low-confidence reading "
+            "cannot establish either agreement or disagreement with the "
+            "calculated value. Re-capture the unit-price declaration or confirm "
+            "it manually."
+        )
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extraction,
+            status=FactStatus.UNCERTAIN,
+            rule=rule,
+            reason=reason,
+            review_required=True,
+        )
+        return [fact], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                evidence=fact.evidence,
+                confidence=extraction.confidence,
+                review_required=True,
+            )
+        ]
+
+    # BOTH SIDES MUST BE IN THE SAME UNIT. See the docstring of
+    # `expected_unit_price_in_declared_unit` for the measured false-FAIL bug this
+    # replaces: the expected value used to come from `calculation.unit_sale_price`,
+    # which is per the Rule 6(11) DISPLAY unit (per gram for a 100 g pack), while
+    # the declared value was scaled up to per kg — so a correctly declared
+    # sub-kilogram package was compared as 500.00 against 0.50 and failed.
+    #
+    # The expected figure is now derived in the unit the package itself declares,
+    # with a single division and a single rounding, so the comparison below is
+    # between two like quantities.
+    expected_in_declared_unit = expected_unit_price_in_declared_unit(
+        net_quantity_value,
+        net_quantity_unit,
+        mrp,
         extraction.numeric_unit,
     )
-    if declared_standard is None:
+
+    if expected_in_declared_unit is None:
         reason = (
-            f"Declared unit '{extraction.numeric_unit}' is not recognized by "
-            "the deterministic unit-price converter."
+            f"Declared unit '{extraction.numeric_unit}' cannot be compared "
+            f"against a net quantity of {net_quantity_value} "
+            f"{net_quantity_unit}: the unit is either unrecognized or belongs to "
+            "a different quantity family, and no mass/volume conversion is ever "
+            "assumed. The arithmetic check is not performed."
         )
         fact = _make_fact(
             field="unit_sale_price",
@@ -683,27 +1013,31 @@ def _evaluate_unit_sale_price(
                      review_required=True)
         ]
 
-    expected = Decimal(str(calculation.unit_sale_price))
-    declared = Decimal(str(declared_standard))
-
     # The legal declaration is rounded to two decimal places. Compare against
     # the legally rounded expected value rather than adding an arbitrary 2%
     # tolerance. A 2% tolerance can incorrectly accept materially wrong prices.
-    expected_rounded = expected.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    declared_rounded = declared.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    expected_rounded = expected_in_declared_unit.quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    declared_rounded = Decimal(str(extraction.numeric_value)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    unit_label = extraction.numeric_unit
 
     if declared_rounded == expected_rounded:
         status = FactStatus.PASS
         reason = (
-            f"Declared unit price {declared_rounded} matches the deterministically "
-            f"calculated value {expected_rounded} after prescribed two-decimal rounding."
+            f"Declared unit price {declared_rounded} per {unit_label} matches the "
+            f"deterministically calculated value {expected_rounded} per "
+            f"{unit_label} after prescribed two-decimal rounding."
         )
         review = False
     else:
         status = FactStatus.FAIL
         reason = (
-            f"Declared unit price {declared_rounded} does not match the calculated "
-            f"value {expected_rounded} after two-decimal rounding."
+            f"Declared unit price {declared_rounded} per {unit_label} does not "
+            f"match the calculated value {expected_rounded} per {unit_label} "
+            "after two-decimal rounding."
         )
         review = True
 
@@ -980,6 +1314,20 @@ def run_inspection(
         findings.extend(r6_findings)
 
     # ------------------------------------------------------------------
+    # 3b. Rule 24 wholesale package declarations.
+    # ------------------------------------------------------------------
+    if sale_type.lower() == "wholesale":
+        r24_facts, r24_findings = _evaluate_rule24_wholesale_declarations(
+            rules=rules,
+            extractions=extractions,
+            captures=captures,
+            context=context,
+            low_confidence_threshold=low_confidence_threshold,
+        )
+        facts.extend(r24_facts)
+        findings.extend(r24_findings)
+
+    # ------------------------------------------------------------------
     # 4. Rule 7 font height / PDP evidence.
     # ------------------------------------------------------------------
     if sale_type.lower() == "retail":
@@ -1002,6 +1350,7 @@ def run_inspection(
             net_quantity_unit=net_quantity_unit,
             mrp=mrp,
             sale_type=sale_type,
+            low_confidence_threshold=low_confidence_threshold,
         )
         facts.extend(usp_facts)
         findings.extend(usp_findings)

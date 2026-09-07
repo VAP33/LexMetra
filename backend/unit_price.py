@@ -285,6 +285,76 @@ def convert_declared_price_to_standard(
     return _money(value * factor)
 
 
+def expected_unit_price_in_declared_unit(
+    net_quantity_value: float | Decimal,
+    net_quantity_unit: str,
+    mrp: float | Decimal,
+    declared_unit: str,
+) -> Optional[Decimal]:
+    """
+    Expected unit price expressed in the unit the package actually DECLARES.
+
+    WHY THIS EXISTS — A MEASURED FALSE-FAIL BUG.
+    `compute_unit_sale_price` returns the price per the Rule 6(11) DISPLAY unit
+    chosen by the quantity threshold: a 100 g pack at MRP 50 yields 0.50 per
+    GRAM. `convert_declared_price_to_standard` always scales a declared price up
+    to the larger unit: 500.00 per KG. The rule engine compared one against the
+    other, so a correctly declared 100 g pack (Rs 500/kg, or equivalently
+    Rs 0.50/g) was compared as 500.00 vs 0.50 and reported as a Rule 6(11)
+    FAIL. Verified before this fix on 100 g/Rs 50 and 500 ml/Rs 20 — both
+    correct declarations returned FAIL. Every retail package below 1 kg, 1 litre
+    or 1 metre that declares a unit price was affected, which is most of them.
+    A false FAIL against a compliant package is the worst output this system can
+    produce, so the two sides must be brought to one basis.
+
+    WHY NOT SIMPLY SCALE THE CALCULATED SIDE UP. Because it is already rounded
+    to paise in the small unit, and multiplying a rounded figure by 1000
+    multiplies its rounding error by 1000 too. A 3 g pack at MRP 10 computes
+    3.33 per g, which scales to 3330.00 per kg while the true figure is
+    3333.33 — so the naive repair would replace a systematic false FAIL with a
+    subtler one on small packages.
+
+    THE RULE. Express the net quantity in the DECLARED unit, divide once at full
+    Decimal precision, and quantize once at the end. The caller then compares
+    two figures that are in the same unit and rounded the same number of times.
+
+    Returns None — never a guess — when either unit is unrecognized, when the
+    two units belong to different quantity families (a mass declaration on a
+    volume pack cannot be verified arithmetically), or when the quantity is not
+    positive. None means "not comparable", which the caller must report as
+    UNCERTAIN rather than as agreement or disagreement.
+    """
+    quantity_definition = _unit_definition(net_quantity_unit)
+    declared_definition = _unit_definition(declared_unit)
+
+    if quantity_definition is None or declared_definition is None:
+        return None
+
+    # Never convert mass <-> volume, with or without a density.
+    if quantity_definition.family != declared_definition.family:
+        return None
+
+    try:
+        quantity = _decimal(net_quantity_value, "net quantity")
+        price = _decimal(mrp, "MRP")
+    except ValueError:
+        return None
+
+    if quantity <= 0 or price < 0:
+        return None
+
+    quantity_in_base_unit = _normalize_quantity(quantity, quantity_definition)
+    quantity_in_declared_unit = (
+        quantity_in_base_unit / declared_definition.input_to_standard_factor
+    )
+
+    if quantity_in_declared_unit <= 0:
+        return None
+
+    # One division, one quantization.
+    return _money(price / quantity_in_declared_unit)
+
+
 def compute_unit_sale_price(
     net_quantity_value: float | Decimal,
     net_quantity_unit: str,

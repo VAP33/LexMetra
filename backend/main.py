@@ -20,17 +20,23 @@ from __future__ import annotations
 import io
 import time
 import uuid
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 
-from schema import MeasurementMode, ProductInspection
-from rule_engine import RawExtraction, run_inspection, _has_value
+import config
+import auth
+import capture_session
+import image_quality as image_quality_module
+from schema import FactStatus, MeasurementMode, ProductInspection, SurfaceObservation
+from rule_engine import RawExtraction, run_inspection
 from sticker_detection import detect_sticker_regions
 from product_similarity import (
     detect_price_or_label_change,
@@ -39,7 +45,9 @@ from product_similarity import (
     save_to_index,
 )
 from ocr_extraction import classify_fields, run_ocr
+from vlm_verifier import verify_ambiguous_field
 from db import persistence as db
+from report import build_inspection_report_pdf
 
 
 # ---------------------------------------------------------------------------
@@ -55,11 +63,12 @@ app = FastAPI(
     ),
 )
 
-# Prototype-friendly CORS. Restrict this to the deployed frontend origin before
-# production use. The legal engine is independent of this setting.
+# CORS origins are read from configuration (ALLOWED_ORIGINS env var). Do not
+# use "*" once authentication is enabled — wildcard origins + bearer tokens is
+# an unsafe combination for a government inspection system.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -68,6 +77,115 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     db.init_schema()
+
+
+# ---------------------------------------------------------------------------
+# Authentication endpoints
+# ---------------------------------------------------------------------------
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=8, max_length=128)
+    full_name: Optional[str] = None
+    role: str = "inspector"
+
+
+@app.post("/auth/register")
+def register(req: RegisterRequest):
+    """
+    Create a user account.
+
+    Bootstrap rule: if no user exists yet in the database, the very first
+    registration is allowed without authentication and is granted 'admin' so
+    the system is operable on first deployment. Every subsequent registration
+    requires an authenticated admin caller.
+    """
+    if req.role not in auth.ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {req.role}")
+
+    if db.any_user_exists():
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "An account already exists. Use an authenticated admin "
+                "session to create additional users (see /auth/login, then "
+                "call this endpoint with a Bearer token)."
+            ),
+        )
+
+    if db.get_user_by_username(req.username):
+        raise HTTPException(status_code=409, detail="Username already exists.")
+
+    role = req.role if db.any_user_exists() else "admin"
+    record = db.create_user(
+        username=req.username,
+        hashed_password=auth.hash_password(req.password),
+        role=role,
+        full_name=req.full_name,
+    )
+    db.record_audit_event(
+        action="user_created", actor_username=req.username,
+        resource_type="user", resource_id=req.username,
+        detail=f"role={role} (bootstrap)",
+    )
+    return {"user_id": record["user_id"], "username": record["username"], "role": record["role"]}
+
+
+@app.post("/auth/register/admin")
+def register_by_admin(
+    req: RegisterRequest,
+    current_user: auth.CurrentUser = Depends(auth.require_admin),
+):
+    """Admin-only endpoint to create additional accounts of any role."""
+    if req.role not in auth.ROLE_HIERARCHY:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {req.role}")
+    if db.get_user_by_username(req.username):
+        raise HTTPException(status_code=409, detail="Username already exists.")
+
+    record = db.create_user(
+        username=req.username,
+        hashed_password=auth.hash_password(req.password),
+        role=req.role,
+        full_name=req.full_name,
+    )
+    db.record_audit_event(
+        action="user_created", actor_username=current_user.username,
+        resource_type="user", resource_id=req.username, detail=f"role={req.role}",
+    )
+    return {"user_id": record["user_id"], "username": record["username"], "role": record["role"]}
+
+
+@app.post("/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = auth.authenticate_user(form_data.username, form_data.password)
+    if not user:
+        db.record_audit_event(action="login_failed", actor_username=form_data.username)
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = auth.create_access_token(user.username, user.role)
+    db.record_audit_event(action="login_success", actor_username=user.username)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role,
+        "username": user.username,
+    }
+
+
+@app.get("/auth/me")
+def read_current_user(current_user: auth.CurrentUser = Depends(auth.get_current_user)):
+    return current_user
+
+
+@app.get("/audit-log")
+def get_audit_log(
+    limit: int = 100,
+    current_user: auth.CurrentUser = Depends(auth.require_admin),
+):
+    return db.list_audit_log(limit=limit)
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +220,22 @@ class InspectRequest(BaseModel):
 
 class ReviewRequest(BaseModel):
     note: str = ""
+
+
+class CreateSessionRequest(BaseModel):
+    product_id: str = Field(min_length=1)
+    sale_type: str = "retail"
+    product_category: str = "food"
+
+    net_quantity_value: float = Field(gt=0)
+    net_quantity_unit: str
+
+    mrp: Optional[float] = Field(default=None, ge=0)
+    pdp_area_cm2: Optional[float] = Field(default=None, gt=0)
+
+    is_export_only: bool = False
+    retail_bundle_count: Optional[int] = Field(default=None, ge=1)
+    is_imported: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -314,50 +448,105 @@ def _prepare_extractions(classified: Dict[str, dict]) -> Dict[str, RawExtraction
     """
     Convert every classified OCR field into the shared rule-engine contract.
 
-    Auxiliary keys beginning with '_' are evidence metadata, not legal fields.
-
-    FIELD-NAME BRIDGE (important): ocr_extraction.py and rules.json were
-    authored independently and use different field vocabularies for the same
-    legal facts — e.g. OCR emits 'manufacturer_name' / 'packer_name' /
-    'importer_name' as separate fields, but LMPC-2011-R6-DECLARATIONS' single
-    combined requirement reads key 'manufacturer_name_address'; OCR emits
-    'expiry_date', but the rule reads 'best_before_use_by'. Without this
-    bridge, rule_engine.py's exact-key lookup (`extractions.get(field)`) would
-    never find these values even when OCR extracted them correctly, and the
-    engine would silently report FAIL/UNCERTAIN for a field that is actually
-    present on the package. This function is the single place that
-    reconciles the two vocabularies — add new aliases here, not by renaming
-    either module's own natural field names.
+    The OCR-vocabulary -> rule-vocabulary bridge itself lives in
+    capture_session.bridge_classified_fields() so that single-image /scan,
+    structured /inspect, and multi-surface session finalization all resolve
+    field aliases (manufacturer_name -> manufacturer_name_address,
+    expiry_date -> best_before_use_by, etc.) identically. Do not duplicate
+    that mapping here — add new aliases in bridge_classified_fields().
     """
-    extractions = {
+    bridged = capture_session.bridge_classified_fields(classified)
+    return {
         field: _field_to_raw_extraction(field, data)
-        for field, data in classified.items()
-        if not field.startswith("_")
+        for field, data in bridged.items()
     }
 
-    # manufacturer_name_address <- first available of manufacturer/packer/importer
-    if "manufacturer_name_address" not in extractions:
-        for source_field in ("manufacturer_name", "packer_name", "importer_name"):
-            if source_field in extractions and _has_value(extractions[source_field]):
-                src = extractions[source_field]
-                extractions["manufacturer_name_address"] = RawExtraction(
-                    field="manufacturer_name_address", value=src.value, confidence=src.confidence,
-                    measured_height_mm=src.measured_height_mm, measurement_mode=src.measurement_mode,
-                    numeric_value=src.numeric_value, numeric_unit=src.numeric_unit,
-                )
-                break
 
-    # best_before_use_by <- expiry_date (OCR's name for the same fact)
-    if "best_before_use_by" not in extractions and "expiry_date" in extractions:
-        src = extractions["expiry_date"]
-        if _has_value(src):
-            extractions["best_before_use_by"] = RawExtraction(
-                field="best_before_use_by", value=src.value, confidence=src.confidence,
-                measured_height_mm=src.measured_height_mm, measurement_mode=src.measurement_mode,
-                numeric_value=src.numeric_value, numeric_unit=src.numeric_unit,
+PERISHABLE_CATEGORIES = {"food", "beverage", "dairy", "bakery", "confectionery"}
+
+
+def _infer_applicability_context(
+    product_category: str,
+    sale_type: str,
+    classified: Dict[str, dict],
+    is_imported_hint: Optional[bool] = None,
+) -> tuple[bool, bool]:
+    """
+    Conservatively infer `best_before_applicable` and `is_imported`.
+
+    These flags gate *conditional* Rule 6 requirements (best-before/use-by,
+    country-of-origin). Getting them wrong in either direction is a legal
+    risk, so inference here is deliberately narrow:
+
+    - best_before_applicable: True only when product_category is a known
+      perishable category. This is a coarse category heuristic, not a
+      determination of shelf-stability, and should be confirmed by the
+      inspector for categories outside this list.
+    - is_imported: True only when the caller explicitly says so (e.g. a
+      future 'sale_type=import' or explicit form field) OR when OCR evidence
+      has *positively* extracted a non-empty 'country_of_origin' declaration
+      naming a country other than India. Absence of a country-of-origin
+      field must NOT be treated as "not imported" — that would let an
+      undeclared import silently skip the very check meant to catch it.
+    """
+    best_before_applicable = product_category.strip().lower() in PERISHABLE_CATEGORIES
+
+    if is_imported_hint is not None:
+        is_imported = bool(is_imported_hint)
+    else:
+        country = classified.get("country_of_origin")
+        value = (country or {}).get("value") if country else None
+        is_imported = bool(
+            value and str(value).strip() and "india" not in str(value).strip().lower()
+        )
+
+    return best_before_applicable, is_imported
+
+
+def _apply_vlm_verification(result: ProductInspection, pil_img: Image.Image) -> list[dict]:
+    """
+    Advisory-only semantic ambiguity check for UNCERTAIN facts.
+
+    This NEVER changes result.overall_status, a fact's status, or any
+    rule-engine decision. It only adds an advisory note a human reviewer can
+    read alongside the deterministic finding. Disabled unless
+    VLM_VERIFICATION_ENABLED=true and ANTHROPIC_API_KEY is configured; any
+    failure (missing SDK, network, bad response) is swallowed so the core
+    inspection pipeline never depends on an external API being available.
+    """
+    if not config.VLM_VERIFICATION_ENABLED:
+        return []
+
+    notes: list[dict] = []
+    for fact in result.facts:
+        if fact.status != FactStatus.UNCERTAIN:
+            continue
+        if fact.confidence is not None and fact.confidence < 0.2:
+            # Very low/no evidence — a semantic ambiguity check adds nothing;
+            # this is a missing-evidence case, not a wording-ambiguity case.
+            continue
+        try:
+            verification = verify_ambiguous_field(
+                field=fact.field,
+                extracted_text=fact.extracted_value or "",
+                rule_requirement=fact.reason or fact.field,
             )
+        except Exception as exc:  # noqa: BLE001 - advisory path must not break /scan
+            notes.append({
+                "field": fact.field,
+                "status": "verification_unavailable",
+                "detail": str(exc)[:200],
+            })
+            continue
 
-    return extractions
+        notes.append({
+            "field": fact.field,
+            "ambiguous": verification.ambiguous,
+            "explanation": verification.explanation,
+            "provider": verification.provider,
+        })
+
+    return notes
 
 
 # ---------------------------------------------------------------------------
@@ -365,20 +554,30 @@ def _prepare_extractions(classified: Dict[str, dict]) -> Dict[str, RawExtraction
 # ---------------------------------------------------------------------------
 
 @app.post("/inspect", response_model=ProductInspection)
-def inspect(req: InspectRequest) -> ProductInspection:
+def inspect(
+    req: InspectRequest,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+) -> ProductInspection:
     """Run the deterministic compliance engine on already-structured evidence."""
-    extractions = {
-        field: RawExtraction(
-            field=field,
-            value=value.value,
-            confidence=value.confidence,
-            measured_height_mm=value.measured_height_mm,
-            measurement_mode=value.measurement_mode,
-            numeric_value=value.numeric_value,
-            numeric_unit=value.numeric_unit,
-        )
+    # Reuse the same field-name bridge as /scan (manufacturer/packer/importer
+    # -> manufacturer_name_address, expiry_date -> best_before_use_by, etc.)
+    # so structured-input callers get the same rule coverage as OCR callers.
+    classified_like = {
+        field: {
+            "value": value.value,
+            "confidence": value.confidence,
+            "measured_height_mm": value.measured_height_mm,
+            "measurement_mode": value.measurement_mode,
+            "numeric_value": value.numeric_value,
+            "numeric_unit": value.numeric_unit,
+        }
         for field, value in req.fields.items()
     }
+    extractions = _prepare_extractions(classified_like)
+
+    best_before_applicable, is_imported = _infer_applicability_context(
+        req.product_category, req.sale_type, classified_like,
+    )
 
     result = run_inspection(
         inspection_id=req.inspection_id,
@@ -391,9 +590,17 @@ def inspect(req: InspectRequest) -> ProductInspection:
         pdp_area_cm2=req.pdp_area_cm2,
         is_export_only=req.is_export_only,
         retail_bundle_count=req.retail_bundle_count,
+        best_before_applicable=best_before_applicable,
+        is_imported=is_imported,
     )
 
     db.save_inspection(result, mrp=req.mrp)
+    db.set_inspection_attribution(result.inspection_id, created_by=current_user.username)
+    db.record_audit_event(
+        action="inspection_created", actor_username=current_user.username,
+        resource_type="inspection", resource_id=result.inspection_id,
+        detail="via /inspect (structured input)",
+    )
     return result
 
 
@@ -406,6 +613,7 @@ async def analyze_image(
     file: UploadFile = File(...),
     product_id: str = Form(...),
     mrp: Optional[float] = Form(None),
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ):
     """
     Run visual alteration/product-history analysis without legal inspection.
@@ -453,6 +661,8 @@ async def scan(
     pdp_area_cm2: Optional[float] = Form(None),
     is_export_only: bool = Form(False),
     retail_bundle_count: Optional[int] = Form(None),
+    is_imported: Optional[bool] = Form(None),
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ):
     """
     Full single-surface MVP inspection.
@@ -513,6 +723,21 @@ async def scan(
     )
     resolved_mrp = _resolve_mrp(mrp, classified)
 
+    best_before_applicable, resolved_is_imported = _infer_applicability_context(
+        product_category, sale_type, classified, is_imported_hint=is_imported,
+    )
+
+    # ------------------------- Evidence retention -------------------------
+    # Legal evidence requires retaining the original image, not just the
+    # extracted facts. Store under a UUID-prefixed name so it cannot collide
+    # or be path-traversed via a client-supplied filename.
+    stored_filename = f"{uuid.uuid4().hex}_{image_id}"
+    stored_path = config.UPLOAD_DIR / stored_filename
+    try:
+        stored_path.write_bytes(raw_bytes)
+    except OSError:
+        stored_path = None  # Do not fail the inspection if disk write fails.
+
     # ------------------------- Visual analysis ---------------------------
     suspects = detect_sticker_regions(img)
 
@@ -542,13 +767,31 @@ async def scan(
         is_export_only=is_export_only,
         retail_bundle_count=retail_bundle_count,
         sticker_suspects=suspects,
+        best_before_applicable=best_before_applicable,
+        is_imported=resolved_is_imported,
     )
+
+    # ------------------------- Legal advisory VLM verification -----------
+    # Advisory only: never overrides the deterministic engine's PASS/FAIL.
+    # Only attempted for UNCERTAIN fields, and only when explicitly enabled
+    # with an API key configured (see config.VLM_VERIFICATION_ENABLED).
+    vlm_notes = _apply_vlm_verification(result, pil_img)
 
     # ------------------------- Persistence ------------------------------
     db.save_inspection(
         result,
         image_filename=image_id,
         mrp=resolved_mrp,
+    )
+    db.set_inspection_attribution(
+        result.inspection_id,
+        created_by=current_user.username,
+        image_path=str(stored_path) if stored_path else None,
+    )
+    db.record_audit_event(
+        action="inspection_created", actor_username=current_user.username,
+        resource_type="inspection", resource_id=result.inspection_id,
+        detail=f"via /scan, sale_type={sale_type}",
     )
 
     return {
@@ -574,7 +817,311 @@ async def scan(
         "sticker_suspects": _sticker_payload(suspects),
         "nearest_matches": _similarity_payload(matches),
         "price_or_label_change_flag": price_flag,
+        "vlm_advisory_notes": vlm_notes,
     }
+
+
+# ---------------------------------------------------------------------------
+# Multi-surface inspection sessions
+# ---------------------------------------------------------------------------
+#
+# One InspectionSession accumulates any number of SurfaceObservation
+# captures (front, back, rotated views of a curved label, etc.) before the
+# deterministic legal engine runs exactly once against the UNION of every
+# surface observed — see capture_session.py for the merge/coverage logic.
+#
+# Workflow:
+#   POST /sessions                    -> open a session, get session_id
+#   POST /sessions/{id}/captures      -> upload one surface photo, get
+#                                         guidance + running evidence status
+#   GET  /sessions/{id}               -> current session status
+#   POST /sessions/{id}/finalize      -> run the legal engine once, persist
+#                                         as a normal inspection record
+# ---------------------------------------------------------------------------
+
+@app.post("/sessions")
+def create_session(
+    req: CreateSessionRequest,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    session_id = f"{req.product_id}:session-{uuid.uuid4().hex[:10]}"
+    db.create_session(
+        session_id=session_id,
+        product_id=req.product_id,
+        sale_type=req.sale_type,
+        product_category=req.product_category,
+        net_quantity_value=req.net_quantity_value,
+        net_quantity_unit=req.net_quantity_unit,
+        mrp=req.mrp,
+        pdp_area_cm2=req.pdp_area_cm2,
+        is_export_only=req.is_export_only,
+        retail_bundle_count=req.retail_bundle_count,
+        is_imported_hint=req.is_imported,
+        created_by=current_user.username,
+    )
+    db.record_audit_event(
+        action="session_created", actor_username=current_user.username,
+        resource_type="inspection_session", resource_id=session_id,
+    )
+
+    rules_ctx_best_before, rules_ctx_is_imported = _infer_applicability_context(
+        req.product_category, req.sale_type, {}, is_imported_hint=req.is_imported,
+    )
+    coverage, missing = capture_session.compute_coverage(
+        req.sale_type,
+        {
+            "is_imported": rules_ctx_is_imported,
+            "best_before_applicable": rules_ctx_best_before,
+            "unit_price_rule_applies": True,
+        },
+        {},
+    )
+
+    return {
+        "session_id": session_id,
+        "status": "OPEN",
+        "coverage": round(coverage, 3),
+        "missing_fields": missing,
+        "guidance": [
+            "Start with the main/front label showing the product name and net quantity.",
+        ],
+    }
+
+
+@app.post("/sessions/{session_id}/captures")
+async def add_capture(
+    session_id: str,
+    file: UploadFile = File(...),
+    surface_type: Optional[str] = Form(None),
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if session["status"] != "OPEN":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Session is '{session['status']}' and no longer accepts captures.",
+        )
+
+    raw_bytes, img, pil_img = await _read_image_upload(file)
+    image_id = _safe_filename(file)
+
+    # ------------------------- Per-image OCR/CV --------------------------
+    ocr_lines = run_ocr(pil_img)
+    classified = classify_fields(ocr_lines)
+
+    quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines))
+    pdp_bbox = image_quality_module.estimate_pdp_bbox(
+        [line.bbox for line in ocr_lines],
+        image_width=img.shape[1],
+        image_height=img.shape[0],
+    )
+
+    # ------------------------- Evidence retention -------------------------
+    stored_filename = f"{uuid.uuid4().hex}_{image_id}"
+    stored_path = config.UPLOAD_DIR / stored_filename
+    try:
+        stored_path.write_bytes(raw_bytes)
+    except OSError:
+        stored_path = None
+
+    # ------------------------- Merge into session evidence ---------------
+    previous_captures = db.list_session_captures(session_id)
+    accumulated_fields: Dict[str, dict] = {}
+    for cap in previous_captures:
+        accumulated_fields = capture_session.merge_classified_fields(
+            accumulated_fields, cap.get("ocr_fields") or {},
+        )
+    merged_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
+
+    best_before_applicable, resolved_is_imported = _infer_applicability_context(
+        session["product_category"], session["sale_type"], merged_fields,
+        is_imported_hint=session.get("is_imported_hint"),
+    )
+    context = {
+        "is_imported": resolved_is_imported,
+        "best_before_applicable": best_before_applicable,
+        "unit_price_rule_applies": True,
+    }
+
+    coverage, missing = capture_session.compute_coverage(
+        session["sale_type"], context, merged_fields,
+    )
+    guidance = capture_session.guidance_messages(quality, coverage, missing)
+
+    surface = capture_session.build_surface_observation(
+        image_id=image_id or f"capture-{int(time.time())}",
+        surface_type=capture_session.parse_surface_type(surface_type),
+        image_quality=quality,
+        coverage=coverage,
+        pdp_bbox_px=pdp_bbox,
+    )
+
+    db.add_session_capture(
+        session_id=session_id,
+        surface_id=surface.surface_id,
+        image_id=surface.image_id,
+        image_path=str(stored_path) if stored_path else None,
+        surface_type=surface.surface_type.value,
+        ocr_fields=classified,
+        surface_observation=surface.model_dump(mode="json"),
+        evidence_coverage=coverage,
+    )
+    db.record_audit_event(
+        action="session_capture_added", actor_username=current_user.username,
+        resource_type="inspection_session", resource_id=session_id,
+        detail=f"surface={surface.surface_type.value}, coverage={coverage:.2f}",
+    )
+
+    return {
+        "session_id": session_id,
+        "surface_id": surface.surface_id,
+        "image_quality": quality.model_dump(mode="json"),
+        "extracted_fields_this_capture": classified,
+        "cumulative_coverage": round(coverage, 3),
+        "missing_fields": missing,
+        "evidence_sufficient": coverage >= capture_session.EVIDENCE_SUFFICIENT_COVERAGE,
+        "guidance": guidance,
+        "total_captures": len(previous_captures) + 1,
+    }
+
+
+@app.get("/sessions/{session_id}")
+def get_session_status(
+    session_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    captures = db.list_session_captures(session_id)
+    accumulated_fields: Dict[str, dict] = {}
+    for cap in captures:
+        accumulated_fields = capture_session.merge_classified_fields(
+            accumulated_fields, cap.get("ocr_fields") or {},
+        )
+
+    best_before_applicable, resolved_is_imported = _infer_applicability_context(
+        session["product_category"], session["sale_type"], accumulated_fields,
+        is_imported_hint=session.get("is_imported_hint"),
+    )
+    context = {
+        "is_imported": resolved_is_imported,
+        "best_before_applicable": best_before_applicable,
+        "unit_price_rule_applies": True,
+    }
+    coverage, missing = capture_session.compute_coverage(
+        session["sale_type"], context, accumulated_fields,
+    )
+
+    return {
+        "session": session,
+        "captures": [
+            {
+                "surface_id": c["surface_id"],
+                "image_id": c["image_id"],
+                "surface_type": c["surface_type"],
+                "evidence_coverage": float(c["evidence_coverage"] or 0.0),
+                "image_quality": (c.get("surface_observation") or {}).get("image_quality"),
+                "created_at": c["created_at"],
+            }
+            for c in captures
+        ],
+        "cumulative_coverage": round(coverage, 3),
+        "missing_fields": missing,
+        "evidence_sufficient": coverage >= capture_session.EVIDENCE_SUFFICIENT_COVERAGE,
+        "cumulative_fields": accumulated_fields,
+    }
+
+
+@app.post("/sessions/{session_id}/finalize", response_model=ProductInspection)
+def finalize_session(
+    session_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+) -> ProductInspection:
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if session["status"] != "OPEN":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Session is already '{session['status']}'.",
+        )
+
+    captures = db.list_session_captures(session_id)
+    if not captures:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot finalize a session with zero captures.",
+        )
+
+    # ------------------------- Merge all surfaces -------------------------
+    accumulated_fields: Dict[str, dict] = {}
+    for cap in captures:
+        accumulated_fields = capture_session.merge_classified_fields(
+            accumulated_fields, cap.get("ocr_fields") or {},
+        )
+    extractions = _prepare_extractions(accumulated_fields)
+
+    qty_val, qty_unit, _ = _resolve_quantity(
+        float(session["net_quantity_value"]),
+        session["net_quantity_unit"],
+        accumulated_fields,
+    )
+    resolved_mrp = _resolve_mrp(
+        float(session["mrp"]) if session.get("mrp") is not None else None,
+        accumulated_fields,
+    )
+
+    best_before_applicable, resolved_is_imported = _infer_applicability_context(
+        session["product_category"], session["sale_type"], accumulated_fields,
+        is_imported_hint=session.get("is_imported_hint"),
+    )
+
+    surface_observations: List[SurfaceObservation] = []
+    for cap in captures:
+        obs = cap.get("surface_observation")
+        if obs:
+            try:
+                surface_observations.append(SurfaceObservation.model_validate(obs))
+            except Exception:
+                continue
+
+    inspection_id = f"{session['product_id']}:scan-{uuid.uuid4().hex[:8]}"
+
+    result = run_inspection(
+        inspection_id=inspection_id,
+        sale_type=session["sale_type"],
+        product_category=session["product_category"],
+        net_quantity_value=qty_val,
+        net_quantity_unit=qty_unit,
+        mrp=resolved_mrp,
+        extractions=extractions,
+        pdp_area_cm2=float(session["pdp_area_cm2"]) if session.get("pdp_area_cm2") is not None else None,
+        is_export_only=bool(session["is_export_only"]),
+        retail_bundle_count=session.get("retail_bundle_count"),
+        captures=surface_observations,
+        best_before_applicable=best_before_applicable,
+        is_imported=resolved_is_imported,
+    )
+
+    db.save_inspection(result, mrp=resolved_mrp)
+    latest_image_path = captures[-1].get("image_path") if captures else None
+    db.set_inspection_attribution(
+        result.inspection_id,
+        created_by=current_user.username,
+        image_path=latest_image_path,
+    )
+    db.finalize_session(session_id, result.inspection_id)
+    db.record_audit_event(
+        action="session_finalized", actor_username=current_user.username,
+        resource_type="inspection_session", resource_id=session_id,
+        detail=f"-> inspection {result.inspection_id}, {len(captures)} captures",
+    )
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -586,6 +1133,7 @@ def get_inspections(
     limit: int = 50,
     status: Optional[str] = None,
     needs_review: Optional[bool] = None,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ):
     if limit < 1 or limit > 200:
         raise HTTPException(
@@ -601,7 +1149,10 @@ def get_inspections(
 
 
 @app.get("/inspections/{inspection_id}")
-def get_inspection(inspection_id: str):
+def get_inspection(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
@@ -609,7 +1160,11 @@ def get_inspection(inspection_id: str):
 
 
 @app.post("/inspections/{inspection_id}/review")
-def review_inspection(inspection_id: str, req: ReviewRequest):
+def review_inspection(
+    inspection_id: str,
+    req: ReviewRequest,
+    current_user: auth.CurrentUser = Depends(auth.require_reviewer),
+):
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
@@ -617,17 +1172,50 @@ def review_inspection(inspection_id: str, req: ReviewRequest):
     db.mark_reviewed(
         inspection_id,
         note=req.note.strip(),
+        reviewed_by=current_user.username,
+    )
+    db.record_audit_event(
+        action="inspection_reviewed", actor_username=current_user.username,
+        resource_type="inspection", resource_id=inspection_id,
+        detail=req.note.strip()[:200],
     )
 
     return {
         "status": "ok",
         "inspection_id": inspection_id,
         "review_note": req.note.strip(),
+        "reviewed_by": current_user.username,
     }
 
 
+@app.get("/inspections/{inspection_id}/report.pdf")
+def get_inspection_report(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    pdf_bytes = build_inspection_report_pdf(detail)
+    db.record_audit_event(
+        action="report_generated", actor_username=current_user.username,
+        resource_type="inspection", resource_id=inspection_id,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{inspection_id}_report.pdf"'
+        },
+    )
+
+
 @app.get("/products/{product_id}/history")
-def get_product_history(product_id: str):
+def get_product_history(
+    product_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
     return db.product_history(product_id)
 
 
