@@ -8,7 +8,7 @@ venv/
 env/
 ENV/
 
-# Secrets — never commit
+# Environment/secrets
 .env
 .env.*
 !.env.example
@@ -24,12 +24,12 @@ Thumbs.db
 # Logs
 *.log
 
-# Test cache
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Build artefacts
+# Build
 build/
 dist/
 *.egg-info/
@@ -37,20 +37,17 @@ dist/
 # Jupyter
 .ipynb_checkpoints/
 
-# Runtime-generated upload/report directories (rebuilt at runtime, not source)
-backend/uploads/
-backend/reports/
-uploads/
-reports/
-processed_images/
-temp/
-tmp/
+# Generated files
 outputs/
 results/
 runs/
-
-# Runtime-generated similarity index (rebuilt from scan history)
+uploads/
+reports/
+# Runtime-generated indices (rebuilt from scan history; not source data)
 backend/product_index.json
+processed_images/
+temp/
+tmp/
 
 # Local databases
 *.db

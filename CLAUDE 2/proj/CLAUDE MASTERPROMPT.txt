@@ -1,0 +1,2002 @@
+You are the principal software architect, senior full-stack engineer, ML/CV engineer, mobile engineer, database engineer, DevOps engineer, QA engineer, and security engineer responsible for completing this entire repository.
+
+PROJECT:
+SIH 2026
+Problem Statement 26034
+“Software System to check compliance of Packaged Commodities under Legal Metrology (Packaged Commodities) Rules, 2011 by scanning products, images and labels.”
+
+The goal is to transform the current repository from a functional prototype into a technically credible, production-grade, deployable government inspection platform suitable for an SIH demonstration and architecturally ready for real-world deployment.
+
+IMPORTANT:
+I am the only person operating you.
+Do not assume another developer will complete missing pieces.
+Do not merely give me a plan.
+Do not stop after analysis.
+Do not ask me to manually implement routine work that you can implement yourself.
+Inspect the repository, understand it, modify it, create missing files, run tests, fix errors, and leave the repository in the best complete state you can achieve.
+
+============================================================
+1. FIRST PRINCIPLE
+============================================================
+
+The central architecture of this project is:
+
+AI/CV extracts evidence.
+Deterministic legal rules evaluate applicable requirements.
+Human inspectors resolve uncertainty.
+
+NEVER reverse this relationship.
+
+AI must NOT independently invent legal requirements.
+An LLM/VLM must NOT decide that a package is legally compliant.
+RAG must NOT directly produce the final compliance verdict.
+Similarity detection must NOT be treated as product identity.
+Tampering detection must NOT claim counterfeit/authenticity unless independently verified.
+“Not observed” must NOT automatically mean “missing”.
+An image alone must NOT be treated as legally sufficient evidence when the evidence is inadequate.
+
+The system must explicitly support:
+
+PASS
+FAIL
+UNCERTAIN
+EXEMPT
+
+The final legal decision must always be traceable to:
+- applicable requirement
+- rule ID
+- rule version
+- evidence
+- extracted fact
+- reason
+- confidence
+- review state
+
+============================================================
+2. READ AND AUDIT THE EXISTING REPOSITORY FIRST
+============================================================
+
+Before changing code:
+
+1. Recursively inspect the entire repository.
+2. Read every source file.
+3. Read README.md, SETUP.md, ENGINE_UPGRADE_NOTES.md.
+4. Inspect rules/rules.json completely.
+5. Inspect backend/schema.py completely.
+6. Inspect backend/rule_engine.py completely.
+7. Inspect backend/exemption.py completely.
+8. Inspect backend/ocr_extraction.py completely.
+9. Inspect backend/sticker_detection.py completely.
+10. Inspect backend/product_similarity.py completely.
+11. Inspect backend/vlm_verifier.py completely.
+12. Inspect backend/unit_price.py completely.
+13. Inspect backend/main.py completely.
+14. Inspect backend/db/schema.sql and persistence.py.
+15. Inspect all frontend files.
+16. Inspect dataset scripts and annotations.
+17. Inspect package/dependency configuration.
+18. Search for TODO, FIXME, mock, placeholder, hardcoded credentials, hardcoded URLs, disconnected modules, dead code and duplicate schemas.
+19. Search all imports and determine the actual runtime dependency graph.
+20. Run the existing application and test suite if possible.
+21. Do not blindly trust previous audit conclusions. Verify them against the actual repository.
+
+The existing PROJECT_STATE.md/audit is a useful baseline, but the repository itself is the source of truth.
+
+Do not delete working functionality merely to redesign it.
+
+Preserve good existing architecture where possible.
+
+============================================================
+3. FINAL PRODUCT DEFINITION
+============================================================
+
+The finished system is:
+
+“AI-powered Evidence-Backed Legal Metrology Inspection Platform”
+
+It is primarily designed for Legal Metrology inspectors/enforcement officers.
+
+The system must support:
+
+1. Inspector authentication
+2. Role-based access
+3. Mobile inspection
+4. Guided multi-surface package capture
+5. Image quality assessment
+6. OCR
+7. Multilingual text extraction
+8. Field detection
+9. Declaration extraction
+10. Package geometry understanding
+11. PDP detection/estimation
+12. Calibrated physical measurement where possible
+13. Applicability determination
+14. Exemption determination
+15. Versioned deterministic rule evaluation
+16. Evidence-backed findings
+17. UNCERTAIN state and human review
+18. Potential packaging/tampering detection
+19. Historical product comparison
+20. Product inspection history
+21. Reports
+22. Audit trail
+23. Dashboard
+24. Analytics
+25. Offline-capable mobile capture where practical
+26. Synchronization
+27. Deployment via containers
+28. Automated tests
+29. Proper configuration/secrets
+30. Monitoring/health checks
+
+============================================================
+4. NON-NEGOTIABLE MULTI-SURFACE INSPECTION ARCHITECTURE
+============================================================
+
+The current single-image scan architecture must be upgraded.
+
+DO NOT design the system around:
+front
+back
+left
+right
+top
+bottom
+
+DO NOT assume every package has six useful faces.
+
+Packages can be:
+- boxes
+- pouches
+- bottles
+- cylinders
+- jars
+- cans
+- irregular packages
+- curved packages
+- multi-piece packages
+
+Instead, implement:
+
+InspectionSession
+    └── SurfaceObservation[]
+
+Each SurfaceObservation should contain, as appropriate:
+
+- surface_id
+- capture_id
+- image_id
+- surface_type
+- geometry_type
+- image_quality
+- camera_pose
+- depth metadata if available
+- PDP information
+- calibration information
+- OCR evidence
+- extracted evidence references
+- capture timestamp
+- device metadata where appropriate
+
+The system must collect sufficient evidence rather than a fixed number of photographs.
+
+Example conceptual workflow:
+
+START INSPECTION
+→ package detected
+→ determine/estimate geometry
+→ guided capture
+→ capture surface
+→ image quality
+→ OCR/CV
+→ update evidence
+→ determine what evidence is still missing
+→ guide inspector to next relevant surface
+→ repeat only when necessary
+→ evidence sufficiency achieved
+→ applicability/exemption
+→ legal evaluation
+→ result
+→ human review if required
+→ report/history
+
+Critical rule:
+
+NOT VISIBLE != MISSING.
+
+The system must distinguish:
+
+FOUND
+NOT_OBSERVED
+UNCERTAIN
+PASS
+FAIL
+EXEMPT
+
+A legal FAIL should require sufficient evidence that the requirement is actually not satisfied.
+
+If evidence is insufficient, return UNCERTAIN and request another capture or human review.
+
+============================================================
+5. MOBILE APPLICATION
+============================================================
+
+The final product must have a real mobile inspection experience.
+
+Do not keep the existing browser dashboard as the primary inspection interface.
+
+Use a practical architecture that can realistically be developed and deployed.
+
+Preferred approach:
+
+React Native + TypeScript for the mobile application unless repository constraints make native Android/Kotlin clearly superior.
+
+The mobile application should contain:
+
+- Login
+- Inspector profile
+- Dashboard
+- Start Inspection
+- Guided camera
+- Capture instructions
+- Surface coverage/evidence status
+- OCR progress
+- extracted declaration preview
+- uncertain findings
+- inspection result
+- evidence viewer
+- review workflow
+- history
+- report access
+
+The camera experience must not simply be a file picker.
+
+Implement a guided inspection experience.
+
+The application should communicate things such as:
+
+“Capture main label”
+“Rotate package”
+“Capture another surface”
+“Move closer”
+“Improve lighting”
+“Hold steady”
+“Information not yet located”
+“Evidence sufficient”
+
+Do not require all surfaces if sufficient evidence has already been collected.
+
+============================================================
+6. ARCORE / DEPTH
+============================================================
+
+Where Android/native capabilities permit, integrate Google ARCore Depth API for:
+
+- camera tracking
+- depth information
+- spatial guidance
+- package geometry assistance
+- approximate surface understanding
+- measurement assistance
+
+Do NOT describe ARCore as certified legal metrology equipment.
+
+Physical measurement must use:
+
+calibration
++
+camera/depth evidence
++
+surface geometry
++
+confidence
+
+Measurement states must include:
+
+VERIFIED
+ESTIMATED
+UNCERTAIN
+
+If reliable physical measurement cannot be established, return UNCERTAIN.
+
+Never manufacture millimetre measurements from arbitrary photographs.
+
+For flat calibrated surfaces:
+→ support verified measurement.
+
+For uncalibrated images:
+→ estimated or uncertain.
+
+For curved/distorted/irregular surfaces:
+→ conservative uncertainty unless the method has been validated.
+
+Use OpenCV for:
+- perspective correction
+- contours
+- surface/label localization
+- image preprocessing
+- geometric transformations
+
+Use ARCore for spatial/camera assistance, not legal logic.
+
+============================================================
+7. OCR / COMPUTER VISION
+============================================================
+
+Upgrade the OCR system substantially while preserving a lightweight fallback.
+
+Current OCR:
+Tesseract + preprocessing + regex classification.
+
+Improve it with:
+
+- PaddleOCR or another suitable OCR engine
+- multilingual support
+- rotated text handling
+- perspective correction
+- low-quality preprocessing
+- layout-aware field extraction
+- text region detection
+- confidence scoring
+- bounding boxes
+- field normalization
+
+Support Indian product-label realities:
+
+- English
+- Hindi
+- other Indian scripts where technically feasible
+- mixed-language labels
+- cramped text
+- dot-matrix printing
+- curved labels
+- low contrast
+- glare
+- rotated text
+- small fonts
+- dense nutritional/legal columns
+
+Do not claim universal OCR accuracy.
+
+Use confidence and uncertainty.
+
+Canonical fields must remain compatible with the existing rule-engine vocabulary.
+
+Do not create conflicting schemas.
+
+Use the existing shared Pydantic contract as the central integration contract.
+
+============================================================
+8. CANONICAL LEGAL FIELD CONTRACT
+============================================================
+
+Preserve and improve these canonical fields:
+
+manufacturer_name_address
+country_of_origin
+common_name
+net_quantity
+mfg_date
+best_before_use_by
+mrp
+consumer_care
+dimensions
+unit_sale_price
+
+The OCR system may use aliases internally, but before rule evaluation all evidence must be normalized to the canonical vocabulary.
+
+Maintain:
+
+RawExtraction
+→ ExtractedFact
+→ RuleFinding
+→ ProductInspection
+
+Do not create multiple competing versions of these concepts.
+
+============================================================
+9. LEGAL FRAMEWORK
+============================================================
+
+The legal foundation is:
+
+Legal Metrology Act, 2009
+
+and:
+
+Legal Metrology (Packaged Commodities) Rules, 2011
+
+plus applicable amendments and current official notifications.
+
+The system must be version-aware.
+
+Rules must contain:
+
+- rule_id
+- rule number
+- clause
+- source document
+- source URL/reference where available
+- version
+- effective_from
+- effective_to if applicable
+- applicability
+- conditions
+- requirement
+- thresholds
+- exceptions
+- exemptions
+- evidence requirements
+- evaluation method
+
+DO NOT hardcode uncertain legal assumptions as unquestionable truth.
+
+Before activating a legal rule as authoritative:
+
+1. Locate the current official Department of Consumer Affairs / Legal Metrology source.
+2. Check amendments.
+3. Check effective dates.
+4. Check whether later amendments modify the provision.
+5. Record the source/version.
+6. Keep uncertain legal interpretations explicitly marked for verification.
+
+If official legal text cannot be verified:
+return a configuration/verification requirement rather than inventing the rule.
+
+The legal engine must support future amendments without rewriting the whole application.
+
+============================================================
+10. LEGAL RULE ENGINE
+============================================================
+
+The engine must be deterministic.
+
+Implement and correctly structure applicable provisions including, where verified and relevant:
+
+Rule 3:
+Scope/applicability and quantity exclusions.
+
+Rule 4:
+Multi-pack / combination / relevant package declarations.
+
+Rule 5:
+Standard quantities / Second Schedule where applicable.
+
+Rule 6:
+Mandatory declarations.
+
+Important declarations include, as applicable:
+- manufacturer/packer/importer name and address
+- country of origin for imported products
+- common/generic name
+- net quantity
+- month/year of manufacture or packing
+- best-before/use-by where applicable
+- MRP inclusive of taxes
+- consumer care details
+- dimensions where relevant
+- unit sale price
+
+Rule 6(11):
+Unit sale price.
+
+Implement deterministic arithmetic.
+
+Do not use floating-point arithmetic where exact monetary calculations matter.
+Use Decimal.
+
+Rule 7:
+Numeral/letter size and relevant font-height requirements.
+
+Rule 7:
+PDP area calculation where applicable.
+
+Rule 8:
+PDP placement and spacing requirements.
+
+Rule 8 special provisions must only be applied to the exact package/product conditions covered by the legal text.
+
+Rule 24:
+Wholesale packages.
+
+Rule 25:
+Export/repackaging scenarios where applicable.
+
+Rule 26:
+Specific exemptions/relaxations.
+
+Rule 27:
+Registration-related requirement.
+
+Rule 31:
+Advertisement-related requirement where the system explicitly analyzes advertisements.
+
+Rule 32:
+Penalty context is informational and must not be treated as a label-detection rule.
+
+Second Schedule:
+Standard quantity requirements where applicable.
+
+Do not treat every listed rule as applicable to every package.
+
+============================================================
+11. APPLICABILITY FIRST
+============================================================
+
+This is a core architecture requirement.
+
+Before evaluating declarations, determine:
+
+Is this a packaged commodity covered by the relevant framework?
+
+What is the package/sale context?
+
+What legal requirements apply?
+
+Does an exemption or special provision apply?
+
+Only then execute the relevant checks.
+
+The system must support context such as:
+
+- retail
+- wholesale
+- export
+- industrial/institutional
+- pre-packaged vs non-pre-packaged
+- relevant product category
+- package quantity
+- multi-pack/combination context
+- imported product
+- applicable special provisions
+
+Do not assume:
+
+“sale_type = retail” means all Rule 6 checks automatically apply.
+
+Do not assume:
+
+“product_category = food” automatically proves every food-specific legal condition.
+
+Context inference may assist, but uncertainty must remain possible.
+
+============================================================
+12. FOOD / FSSAI / DRUGS / COSMETICS / CDSCO
+============================================================
+
+IMPORTANT:
+
+Do not collapse all Indian product regulation into LMPC.
+
+The core compliance framework of this project is Legal Metrology.
+
+Other regulators may provide cross-verification or sector-specific modules.
+
+Food:
+FSSAI is the relevant food-safety regulator/framework.
+
+Drugs:
+CDSCO / Drugs and Cosmetics regulatory framework is relevant.
+
+Cosmetics:
+CDSCO / applicable cosmetics regulatory framework may be relevant.
+
+Medical devices:
+CDSCO / Medical Devices Rules may be relevant.
+
+However:
+
+The system must NOT claim that LMPC automatically validates all FSSAI/CDSCO requirements.
+
+Instead architect:
+
+Core LMPC Engine
++
+Sector Compliance Modules
+
+Examples:
+
+LMPC module
+FSSAI module
+Drug/CDSCO module
+Cosmetics module
+Medical-device module
+
+The first release should keep LMPC as the authoritative core for this problem statement.
+
+Cross-verification should produce separate findings such as:
+
+LMPC: PASS
+FSSAI: CROSS-CHECK / PASS / FAIL / UNKNOWN
+
+Do not mix different legal regimes into a single misleading verdict.
+
+Do not claim scientific verification of ingredient concentration from an image.
+
+If the label says “5 mg” or another ingredient quantity, OCR can extract the declaration, but actual composition requires appropriate laboratory/regulatory evidence.
+
+============================================================
+13. RULE VERSIONING / LEGAL RAG
+============================================================
+
+Implement a legal knowledge architecture.
+
+Correct architecture:
+
+Official legal documents
+→ parsing/OCR
+→ candidate rule extraction
+→ human verification
+→ versioned rule database
+→ retrieval/index
+→ rule engine
+
+RAG is for retrieving:
+- applicable provisions
+- explanations
+- source documents
+- amendments
+- legal context
+
+RAG must NOT directly produce PASS/FAIL.
+
+The deterministic engine executes structured legal rules.
+
+Every finding must record:
+
+rule_id
+rule_version
+effective_date
+source
+reason
+evidence
+
+The applicable version must depend on the relevant inspection/product date where legally required.
+
+============================================================
+14. EVIDENCE MODEL
+============================================================
+
+Every legal finding should have evidence.
+
+Evidence can include:
+
+- image
+- surface
+- bounding box
+- OCR text
+- measurement
+- calibration reference
+- package geometry
+- extracted value
+- source rule
+
+The frontend must allow an inspector to see:
+
+WHAT was detected
+WHERE it was detected
+WHY it matters
+WHICH rule applies
+WHAT evidence supports the result
+WHAT confidence exists
+WHETHER human review is required
+
+Do not produce unexplained red/green badges.
+
+============================================================
+15. FONT MEASUREMENT
+============================================================
+
+Implement the best technically defensible pipeline possible.
+
+For calibrated flat surfaces:
+
+reference object/card
+→ pixel/mm ratio
+→ text bounding box
+→ physical height
+→ Rule 7 evaluation
+
+For depth-assisted surfaces:
+
+RGB
++
+depth
++
+camera pose
++
+calibration
+→ physical geometry
+
+Do not claim certified metrology.
+
+Implement:
+VERIFIED
+ESTIMATED
+UNCERTAIN
+
+Also implement the applicable width/height ratio requirement where legally verified.
+
+============================================================
+16. PDP DETECTION
+============================================================
+
+Do not simply accept pdp_area_cm2 from the frontend forever.
+
+Implement a PDP estimation/detection subsystem.
+
+Support package geometry:
+
+FLAT
+CURVED
+IRREGULAR
+UNKNOWN
+
+Estimate/identify the principal display area where technically possible.
+
+For rectangular packages:
+use detected surface geometry.
+
+For cylindrical/nearly cylindrical packages:
+support geometry-aware estimation.
+
+For irregular packages:
+use conservative estimation and human review where necessary.
+
+If PDP cannot be reliably determined:
+UNCERTAIN.
+
+Do not fabricate an area.
+
+============================================================
+17. STICKER / TAMPERING DETECTION
+============================================================
+
+Current classical-CV heuristic may remain as a fallback.
+
+Build a modular architecture that can later accept a trained model.
+
+Detect signals such as:
+
+- rectangular sticker-like regions
+- edge discontinuities
+- texture mismatch
+- typography mismatch
+- altered MRP region
+- altered declaration region
+- historical package differences
+
+Output:
+
+POTENTIAL ALTERATION
+or
+REVIEW REQUIRED
+
+Never:
+
+“COUNTERFEIT CONFIRMED”
+
+unless an independent authoritative verification system exists.
+
+============================================================
+18. PRODUCT HISTORY / SIMILARITY
+============================================================
+
+Current pHash + HSV histogram is acceptable as a fallback.
+
+Upgrade architecture to support:
+
+deep visual embeddings
++
+vector database/index
++
+historical package comparison
+
+FAISS is acceptable for an MVP.
+
+Later production architecture may use pgvector or another vector database.
+
+Similarity must be described as:
+
+VISUAL CANDIDATE
+
+not:
+
+IDENTITY CONFIRMED
+
+Track:
+
+- product ID
+- package version
+- historical images
+- historical MRP
+- declaration differences
+- suspicious changes
+- inspections
+- reviewer decisions
+
+Historical MRP change is a REVIEW SIGNAL, not automatically a legal violation.
+
+============================================================
+19. DATABASE
+============================================================
+
+PostgreSQL is preferred.
+
+Do not switch to MySQL merely for familiarity unless a concrete technical constraint requires it.
+
+Reasons:
+
+- strong relational integrity
+- JSONB for evidence
+- excellent indexing
+- PostgreSQL extensions
+- vector search support through pgvector
+- mature production deployment
+- suitable government/enterprise architecture
+
+Use:
+
+PostgreSQL
++
+SQL migrations
++
+proper indexes
++
+connection pooling
++
+transactions
+
+Remove hardcoded database credentials.
+
+Use:
+
+DATABASE_URL
+
+from environment configuration.
+
+Create:
+
+.env.example
+
+Never commit secrets.
+
+Add migration support.
+
+Do not rely on executing a giant schema.sql on every startup as the only migration mechanism.
+
+============================================================
+20. IMAGE STORAGE
+============================================================
+
+Images are legal evidence and must not simply disappear after OCR.
+
+Implement object/file storage abstraction.
+
+Development:
+local filesystem or MinIO.
+
+Production:
+S3-compatible object storage / government cloud equivalent.
+
+Store:
+
+original image
+processed image if useful
+OCR metadata
+surface metadata
+inspection linkage
+hash/checksum
+timestamp
+
+Database stores references/metadata, not huge image binaries.
+
+Use secure filenames and access controls.
+
+============================================================
+21. AUTHENTICATION / RBAC
+============================================================
+
+Implement authentication.
+
+Roles should support at minimum:
+
+INSPECTOR
+REVIEWER
+ADMIN
+
+Potentially:
+
+SUPERVISOR
+
+Implement:
+
+- login
+- password hashing
+- JWT/session authentication
+- role guards
+- user table
+- audit attribution
+- reviewer identity
+- secure password handling
+- token expiry
+
+No endpoint containing inspection data should remain unintentionally public.
+
+Restrict CORS.
+
+============================================================
+22. AUDIT TRAIL
+============================================================
+
+The system is intended for government inspection.
+
+Implement an auditable record of:
+
+- who created inspection
+- when
+- device/session if appropriate
+- images captured
+- extracted evidence
+- rule version
+- decision
+- reviewer
+- reviewer action
+- reviewer note
+- timestamps
+- changes/corrections
+
+Prefer append-only event records for important actions.
+
+Do not silently overwrite legal evidence.
+
+Corrections should be recorded.
+
+============================================================
+23. REPORTING
+============================================================
+
+Implement report generation.
+
+At minimum:
+
+PDF inspection report
+
+and structured editable/exportable data.
+
+Report should contain:
+
+- inspection ID
+- inspector
+- date/time
+- product
+- package information
+- captured surfaces
+- extracted declarations
+- compliance findings
+- rule IDs
+- rule versions
+- evidence references
+- confidence
+- measurement information
+- human review
+- final inspection status
+- disclaimer
+
+Clearly distinguish:
+
+Automated screening result
+from
+Human-reviewed result
+
+Do not call automated screening a legally binding adjudication unless explicitly configured and legally authorized.
+
+============================================================
+24. BACKEND API
+============================================================
+
+Keep FastAPI unless a concrete reason requires changing it.
+
+Build clean API boundaries.
+
+Expected conceptual endpoints:
+
+POST /auth/login
+GET /health
+
+POST /inspections
+POST /inspections/{id}/captures
+POST /inspections/{id}/analyze
+GET /inspections
+GET /inspections/{id}
+POST /inspections/{id}/review
+GET /inspections/{id}/report
+GET /products/{id}/history
+
+Potential internal endpoints/services:
+
+OCR
+vision
+measurement
+rules
+similarity
+reports
+
+Do not expose internal implementation details unnecessarily.
+
+Use Pydantic validation.
+
+Return consistent error responses.
+
+Use proper HTTP status codes.
+
+============================================================
+25. FRONTEND / WEB DASHBOARD
+============================================================
+
+Replace the current static HTML dashboard with a maintainable frontend architecture if practical.
+
+Preferred:
+
+React
++
+TypeScript
++
+Vite
++
+Tailwind CSS
++
+React Router
++
+Recharts
+
+The dashboard should include:
+
+- Login
+- Home/dashboard
+- Inspections
+- Inspection detail
+- Review queue
+- Product history
+- Analytics
+- Reports
+- Admin where appropriate
+
+The web application must not contain legal decision logic.
+
+It renders backend results.
+
+============================================================
+26. MOBILE UX
+============================================================
+
+The mobile app should be inspector-first.
+
+Main workflow:
+
+LOGIN
+→ DASHBOARD
+→ START INSPECTION
+→ GUIDED CAMERA
+→ SURFACE CAPTURE
+→ ANALYZE
+→ NEXT SURFACE IF REQUIRED
+→ EVIDENCE SUFFICIENT
+→ COMPLIANCE RESULT
+→ REVIEW
+→ REPORT
+
+Camera screen should show:
+
+- package framing guide
+- capture status
+- surface/evidence status
+- quality warnings
+- instructions
+- progress
+- uncertainty warnings
+
+Do not overload the inspector with technical AI information.
+
+============================================================
+27. OFFLINE MODE
+============================================================
+
+Inspectors may work in poor connectivity.
+
+Design the mobile app so capture can occur offline.
+
+Store locally:
+
+- inspection session
+- images
+- metadata
+- OCR result where possible
+- queued synchronization operations
+
+When connectivity returns:
+
+sync
+→ validate
+→ upload
+→ reconcile
+→ mark synchronized
+
+Avoid duplicate inspections.
+
+Use idempotent API operations.
+
+If full offline AI inference is impractical, offline capture must still work and upload later.
+
+============================================================
+28. DATASET
+============================================================
+
+The current dataset is synthetic and insufficient for real-world ML.
+
+Keep synthetic data for regression testing.
+
+Add architecture for real Indian product images.
+
+Dataset should eventually contain:
+
+food
+beverages
+personal care
+household products
+consumer goods
+
+Include:
+
+- compliant samples
+- missing declarations
+- poor OCR
+- small text
+- multilingual labels
+- stickers
+- altered MRP regions
+- curved packaging
+- multiple surfaces
+- different lighting
+- blur
+- perspective
+- clutter
+
+Split by PRODUCT, not by image.
+
+Never allow images of the same physical product/package version to leak between train and test.
+
+Do not fabricate claims of model accuracy without measured evaluation.
+
+============================================================
+29. TESTING
+============================================================
+
+Create a real test suite.
+
+Use pytest.
+
+Test:
+
+OCR
+field extraction
+normalization
+unit price
+exemptions
+applicability
+Rule 6
+Rule 7
+Rule 8
+Rule 24
+Rule 25
+Rule 26
+Rule 4
+Rule 5
+Second Schedule where implemented
+API validation
+database persistence
+authentication
+RBAC
+reports
+multi-surface sessions
+evidence sufficiency
+measurement uncertainty
+tampering signals
+history
+review workflow
+
+Include boundary tests.
+
+Examples:
+
+- quantity exactly at threshold
+- just below threshold
+- just above threshold
+- exactly 1 kg
+- just below 1 kg
+- exactly 1 litre
+- imported vs domestic
+- retail vs wholesale
+- exempt vs non-exempt
+- missing evidence vs actual absence
+- calibrated vs uncalibrated measurement
+
+Every legal evaluator must have deterministic unit tests.
+
+============================================================
+30. DEPLOYMENT
+============================================================
+
+Make the system containerizable.
+
+Create:
+
+Dockerfile(s)
+docker-compose.yml or equivalent
+.env.example
+deployment documentation
+health checks
+
+Development stack should be easy to start.
+
+Example conceptual deployment:
+
+Mobile
+   ↓
+HTTPS/API Gateway
+   ↓
+FastAPI
+   ↓
+Inspection Orchestrator
+   ├── OCR/CV workers
+   ├── Rule Engine
+   ├── VLM optional
+   ├── Report service
+   └── Retrieval service
+        ↓
+PostgreSQL
+        ↓
+Object Storage
+
+Use Redis/Celery or an equivalent job system only where asynchronous workloads justify it.
+
+Do not introduce infrastructure merely because it sounds impressive.
+
+============================================================
+31. SECURITY
+============================================================
+
+Implement:
+
+- secure authentication
+- password hashing
+- JWT/session security
+- RBAC
+- environment secrets
+- restricted CORS
+- upload validation
+- file-size limits
+- MIME/content validation
+- path traversal protection
+- SQL parameterization
+- rate limiting where appropriate
+- secure object access
+- audit logging
+- dependency hygiene
+
+Never put API keys/passwords in source code.
+
+Never put credentials into README files.
+
+Never commit .env.
+
+============================================================
+32. PERFORMANCE
+============================================================
+
+Design for practical scale.
+
+Do not optimize prematurely.
+
+But avoid:
+
+- loading entire similarity indexes for every request
+- opening unnecessary DB connections per operation
+- blocking long OCR operations inside synchronous request paths when asynchronous jobs are justified
+- storing large images inside PostgreSQL unnecessarily
+
+Use:
+
+connection pooling
+indexes
+pagination
+background jobs where justified
+caching where useful
+vector indexing where needed
+
+============================================================
+33. OBSERVABILITY
+============================================================
+
+Add:
+
+- structured logging
+- request IDs
+- inspection IDs
+- processing timing
+- OCR timing
+- rule evaluation timing
+- errors
+- health endpoint
+- readiness information where appropriate
+
+Never log:
+
+passwords
+JWTs
+API keys
+sensitive secrets
+
+============================================================
+34. VLM / LLM USAGE
+============================================================
+
+LLMs/VLMs are optional secondary intelligence.
+
+They may be used for:
+
+- ambiguous wording
+- semantic clarification
+- explanation
+- summarization
+- inspector voice assistant
+- retrieval-based legal explanation
+
+They must NOT:
+
+- invent legal rules
+- make final PASS/FAIL decisions
+- override deterministic rules
+- infer missing evidence as fact
+
+If the VLM is unavailable:
+
+the core system must still work.
+
+Use graceful fallback.
+
+Do not make the system dependent on an external proprietary API for basic compliance evaluation.
+
+============================================================
+35. VOICE AI
+============================================================
+
+The voice assistant is an interface layer, not a separate compliance brain.
+
+Support questions such as:
+
+“Why was this package flagged?”
+
+“Which declaration is missing?”
+
+“Which rule caused this finding?”
+
+“Summarize this inspection.”
+
+“What changed from the previous inspection?”
+
+The assistant should answer from structured inspection evidence and legal sources.
+
+Do not allow free-form hallucinated legal advice.
+
+============================================================
+36. ANALYTICS
+============================================================
+
+Implement useful enforcement analytics.
+
+Examples:
+
+- inspections completed
+- PASS/FAIL/UNCERTAIN distribution
+- most frequent findings
+- frequently missing declarations
+- product/category trends
+- review queue
+- historical product changes
+- suspicious alteration signals
+- inspection activity
+
+Do not expose personally sensitive information unnecessarily.
+
+============================================================
+37. PRODUCT IDENTITY
+============================================================
+
+Support product identity through:
+
+barcode/QR where available
++
+product ID
++
+visual retrieval
++
+manual confirmation
+
+Do not assume visual similarity proves identity.
+
+Product records should support package versions.
+
+============================================================
+38. COMPLIANCE DECISION MODEL
+============================================================
+
+The final status aggregation should be deterministic.
+
+Suggested precedence:
+
+FAIL
+then
+UNCERTAIN
+then
+EXEMPT
+then
+PASS
+
+But ensure this logic correctly handles applicability.
+
+Example:
+
+If product is legally exempt:
+EXEMPT
+
+If requirement applies and evidence proves violation:
+FAIL
+
+If requirement applies but evidence is insufficient:
+UNCERTAIN
+
+If requirement applies and evidence satisfies it:
+PASS
+
+Do not allow an unrelated advisory signal to automatically create a legal FAIL.
+
+For example:
+
+sticker_suspect
+≠
+LMPC violation
+
+visual_similarity_change
+≠
+legal violation
+
+============================================================
+39. DISCLAIMER / LEGAL POSITIONING
+============================================================
+
+The application should clearly state that automated analysis is an inspection/pre-screening aid unless the deployment context explicitly authorizes otherwise.
+
+Use precise language.
+
+Avoid:
+“Legally certified”
+“100% compliant”
+“Counterfeit confirmed”
+“Government-approved” unless officially true.
+
+Prefer:
+“Automated compliance screening”
+“Evidence-backed finding”
+“Review required”
+“Potential alteration”
+“Based on applicable rule version”
+
+============================================================
+40. CODE QUALITY
+============================================================
+
+Do not create giant unmaintainable files if modularization improves the architecture.
+
+Use:
+
+clear modules
+type hints
+Pydantic models
+dataclasses where appropriate
+small deterministic functions
+docstrings for complex legal/measurement logic
+proper exception handling
+structured logging
+tests
+
+Avoid:
+
+magic constants
+duplicated legal logic
+duplicate schemas
+silent exception swallowing
+global mutable state
+hardcoded paths
+hardcoded credentials
+hardcoded localhost URLs in production code
+
+============================================================
+41. BACKWARD COMPATIBILITY
+============================================================
+
+Do not destroy the current working prototype.
+
+Preserve compatibility where practical.
+
+Existing endpoints may remain supported while the new inspection-session architecture is introduced.
+
+Create compatibility adapters where needed.
+
+The old single-image scan can become:
+
+one SurfaceObservation inside an InspectionSession.
+
+This is preferable to maintaining two completely separate architectures.
+
+============================================================
+42. SHARED DATA CONTRACT
+============================================================
+
+The existing backend/schema.py is the source of truth.
+
+Preserve the meaning of:
+
+FactStatus
+MeasurementMode
+GeometryType
+SurfaceType
+EvidenceStatus
+CaptureMode
+PositionCoordinateSystem
+ImageQuality
+CameraPose
+CalibrationInfo
+SurfaceObservation
+EvidenceReference
+ExtractedFact
+RuleFinding
+InspectionSummary
+ProductIdentity
+ProductInspection
+
+Do not rename enum values casually.
+
+Do not introduce duplicate competing models.
+
+If schema changes are necessary:
+
+update every dependent module and add tests.
+
+============================================================
+43. CONFIGURATION
+============================================================
+
+Create:
+
+.env.example
+
+Include configuration for:
+
+DATABASE_URL
+OBJECT_STORAGE
+JWT_SECRET
+API_BASE_URL
+CORS_ORIGINS
+OCR_PROVIDER
+VLM_PROVIDER
+VLM_API_KEY
+REDIS_URL if used
+ENVIRONMENT
+LOG_LEVEL
+
+Provide safe development defaults where appropriate.
+
+Never provide real secrets.
+
+============================================================
+44. DOCUMENTATION
+============================================================
+
+Update README.md with:
+
+- project purpose
+- architecture
+- setup
+- mobile setup
+- backend setup
+- database setup
+- environment variables
+- OCR installation
+- deployment
+- testing
+- legal architecture
+- rule versioning
+- evidence model
+- uncertainty model
+- limitations
+- known supported functionality
+
+Update SETUP.md.
+
+Create architecture documentation.
+
+Create API documentation where useful.
+
+Document what is:
+
+implemented
+fallback
+experimental
+mocked
+not supported
+
+Do not exaggerate.
+
+============================================================
+45. DO NOT OVERENGINEER
+============================================================
+
+The goal is a strong real product, not a collection of buzzwords.
+
+Do not add:
+
+blockchain
+unnecessary microservices
+unnecessary Kubernetes
+unnecessary AI agents
+unnecessary chatbots
+unnecessary distributed systems
+fake “real-time AI”
+fake 3D metrology
+fake legal certainty
+
+Use simple reliable components when sufficient.
+
+A modular monolith is acceptable for the MVP.
+
+The architecture must be deployable as a real service.
+
+============================================================
+46. ERROR HANDLING
+============================================================
+
+The system must degrade gracefully.
+
+Examples:
+
+OCR unavailable
+→ use fallback OCR / return UNCERTAIN
+
+VLM unavailable
+→ continue without VLM
+
+ARCore unavailable
+→ camera works without depth
+
+Database unavailable
+→ show explicit service error, do not corrupt inspection
+
+Measurement unavailable
+→ UNCERTAIN
+
+Insufficient surfaces
+→ request another capture
+
+Low-quality image
+→ request recapture
+
+Unknown legal applicability
+→ REVIEW REQUIRED
+
+Unknown legal rule version
+→ do not fabricate decision
+
+============================================================
+47. FINAL USER EXPERIENCE
+============================================================
+
+The inspector should feel that the application is guiding an inspection, not operating an AI laboratory.
+
+Desired interaction:
+
+START INSPECTION
+
+“Capture the main label.”
+
+Capture.
+
+“Text detected.”
+
+“MRP and net quantity found.”
+
+“Some required information has not yet been located.”
+
+“Rotate the package.”
+
+Capture.
+
+“Additional declaration detected.”
+
+“Evidence sufficient for applicable checks.”
+
+“Analyzing compliance…”
+
+Result:
+
+COMPLIANT
+or
+POTENTIAL VIOLATION
+or
+REVIEW REQUIRED
+or
+EXEMPT
+
+Then show:
+
+Finding
+Evidence
+Rule
+Reason
+Confidence
+Recommended action
+
+============================================================
+48. FINAL ARCHITECTURE
+============================================================
+
+The finished architecture should conceptually resemble:
+
+                         MOBILE APP
+                             │
+                             ▼
+                    GUIDED CAPTURE
+                             │
+                             ▼
+                    INSPECTION SESSION
+                             │
+                    SurfaceObservation[]
+                             │
+             ┌───────────────┴───────────────┐
+             ▼                               ▼
+          OCR/CV                         GEOMETRY
+             │                               │
+             └───────────────┬───────────────┘
+                             ▼
+                    STRUCTURED EVIDENCE
+                             │
+                             ▼
+                  EVIDENCE SUFFICIENCY
+                       │           │
+                     NO            YES
+                      │             │
+              MORE CAPTURE         ▼
+                              APPLICABILITY
+                                      │
+                              EXEMPTION ENGINE
+                                      │
+                                      ▼
+                           VERSIONED RULE ENGINE
+                                      │
+                    ┌─────────────────┼────────────────┐
+                    ▼                 ▼                ▼
+                  PASS              FAIL          UNCERTAIN
+                                                        │
+                                                        ▼
+                                                  HUMAN REVIEW
+                                                        │
+                                                        ▼
+                                               FINAL RECORD
+                                                        │
+                                  ┌─────────────────────┼──────────────────┐
+                                  ▼                     ▼                  ▼
+                               REPORT                HISTORY           ANALYTICS
+
+Parallel intelligence:
+
+Historical images
+       ↓
+Visual retrieval
+       ↓
+Potential package/MRP/label change
+       ↓
+Human review
+
+Legal knowledge:
+
+Official legal documents
+       ↓
+verified rule records
+       ↓
+versioned legal database
+       ├── RAG/retrieval
+       └── deterministic rule engine
+
+============================================================
+49. IMPLEMENTATION BEHAVIOR
+============================================================
+
+Now execute.
+
+Do not merely tell me what should be done.
+
+Start by auditing the repository.
+
+Then make the required architectural and code changes.
+
+After each significant modification:
+
+- run relevant tests
+- run static checks
+- run imports
+- start the backend
+- test API endpoints
+- test database integration
+- test frontend build
+- test mobile build if available
+- fix errors
+
+If a dependency is missing:
+add it correctly.
+
+If a dependency is platform-specific:
+document it.
+
+If a feature cannot be fully implemented because an external service/API/model is unavailable:
+implement the correct abstraction and a deterministic/local fallback.
+
+Do not leave dead code that appears integrated but is never called.
+
+Do not leave features marked as implemented if they are actually mocked.
+
+============================================================
+50. LEGAL VERIFICATION SAFETY
+============================================================
+
+For every legal rule you implement:
+
+- identify exact rule/clause
+- identify source
+- identify effective date
+- identify applicability
+- identify exemptions
+- identify evidence
+- write tests
+- avoid unsupported assumptions
+
+If the official source cannot be accessed during development:
+
+do NOT invent a legal threshold.
+
+Instead:
+- mark it as requiring verification
+- isolate the configuration
+- prevent it from silently producing authoritative compliance decisions
+
+Legal correctness is more important than pretending to have complete coverage.
+
+============================================================
+51. DEFINITION OF DONE
+============================================================
+
+Do not consider the project complete merely because the server starts.
+
+The project is complete only when the repository contains, as far as technically achievable:
+
+1. Working backend
+2. Working database
+3. Working authentication
+4. Working RBAC
+5. Working mobile inspection application
+6. Guided multi-surface capture
+7. Evidence sufficiency logic
+8. OCR pipeline
+9. Field extraction
+10. Image quality checks
+11. Geometry support
+12. Calibrated measurement path
+13. Applicability engine
+14. Exemption engine
+15. Versioned deterministic legal engine
+16. Evidence-backed findings
+17. Human review
+18. Tampering advisory detection
+19. Product history
+20. Visual retrieval
+21. PDF reporting
+22. Audit trail
+23. Dashboard
+24. Analytics
+25. Offline/sync architecture where practical
+26. Tests
+27. Docker deployment
+28. Configuration management
+29. Security controls
+30. Documentation
+31. Graceful fallbacks
+32. No hardcoded secrets
+33. No known broken imports
+34. No obviously disconnected modules
+35. No contradictory schemas
+36. No fake legal claims
+
+============================================================
+52. IMPORTANT PRIORITIES
+============================================================
+
+When forced to choose between:
+
+feature count
+and
+correctness
+
+choose correctness.
+
+When forced to choose between:
+
+AI sophistication
+and
+legal/evidence reliability
+
+choose legal/evidence reliability.
+
+When forced to choose between:
+
+beautiful UI
+and
+inspection workflow correctness
+
+choose inspection workflow correctness.
+
+When forced to choose between:
+
+automated PASS
+and
+honest UNCERTAIN
+
+choose UNCERTAIN.
+
+When forced to choose between:
+
+inventing a legal interpretation
+and
+requiring legal verification
+
+choose legal verification.
+
+============================================================
+53. FINAL REQUIREMENT
+============================================================
+
+At the end of your work, do NOT simply say “done”.
+
+Produce a concise engineering completion report containing:
+
+A. What was implemented
+B. What files were created/modified
+C. Current architecture
+D. Backend status
+E. Mobile status
+F. OCR/CV status
+G. ML status
+H. Legal engine status
+I. Database status
+J. Security status
+K. Deployment status
+L. Test results
+M. Remaining limitations
+N. Anything that still requires human/legal verification
+O. Exact commands required to run the complete system
+
+Most importantly:
+
+DO NOT CLAIM PRODUCTION-GRADE LEGAL ACCURACY WHERE THE SYSTEM HAS NOT BEEN VALIDATED.
+
+The objective is to leave the repository as a genuinely functioning, maintainable, testable, deployable inspection platform with a credible path from prototype to government deployment.
+
+Begin by inspecting the entire repository and then execute the work.

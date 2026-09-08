@@ -1,0 +1,1220 @@
+{
+  "_meta": {
+    "manifest_version": "1.0",
+    "project": "SIH 2026 - PS 26034 - Legal Metrology Packaged Commodities Compliance Platform",
+    "audit_date": "2026-09-06",
+    "auditor": "Kiro - read-only audit, no project files modified",
+    "overall_readiness_pct": 35,
+    "readiness_label": "Pre-Alpha / Functional Prototype"
+  },
+  "repository_tree": {
+    "root": "c:/Users/HP/SIH 2026",
+    "total_source_files": 16,
+    "total_generated_asset_files": 52,
+    "total_config_files": 2,
+    "total_docs": 4,
+    "files": [
+      {
+        "path": ".gitignore",
+        "type": "config",
+        "language": null,
+        "in_git": true
+      },
+      {
+        "path": "README.md",
+        "type": "docs",
+        "language": null,
+        "in_git": true
+      },
+      {
+        "path": "SETUP.md",
+        "type": "docs",
+        "language": null,
+        "in_git": true
+      },
+      {
+        "path": "ENGINE_UPGRADE_NOTES.md",
+        "type": "docs",
+        "language": null,
+        "in_git": true
+      },
+      {
+        "path": "PROJECT_STATE.md",
+        "type": "generated_audit",
+        "language": null,
+        "in_git": false
+      },
+      {
+        "path": "PROJECT_MANIFEST.json",
+        "type": "generated_audit",
+        "language": null,
+        "in_git": false
+      },
+      {
+        "path": "backend/main.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/schema.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/rule_engine.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/exemption.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/ocr_extraction.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/sticker_detection.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/product_similarity.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/vlm_verifier.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/unit_price.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "backend/requirements.txt",
+        "type": "config",
+        "language": null,
+        "in_git": true
+      },
+      {
+        "path": "backend/product_index.json",
+        "type": "runtime_generated",
+        "language": null,
+        "in_git": false,
+        "note": "Created at runtime; empty on fresh clone"
+      },
+      {
+        "path": "backend/db/__init__.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true,
+        "note": "Empty package marker"
+      },
+      {
+        "path": "backend/db/schema.sql",
+        "type": "source",
+        "language": "sql",
+        "in_git": true
+      },
+      {
+        "path": "backend/db/persistence.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "frontend/dashboard.html",
+        "type": "source",
+        "language": "html",
+        "in_git": true
+      },
+      {
+        "path": "frontend/capture.html",
+        "type": "source",
+        "language": "html",
+        "in_git": true
+      },
+      {
+        "path": "rules/rules.json",
+        "type": "source",
+        "language": "json",
+        "in_git": true
+      },
+      {
+        "path": "dataset/generate_dataset.py",
+        "type": "source",
+        "language": "python",
+        "in_git": true
+      },
+      {
+        "path": "dataset/images/",
+        "type": "generated_assets",
+        "language": null,
+        "in_git": true,
+        "file_count": 50
+      },
+      {
+        "path": "dataset/annotations/annotations.json",
+        "type": "generated",
+        "language": "json",
+        "in_git": true
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "main",
+      "path": "backend/main.py",
+      "type": "fastapi_entrypoint",
+      "public_symbols": [
+        "app",
+        "startup",
+        "inspect",
+        "analyze_image",
+        "scan",
+        "get_inspections",
+        "get_inspection",
+        "review_inspection",
+        "get_product_history",
+        "health"
+      ],
+      "imports": [
+        "schema",
+        "rule_engine",
+        "sticker_detection",
+        "product_similarity",
+        "ocr_extraction",
+        "db.persistence",
+        "fastapi",
+        "pydantic",
+        "cv2",
+        "PIL"
+      ],
+      "status": "working",
+      "known_issues": [
+        "CORS allow_origins=* (no auth)",
+        "Hardcoded localhost:8000 in frontend",
+        "vlm_verifier never imported or called",
+        "/inspect endpoint does not call _prepare_extractions()",
+        "best_before_applicable and is_imported always False in /scan"
+      ]
+    },
+    {
+      "name": "schema",
+      "path": "backend/schema.py",
+      "type": "pydantic_contracts",
+      "public_symbols": [
+        "FactStatus",
+        "MeasurementMode",
+        "GeometryType",
+        "SurfaceType",
+        "EvidenceStatus",
+        "CaptureMode",
+        "PositionCoordinateSystem",
+        "BBox",
+        "PolygonPoint",
+        "ImageQuality",
+        "CameraPose",
+        "CalibrationInfo",
+        "SurfaceObservation",
+        "EvidenceReference",
+        "ExtractedFact",
+        "RuleFinding",
+        "InspectionSummary",
+        "ProductIdentity",
+        "ProductInspection",
+        "CaptureRequest",
+        "InspectionCreateRequest",
+        "InspectionResponse"
+      ],
+      "imports": [
+        "pydantic",
+        "enum",
+        "typing"
+      ],
+      "status": "working",
+      "known_issues": [
+        "_summary() in rule_engine returns dict; ProductInspection.summary is InspectionSummary - relies on Pydantic coercion"
+      ]
+    },
+    {
+      "name": "rule_engine",
+      "path": "backend/rule_engine.py",
+      "type": "legal_evaluator",
+      "public_symbols": [
+        "RawExtraction",
+        "load_rules",
+        "run_inspection",
+        "_has_value"
+      ],
+      "private_evaluators": [
+        "_evaluate_rule6_declarations",
+        "_evaluate_font_height",
+        "_evaluate_unit_sale_price",
+        "_evaluate_placement",
+        "_aggregate_status",
+        "_summary"
+      ],
+      "rules_evaluated": [
+        "LMPC-2011-R3-SCOPE",
+        "LMPC-2011-R26-SMALL-PACKS",
+        "LMPC-2011-R6-DECLARATIONS",
+        "LMPC-2011-R6-11-UNIT-PRICE",
+        "LMPC-2011-R7-2-FONT",
+        "LMPC-2011-R8-PLACEMENT"
+      ],
+      "rules_not_evaluated": [
+        "LMPC-2011-R4-MULTIPACK",
+        "LMPC-2011-R5-STANDARD-PACK",
+        "LMPC-2011-R6-10-ECOMMERCE",
+        "LMPC-2011-R7-PDP-AREA",
+        "LMPC-2011-R8-2-RETURNABLE-BOTTLE",
+        "LMPC-2011-R24-WHOLESALE",
+        "LMPC-2011-R25-EXPORT",
+        "LMPC-2011-R26-B-FAST-FOOD",
+        "LMPC-2011-R26-C-DRUG-FORMULATIONS",
+        "LMPC-2011-R27-REGISTRATION",
+        "LMPC-2011-R31-ADVERTISEMENT",
+        "LMPC-2011-R32-PENALTY",
+        "LMPC-2011-SCHEDULE-II"
+      ],
+      "imports": [
+        "schema",
+        "exemption",
+        "unit_price",
+        "json",
+        "pathlib"
+      ],
+      "status": "working_retail_only",
+      "known_issues": [
+        "Wholesale/export paths not evaluated",
+        "R4/R5/R24/R25/R27/R31 have no evaluators",
+        "R7 font-width ratio not evaluated",
+        "10-20g partial relaxation not evaluated",
+        "best_before_applicable defaults to False - perishables never checked for use-by",
+        "is_imported defaults to False - imports never checked for country-of-origin",
+        "captures list always empty in /scan - FAIL for missing fields can never fire"
+      ]
+    },
+    {
+      "name": "exemption",
+      "path": "backend/exemption.py",
+      "type": "scope_classifier",
+      "public_symbols": [
+        "ExemptionInput",
+        "ExemptionResult",
+        "classify_exemption"
+      ],
+      "imports": [
+        "json",
+        "dataclasses",
+        "pathlib"
+      ],
+      "status": "working",
+      "exemption_paths_implemented": [
+        "not_prepackaged",
+        "industrial_or_institutional_direct_sale",
+        "export_only_transaction",
+        "rule_3_quantity_exclusion",
+        "rule_26_small_pack (<=10g/ml, excl tobacco/pan-masala)"
+      ],
+      "exemption_paths_missing": [
+        "rule_26b_fast_food",
+        "rule_26c_drug_formulations",
+        "rule_26a_10_to_20g_partial_relaxation"
+      ],
+      "known_issues": []
+    },
+    {
+      "name": "ocr_extraction",
+      "path": "backend/ocr_extraction.py",
+      "type": "ocr_pipeline",
+      "public_symbols": [
+        "OcrLine",
+        "FIELD_PATTERNS",
+        "run_ocr",
+        "classify_fields",
+        "extract_from_image"
+      ],
+      "imports": [
+        "pytesseract",
+        "PIL",
+        "re"
+      ],
+      "status": "working_with_caveats",
+      "ocr_backend": "Tesseract (pretrained general model)",
+      "field_patterns_count": 13,
+      "preprocessing_variants": [
+        "RGB original",
+        "2x upscaled grayscale with autocontrast"
+      ],
+      "psm_modes": [
+        6,
+        11
+      ],
+      "known_issues": [
+        "pytesseract NOT in requirements.txt - P0 breakage on fresh install",
+        "Tesseract binary not in requirements.txt",
+        "No trained layout model - pure regex heuristics",
+        "Degrades on cramped columns and low-contrast/dot-matrix prints",
+        "__main__ block has hardcoded Linux file path",
+        "No pixel-to-mm font height measurement"
+      ]
+    },
+    {
+      "name": "sticker_detection",
+      "path": "backend/sticker_detection.py",
+      "type": "cv_heuristic",
+      "public_symbols": [
+        "SuspectRegion",
+        "detect_sticker_regions"
+      ],
+      "imports": [
+        "cv2",
+        "numpy"
+      ],
+      "status": "working_advisory_only",
+      "algorithm": "dual-scale Canny edges, contour detection, 4 signal scores (edge_discontinuity, border_edge_strength, texture_difference, sharpness_mismatch), NMS",
+      "result_severity": "UNCERTAIN only - never FAIL",
+      "known_issues": [
+        "No trained model - classical CV heuristic",
+        "Non-negligible false positive rate on ordinary packaging artwork"
+      ]
+    },
+    {
+      "name": "product_similarity",
+      "path": "backend/product_similarity.py",
+      "type": "visual_retrieval",
+      "public_symbols": [
+        "ProductEmbedding",
+        "MatchResult",
+        "embed_image",
+        "find_similar",
+        "detect_price_or_label_change",
+        "save_to_index",
+        "load_index"
+      ],
+      "imports": [
+        "cv2",
+        "imagehash",
+        "numpy",
+        "PIL"
+      ],
+      "index_file": "backend/product_index.json",
+      "index_in_git": false,
+      "descriptor": "pHash (16x16) + HSV histogram (32x32 bins, L1-normalized)",
+      "status": "working",
+      "known_issues": [
+        "O(n) linear scan - not scalable beyond ~500 entries",
+        "product_index.json empty on fresh clone",
+        "Not a trained deep embedding model"
+      ]
+    },
+    {
+      "name": "vlm_verifier",
+      "path": "backend/vlm_verifier.py",
+      "type": "vlm_secondary_checker",
+      "public_symbols": [
+        "VerifierResult",
+        "verify_ambiguous_field",
+        "verify_ambiguous_field_with_provider",
+        "verify_ambiguous_field_mocked"
+      ],
+      "imports": [
+        "anthropic",
+        "json",
+        "os",
+        "re"
+      ],
+      "status": "DISCONNECTED - never called from pipeline",
+      "provider": "Anthropic Claude",
+      "model_default": "claude-sonnet-4-6",
+      "requires_env": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "known_issues": [
+        "Never imported or called from main.py or rule_engine.py",
+        "ANTHROPIC_API_KEY must be set in environment",
+        "Model name claude-sonnet-4-6 should be verified against current Anthropic model list"
+      ]
+    },
+    {
+      "name": "unit_price",
+      "path": "backend/unit_price.py",
+      "type": "arithmetic_calculator",
+      "public_symbols": [
+        "UnitDefinition",
+        "UnitPriceResult",
+        "compute_unit_sale_price",
+        "convert_declared_price_to_standard"
+      ],
+      "imports": [
+        "decimal"
+      ],
+      "status": "working",
+      "arithmetic": "Decimal (not float) - ROUND_HALF_UP",
+      "quantity_families": [
+        "weight (g/kg)",
+        "volume (ml/l)",
+        "length (cm/m)",
+        "number"
+      ],
+      "known_issues": [
+        "Area (m2) unit family referenced in rules.json but not implemented"
+      ]
+    },
+    {
+      "name": "db.persistence",
+      "path": "backend/db/persistence.py",
+      "type": "database_layer",
+      "public_symbols": [
+        "get_conn",
+        "init_schema",
+        "save_inspection",
+        "list_inspections",
+        "get_inspection_detail",
+        "mark_reviewed",
+        "product_history"
+      ],
+      "imports": [
+        "psycopg2",
+        "psycopg2.extras",
+        "json",
+        "os",
+        "pathlib"
+      ],
+      "status": "working",
+      "known_issues": [
+        "Hardcoded fallback DATABASE_URL with password lmpc_dev_pw in source code",
+        "No connection pooling - new connection per request",
+        "product_id extracted from inspection_id by splitting on colon - breaks if product_id contains colon",
+        "Runtime column detection via information_schema adds latency per save"
+      ]
+    }
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/scan",
+      "description": "Full single-surface inspection pipeline: image -> OCR -> rule engine -> Postgres",
+      "request_type": "multipart/form-data",
+      "required_fields": [
+        "file",
+        "product_id",
+        "net_quantity_value",
+        "net_quantity_unit"
+      ],
+      "optional_fields": [
+        "sale_type",
+        "product_category",
+        "mrp",
+        "pdp_area_cm2",
+        "is_export_only",
+        "retail_bundle_count"
+      ],
+      "response_model": "custom JSON (inspection + ocr_lines + sticker_suspects + similarity)",
+      "auth": null,
+      "status": "implemented_and_tested"
+    },
+    {
+      "method": "POST",
+      "path": "/inspect",
+      "description": "Rule engine on pre-structured evidence (no image upload)",
+      "request_type": "application/json",
+      "request_model": "InspectRequest",
+      "response_model": "ProductInspection",
+      "auth": null,
+      "status": "implemented",
+      "known_issue": "Does not call _prepare_extractions() - callers must use rule-engine field names"
+    },
+    {
+      "method": "POST",
+      "path": "/analyze-image",
+      "description": "Visual analysis only: sticker detection + product similarity. No legal verdict.",
+      "request_type": "multipart/form-data",
+      "required_fields": [
+        "file",
+        "product_id"
+      ],
+      "optional_fields": [
+        "mrp"
+      ],
+      "auth": null,
+      "status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/inspections",
+      "description": "List all inspections, newest first",
+      "query_params": [
+        "limit (1-200, default 50)",
+        "status (optional)",
+        "needs_review (bool, optional)"
+      ],
+      "response_model": "array of inspection rows",
+      "auth": null,
+      "status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/inspections/{inspection_id}",
+      "description": "Single inspection with all facts",
+      "response_model": "inspection row + facts array",
+      "auth": null,
+      "status": "implemented",
+      "errors": [
+        "404 if not found"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/inspections/{inspection_id}/review",
+      "description": "Mark inspection as reviewed with a note",
+      "request_model": "ReviewRequest {note: str}",
+      "response_model": "{status, inspection_id, review_note}",
+      "auth": null,
+      "status": "implemented",
+      "errors": [
+        "404 if not found"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/products/{product_id}/history",
+      "description": "Last 20 inspections for a product",
+      "response_model": "array of inspection rows",
+      "auth": null,
+      "status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "description": "Service health check",
+      "response_model": "{status: ok, service: lmpc-compliance-api}",
+      "auth": null,
+      "status": "implemented"
+    }
+  ],
+  "database": {
+    "technology": "PostgreSQL",
+    "driver": "psycopg2-binary",
+    "connection_env_var": "DATABASE_URL",
+    "hardcoded_fallback_url": "postgresql://lmpc_app:lmpc_dev_pw@localhost:5432/lmpc",
+    "credential_in_source": true,
+    "auto_init_on_startup": true,
+    "tables": [
+      {
+        "name": "products",
+        "columns": [
+          "product_id TEXT PK",
+          "category TEXT",
+          "first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+        ],
+        "indexes": [
+          "PRIMARY KEY product_id"
+        ]
+      },
+      {
+        "name": "inspections",
+        "columns": [
+          "inspection_id TEXT PK",
+          "product_id TEXT FK->products",
+          "sale_type TEXT NOT NULL",
+          "product_category TEXT NOT NULL",
+          "net_quantity_value NUMERIC CHECK >0",
+          "net_quantity_unit TEXT",
+          "mrp NUMERIC CHECK >=0",
+          "overall_status TEXT NOT NULL CHECK IN (PASS,FAIL,UNCERTAIN,EXEMPT)",
+          "exempt_reason TEXT",
+          "image_filename TEXT",
+          "created_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+          "reviewed BOOLEAN NOT NULL DEFAULT FALSE",
+          "reviewer_note TEXT",
+          "review_required BOOLEAN NOT NULL DEFAULT FALSE"
+        ],
+        "indexes": [
+          "idx_inspections_product ON product_id",
+          "idx_inspections_status ON overall_status",
+          "idx_inspections_created ON created_at DESC",
+          "idx_inspections_review PARTIAL WHERE reviewed=FALSE",
+          "idx_inspections_needs_review PARTIAL WHERE review_required=TRUE"
+        ]
+      },
+      {
+        "name": "inspection_facts",
+        "columns": [
+          "id SERIAL PK",
+          "inspection_id TEXT NOT NULL FK->inspections ON DELETE CASCADE",
+          "field TEXT NOT NULL",
+          "extracted_value TEXT",
+          "status TEXT NOT NULL CHECK IN (PASS,FAIL,UNCERTAIN,EXEMPT)",
+          "confidence NUMERIC CHECK 0<=confidence<=1",
+          "rule_id TEXT",
+          "rule_version TEXT",
+          "reason TEXT",
+          "review_required BOOLEAN NOT NULL DEFAULT FALSE",
+          "evidence_json JSONB"
+        ],
+        "indexes": [
+          "idx_facts_inspection ON inspection_id",
+          "idx_facts_field ON field",
+          "idx_facts_status ON status",
+          "idx_facts_rule ON rule_id",
+          "idx_facts_review PARTIAL WHERE review_required=TRUE"
+        ]
+      }
+    ]
+  },
+  "legal_rules": [
+    {
+      "rule_id": "LMPC-2011-R3-SCOPE",
+      "clause": "Rule 3",
+      "type": "scope_and_exemption",
+      "evaluator": "exemption.classify_exemption",
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R4-MULTIPACK",
+      "clause": "Rule 4",
+      "type": "multipack",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R5-STANDARD-PACK",
+      "clause": "Rule 5",
+      "type": "standard_package_quantity",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R6-DECLARATIONS",
+      "clause": "Rule 6(1)",
+      "type": "mandatory_declarations",
+      "evaluator": "rule_engine._evaluate_rule6_declarations",
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R6-10-ECOMMERCE",
+      "clause": "Rule 6(10)",
+      "type": "ecommerce_display",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R6-11-UNIT-PRICE",
+      "clause": "Rule 6(11)",
+      "type": "unit_sale_price",
+      "evaluator": "rule_engine._evaluate_unit_sale_price",
+      "verification_status": "verified_against_doca_faq_2022_amendment_current_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R7-PDP-AREA",
+      "clause": "Rule 7(1)",
+      "type": "pdp_area",
+      "evaluator": null,
+      "verification_status": "verified_against_available_text_amendment_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R7-2-FONT",
+      "clause": "Rule 7(2)",
+      "type": "declaration_font_size",
+      "evaluator": "rule_engine._evaluate_font_height",
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R8-PLACEMENT",
+      "clause": "Rule 8(1)",
+      "type": "declaration_placement",
+      "evaluator": "rule_engine._evaluate_placement (shallow)",
+      "verification_status": "verified_against_available_text_amendment_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R8-2-RETURNABLE-BOTTLE",
+      "clause": "Rule 8(2)",
+      "type": "specific_placement_exception",
+      "evaluator": null,
+      "verification_status": "verified_against_available_text_amendment_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R24-WHOLESALE",
+      "clause": "Rule 24",
+      "type": "wholesale_declarations",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R25-EXPORT",
+      "clause": "Rule 25",
+      "type": "export_package",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R26-SMALL-PACKS",
+      "clause": "Rule 26(a)",
+      "type": "specific_exemption",
+      "evaluator": "exemption._rule26_small_pack_status",
+      "verification_status": "verified_against_available_text_2025_amendment_current_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R26-B-FAST-FOOD",
+      "clause": "Rule 26(b)",
+      "type": "specific_exemption",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R26-C-DRUG-FORMULATIONS",
+      "clause": "Rule 26(c)",
+      "type": "specific_exemption",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R27-REGISTRATION",
+      "clause": "Rule 27",
+      "type": "registration",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R31-ADVERTISEMENT",
+      "clause": "Rule 31",
+      "type": "advertisement",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R32-PENALTY",
+      "clause": "Rule 32",
+      "type": "penalty",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-SCHEDULE-II",
+      "clause": "Second Schedule",
+      "type": "standard_quantity_schedule",
+      "evaluator": null,
+      "verification_status": "needs_official_verification"
+    }
+  ],
+  "dependencies": {
+    "python_packages_declared": [
+      {
+        "package": "fastapi",
+        "version_spec": ">=0.110,<1.0",
+        "role": "web framework",
+        "status": "ok"
+      },
+      {
+        "package": "uvicorn[standard]",
+        "version_spec": ">=0.29,<1.0",
+        "role": "ASGI server",
+        "status": "ok"
+      },
+      {
+        "package": "pydantic",
+        "version_spec": ">=2.6,<3.0",
+        "role": "data validation",
+        "status": "ok"
+      },
+      {
+        "package": "python-multipart",
+        "version_spec": ">=0.0.9,<1.0",
+        "role": "form/file upload",
+        "status": "ok"
+      },
+      {
+        "package": "opencv-python-headless",
+        "version_spec": ">=4.9,<5.0",
+        "role": "CV and image decode",
+        "status": "ok"
+      },
+      {
+        "package": "numpy",
+        "version_spec": ">=1.26,<3.0",
+        "role": "array operations",
+        "status": "ok"
+      },
+      {
+        "package": "Pillow",
+        "version_spec": ">=10.0,<12.0",
+        "role": "image processing",
+        "status": "ok"
+      },
+      {
+        "package": "imagehash",
+        "version_spec": ">=4.3,<5.0",
+        "role": "pHash computation",
+        "status": "ok"
+      },
+      {
+        "package": "httpx",
+        "version_spec": ">=0.27,<1.0",
+        "role": "HTTP client (testing)",
+        "status": "declared_unused_in_runtime_code"
+      },
+      {
+        "package": "psycopg2-binary",
+        "version_spec": ">=2.9,<3.0",
+        "role": "PostgreSQL driver",
+        "status": "ok"
+      },
+      {
+        "package": "anthropic",
+        "version_spec": ">=0.34,<1.0",
+        "role": "Anthropic Claude API",
+        "status": "declared_but_pipeline_disconnected"
+      }
+    ],
+    "python_packages_missing_from_requirements": [
+      {
+        "package": "pytesseract",
+        "severity": "P0",
+        "used_by": "backend/ocr_extraction.py",
+        "fix": "Add pytesseract>=0.3.10,<1.0"
+      }
+    ],
+    "external_runtime_requirements": [
+      {
+        "name": "Tesseract OCR binary",
+        "install": "apt-get install tesseract-ocr",
+        "documented_in": "SETUP.md only",
+        "severity": "P0"
+      },
+      {
+        "name": "PostgreSQL server",
+        "install": "apt-get install postgresql",
+        "documented_in": "SETUP.md only",
+        "severity": "P0"
+      }
+    ],
+    "minimum_python_version": "3.10",
+    "python_version_documented": false
+  },
+  "environment_variables": [
+    {
+      "name": "DATABASE_URL",
+      "required": false,
+      "default": "postgresql://lmpc_app:lmpc_dev_pw@localhost:5432/lmpc",
+      "risk": "HIGH - hardcoded credential in source; must be overridden before any non-localhost deployment",
+      "used_by": "backend/db/persistence.py"
+    },
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "required": false,
+      "default": null,
+      "risk": "LOW - only needed if VLM verifier is called; raises RuntimeError if missing and called",
+      "used_by": "backend/vlm_verifier.py"
+    }
+  ],
+  "dataset": {
+    "total_images": 50,
+    "real_images": 0,
+    "synthetic_images": 50,
+    "products": 25,
+    "variants_per_product": 2,
+    "violation_types": [
+      "missing_consumer_care",
+      "missing_mfg_date",
+      "tiny_mrp_font",
+      "missing_mrp"
+    ],
+    "split_strategy": "by_product_no_leakage",
+    "approximate_split": {
+      "train_products": 15,
+      "val_products": 5,
+      "test_products": 5
+    },
+    "annotation_format": "custom JSON with image_id, product_id, synthetic flag, category, brand, violation_type, expected_overall_status, fields with bboxes, split",
+    "annotation_file": "dataset/annotations/annotations.json",
+    "indian_product_coverage": "None - all fictional English brand names",
+    "model_training_status": "No training performed - no training scripts - no model weights"
+  },
+  "ownership_recommendations": [
+    {
+      "path": "rules/rules.json",
+      "workstream": "A - Legal/Compliance",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/rule_engine.py",
+      "workstream": "A - Legal/Compliance",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/exemption.py",
+      "workstream": "A - Legal/Compliance",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/unit_price.py",
+      "workstream": "A - Legal/Compliance",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/ocr_extraction.py",
+      "workstream": "B - OCR/Computer Vision",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/sticker_detection.py",
+      "workstream": "B+C - OCR/CV + ML/Intelligence",
+      "action": "KEEP then REWRITE when training data available"
+    },
+    {
+      "path": "backend/product_similarity.py",
+      "workstream": "C - ML/Intelligence",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/vlm_verifier.py",
+      "workstream": "C - ML/Intelligence",
+      "action": "MODIFY - connect to pipeline"
+    },
+    {
+      "path": "backend/schema.py",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "KEEP"
+    },
+    {
+      "path": "backend/main.py",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/db/schema.sql",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/db/persistence.py",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "MODIFY"
+    },
+    {
+      "path": "backend/db/__init__.py",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "KEEP"
+    },
+    {
+      "path": "backend/requirements.txt",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "MODIFY"
+    },
+    {
+      "path": "frontend/dashboard.html",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "MODIFY"
+    },
+    {
+      "path": "frontend/capture.html",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "MODIFY"
+    },
+    {
+      "path": "dataset/generate_dataset.py",
+      "workstream": "C - ML/Intelligence",
+      "action": "KEEP"
+    },
+    {
+      "path": "dataset/images/",
+      "workstream": "C - ML/Intelligence",
+      "action": "KEEP - supplement with real photos"
+    },
+    {
+      "path": "dataset/annotations/annotations.json",
+      "workstream": "C - ML/Intelligence",
+      "action": "KEEP - supplement with real annotations"
+    },
+    {
+      "path": "README.md",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "KEEP"
+    },
+    {
+      "path": "SETUP.md",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "MODIFY"
+    },
+    {
+      "path": "ENGINE_UPGRADE_NOTES.md",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "KEEP"
+    },
+    {
+      "path": ".gitignore",
+      "workstream": "D - Platform/Database/Mobile",
+      "action": "KEEP"
+    }
+  ],
+  "known_issues": [
+    {
+      "id": "KI-001",
+      "priority": "P0",
+      "title": "pytesseract missing from requirements.txt",
+      "description": "ocr_extraction.py imports pytesseract but it is not declared in requirements.txt. Fresh install will fail at runtime.",
+      "file": "backend/requirements.txt",
+      "fix": "Add pytesseract>=0.3.10,<1.0 to requirements.txt"
+    },
+    {
+      "id": "KI-002",
+      "priority": "P0",
+      "title": "Tesseract binary not in requirements",
+      "description": "Tesseract OCR engine must be installed as a system binary (apt-get install tesseract-ocr). Documented in SETUP.md only.",
+      "file": "SETUP.md",
+      "fix": "Add system dependency note to requirements.txt and CI setup"
+    },
+    {
+      "id": "KI-003",
+      "priority": "P0",
+      "title": "Hardcoded database password in source code",
+      "description": "DATABASE_URL fallback in persistence.py contains plaintext password lmpc_dev_pw.",
+      "file": "backend/db/persistence.py",
+      "fix": "Remove fallback; require DATABASE_URL environment variable; add .env.example"
+    },
+    {
+      "id": "KI-004",
+      "priority": "P1",
+      "title": "No authentication or authorization",
+      "description": "All API endpoints are open. No users table, no JWT, no roles.",
+      "fix": "Add JWT middleware, users/roles table, Depends(get_current_user) on write endpoints"
+    },
+    {
+      "id": "KI-005",
+      "priority": "P1",
+      "title": "vlm_verifier.py completely disconnected from pipeline",
+      "description": "vlm_verifier module is never imported or called from main.py or rule_engine.py.",
+      "file": "backend/vlm_verifier.py",
+      "fix": "Import and call verify_ambiguous_field() from rule_engine for UNCERTAIN findings"
+    },
+    {
+      "id": "KI-006",
+      "priority": "P1",
+      "title": "/inspect endpoint missing field-name bridge",
+      "description": "POST /inspect does not call _prepare_extractions(). Callers using OCR field names (manufacturer_name, expiry_date) get incorrect rule engine results.",
+      "file": "backend/main.py",
+      "fix": "Apply _prepare_extractions() in the /inspect handler"
+    },
+    {
+      "id": "KI-007",
+      "priority": "P1",
+      "title": "best_before_applicable and is_imported always False in /scan",
+      "description": "Perishable products are never checked for use-by/best-before declaration. Imported products never checked for country-of-origin.",
+      "file": "backend/main.py",
+      "fix": "Infer context flags from product_category in /scan endpoint"
+    },
+    {
+      "id": "KI-008",
+      "priority": "P1",
+      "title": "No PDF report generation",
+      "description": "PDF reports are a core SIH requirement. Zero code exists.",
+      "fix": "Add WeasyPrint or ReportLab; add GET /inspections/{id}/report.pdf endpoint"
+    },
+    {
+      "id": "KI-009",
+      "priority": "P1",
+      "title": "Images not persisted",
+      "description": "Uploaded images are decoded and discarded. Legal evidence requires retaining originals.",
+      "file": "backend/main.py",
+      "fix": "Write raw bytes to uploads/ directory; store path in inspections.image_filename"
+    },
+    {
+      "id": "KI-010",
+      "priority": "P1",
+      "title": "CORS allow_origins=* with no authentication",
+      "description": "Any web page can call the API and access inspection data.",
+      "file": "backend/main.py",
+      "fix": "Restrict allow_origins to deployed frontend URL after adding auth"
+    },
+    {
+      "id": "KI-011",
+      "priority": "P1",
+      "title": "Rule 24 wholesale evaluator missing",
+      "description": "Wholesale packages receive no declaration compliance check.",
+      "file": "backend/rule_engine.py",
+      "fix": "Implement _evaluate_rule24_wholesale_declarations()"
+    },
+    {
+      "id": "KI-012",
+      "priority": "P1",
+      "title": "No real product photos in dataset",
+      "description": "All 50 dataset images are synthetic. Two real photos tested during development but not committed.",
+      "fix": "Collect 30-50 real Indian SKU photos across 4+ categories"
+    },
+    {
+      "id": "KI-013",
+      "priority": "P2",
+      "title": "Font-height check always UNCERTAIN",
+      "description": "Rule 7(2) evaluator requires calibrated measurement_mode=VERIFIED. No automated pixel-to-mm path exists.",
+      "fix": "Integrate capture.html calibration flow with /scan endpoint"
+    },
+    {
+      "id": "KI-014",
+      "priority": "P2",
+      "title": "Rules R4/R5/R24/R25/R26b/R26c/R27/R31/Schedule-II have no evaluator",
+      "description": "13 of 19 legal rules in rules.json have no implementation in rule_engine.py.",
+      "file": "backend/rule_engine.py",
+      "fix": "Implement evaluators progressively by legal priority"
+    },
+    {
+      "id": "KI-015",
+      "priority": "P2",
+      "title": "product_index.json empty on fresh clone",
+      "description": "Similarity index is runtime-generated and not in git. All demo installs start with empty history.",
+      "fix": "Seed the index with synthetic product embeddings or document this expectation clearly"
+    },
+    {
+      "id": "KI-016",
+      "priority": "P2",
+      "title": "No test suite",
+      "description": "Zero test files exist anywhere in the repository.",
+      "fix": "Add pytest + fixtures for rule_engine, unit_price, exemption, ocr_extraction"
+    },
+    {
+      "id": "KI-017",
+      "priority": "P2",
+      "title": "10-20g/ml partial relaxation not evaluated",
+      "description": "Rule 26(a) proviso for 10-20g packages (MRP + net quantity only required) is not implemented.",
+      "file": "backend/exemption.py",
+      "fix": "Implement partial-relaxation path; add context flag to run_inspection()"
+    },
+    {
+      "id": "KI-018",
+      "priority": "P2",
+      "title": "No Docker or CI/CD",
+      "description": "No containerization or automated build/test pipeline.",
+      "fix": "Add docker-compose.yml for backend + Postgres; add GitHub Actions workflow"
+    },
+    {
+      "id": "KI-019",
+      "priority": "P3",
+      "title": "No trained OCR layout model",
+      "description": "OCR relies on Tesseract general model + regex heuristics. Degrades on real Indian product labels.",
+      "fix": "Collect labeled real photos; fine-tune LayoutLM or YOLO-based detector"
+    },
+    {
+      "id": "KI-020",
+      "priority": "P3",
+      "title": "No mobile application",
+      "description": "Zero Android/React Native/Kotlin code. Browser-only.",
+      "fix": "Implement React Native app with native camera integration"
+    }
+  ]
+}
