@@ -79,6 +79,81 @@ class PositionCoordinateSystem(str, Enum):
     NORMALIZED_0_1 = "NORMALIZED_0_1"
 
 
+class EvidenceAgreement(str, Enum):
+    """
+    How well the independent readings of ONE declaration agree with each other.
+
+    This is the contract-level projection of the OCR layer's fusion state
+    (`ocr_engine.FusionState`). The member names and values are deliberately
+    IDENTICAL so that there is one vocabulary for "do the readings agree?"
+    across the whole system rather than two that must be kept in step.
+
+    Why this exists at all: the OCR engine reads the same region several times
+    (different preprocessing variants, orientations, engines) and already
+    detects when two readings of the same pixels disagree — `MRP Rs. 50.00`
+    versus `MRP Rs. 90.00`. That determination used to be computed and then
+    discarded before the rule engine ever saw it, so a disputed reading arrived
+    at the legal evaluation indistinguishable from an undisputed one.
+
+    Semantics, and the distinction that matters legally:
+      - CORROBORATED      two or more independent readings agreed.
+      - SINGLE_SOURCE     one reading, no cross-check performed. This is an
+                          honest default: it claims no corroboration, and it
+                          reports no conflict.
+      - CONFLICTING       independent readings of the same region disagreed.
+                          The package is NOT thereby non-compliant — we simply
+                          do not yet know what it declares. See invariant 4.
+      - AGREEMENT_UNKNOWN the agreement state could not be determined (for
+                          example an unrecognised value arrived from an upstream
+                          component). Reserved for genuine indeterminacy; it
+                          must never be used as a stand-in for SINGLE_SOURCE,
+                          because that would silently assert "no conflict".
+
+    CONFLICTING is a statement about the READING, never about the package, in
+    exactly the way low OCR confidence is. Low confidence means "hard to read".
+    CONFLICTING means "read two ways that cannot both be true". Neither is
+    evidence of a legal breach, and neither may become one.
+    """
+
+    CORROBORATED = "CORROBORATED"
+    SINGLE_SOURCE = "SINGLE_SOURCE"
+    CONFLICTING = "CONFLICTING"
+    AGREEMENT_UNKNOWN = "AGREEMENT_UNKNOWN"
+
+    def permits_definitive_finding(self) -> bool:
+        """
+        False when this agreement state forbids a definitive PASS/FAIL.
+
+        Mirrors the tri-state applicability precedent already in the rule
+        engine: an UNKNOWN state is still evaluated and still reported, but it
+        can only reach UNCERTAIN. Expressed as a method on the enum so that the
+        rule engine cannot disagree with the contract about which states are
+        safe, and so a member added later must decide this question explicitly.
+        """
+        return self in (EvidenceAgreement.CORROBORATED, EvidenceAgreement.SINGLE_SOURCE)
+
+
+def coerce_evidence_agreement(value: Any) -> EvidenceAgreement:
+    """
+    Interpret an agreement state arriving from another layer.
+
+    An unrecognised value becomes AGREEMENT_UNKNOWN, never SINGLE_SOURCE.
+    Defaulting to SINGLE_SOURCE would convert "we could not tell whether the
+    readings agreed" into the positive claim "there was no disagreement" — the
+    plausible-placeholder pattern that has already produced several silent
+    defects in this codebase. AGREEMENT_UNKNOWN is conspicuous and, because it
+    does not permit a definitive finding, it fails safe.
+    """
+    if isinstance(value, EvidenceAgreement):
+        return value
+    if value is None:
+        return EvidenceAgreement.SINGLE_SOURCE
+    try:
+        return EvidenceAgreement(str(getattr(value, "value", value)))
+    except ValueError:
+        return EvidenceAgreement.AGREEMENT_UNKNOWN
+
+
 # ---------------------------------------------------------------------------
 # Basic geometry / evidence models
 # ---------------------------------------------------------------------------

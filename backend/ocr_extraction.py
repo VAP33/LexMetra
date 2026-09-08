@@ -30,6 +30,30 @@ class OcrLine:
     bbox: Tuple[int, int, int, int]  # x, y, w, h
     confidence: float                 # 0..1
 
+    # How the independent readings of THIS line agreed with each other, carried
+    # as the plain string value of `schema.EvidenceAgreement` /
+    # `ocr_engine.FusionState` (identical vocabularies).
+    #
+    # A string rather than the enum on purpose: `ocr_engine` imports
+    # `ocr_extraction` for this class, so a reverse import would make the graph
+    # cyclic, and the whole point of this field is to survive the hop from the
+    # engine to the rule contract without either module having to know the
+    # other. `schema.coerce_evidence_agreement()` interprets it at the boundary
+    # and turns anything unrecognised into AGREEMENT_UNKNOWN rather than into a
+    # false claim of agreement.
+    #
+    # None means "the reader did not report an agreement state" — the legacy
+    # whole-image path, which performs no cross-reading and so is SINGLE_SOURCE.
+    fusion_state: Optional[str] = None
+
+    # The competing readings when `fusion_state` is CONFLICTING, so a reviewer
+    # can be shown the disagreement rather than just told one exists.
+    alternatives: Tuple[str, ...] = ()
+
+    # Which detected region produced this reading. Diagnostic, and it lets the
+    # agreement post-pass explain an attribution failure.
+    region_id: Optional[str] = None
+
 
 # ---------------------------------------------------------------------------
 # OCR
@@ -1106,6 +1130,92 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
         # Avoid changing the established field-only contract too much. Expose
         # them under a private-looking auxiliary key that callers may ignore.
         found["_auxiliary_dates"] = auxiliary_dates
+
+    attach_reading_agreement(found, ordered)
+
+    return found
+
+
+# The most conservative state wins when several readings back one field: a
+# single disagreement is enough to unsettle the value, and an unattributable
+# reading is worse than a known conflict because nothing is known about it.
+_AGREEMENT_SEVERITY = {
+    "CORROBORATED": 0,
+    "SINGLE_SOURCE": 1,
+    "CONFLICTING": 2,
+    "AGREEMENT_UNKNOWN": 3,
+}
+
+
+def attach_reading_agreement(
+    found: Dict[str, dict],
+    lines: Sequence[OcrLine],
+) -> Dict[str, dict]:
+    """
+    Record, per classified field, whether the readings behind it agreed.
+
+    Done once here instead of at each of the thirteen places that build a
+    classified-field dict. That is not only less code: a rule enforced at
+    thirteen sites is a rule that will one day be enforced at twelve, and the
+    twelfth omission would be invisible, because the field would simply look
+    undisputed. The classification logic above is left untouched.
+
+    The attribution is exact rather than approximate. Every one of those sites
+    stores some line's `.bbox` verbatim — none stores a merged or union box — so
+    the field's recorded region identifies the reading that supplied its value,
+    and the agreement state is looked up, not inferred.
+
+    A field whose region matches no line is marked AGREEMENT_UNKNOWN. That is
+    the point of the sentinel: if a future extraction site starts storing a
+    computed region, this fails loudly and safely (AGREEMENT_UNKNOWN cannot
+    produce a definitive verdict) instead of quietly asserting that readings
+    which were never located agreed with each other.
+    """
+    by_bbox: Dict[Tuple[int, int, int, int], List[OcrLine]] = {}
+    for line in lines:
+        try:
+            key = tuple(int(v) for v in line.bbox)  # type: ignore[assignment]
+        except (TypeError, ValueError):
+            continue
+        by_bbox.setdefault(key, []).append(line)  # type: ignore[arg-type]
+
+    for field, data in found.items():
+        if not isinstance(data, dict):
+            continue
+
+        bbox = data.get("bbox")
+        try:
+            key = tuple(int(v) for v in bbox)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            key = None
+
+        matches = by_bbox.get(key, []) if key is not None else []
+
+        if not matches:
+            # Includes the no-bbox case. Nothing to attribute the value to.
+            data["agreement"] = "AGREEMENT_UNKNOWN"
+            data["agreement_note"] = (
+                "The reading behind this value could not be matched to an OCR "
+                "line, so whether independent readings agreed is unknown."
+            )
+            continue
+
+        states = [
+            (line.fusion_state or "SINGLE_SOURCE")
+            for line in matches
+        ]
+        worst = max(states, key=lambda s: _AGREEMENT_SEVERITY.get(s, 3))
+        data["agreement"] = worst
+
+        if worst == "CONFLICTING":
+            alternatives: List[str] = []
+            for line in matches:
+                for alt in line.alternatives or ():
+                    text = str(alt).strip()
+                    if text and text not in alternatives:
+                        alternatives.append(text)
+            if alternatives:
+                data["alternative_values"] = alternatives
 
     return found
 

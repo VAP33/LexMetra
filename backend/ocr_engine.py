@@ -404,7 +404,20 @@ class ImageReading:
         from ocr_extraction import OcrLine
 
         out = [
-            OcrLine(text=o.text, bbox=o.bbox, confidence=o.confidence)
+            OcrLine(
+                text=o.text,
+                bbox=o.bbox,
+                confidence=o.confidence,
+                # Carry the agreement state and the competing readings across
+                # this boundary. They used to stop here: `.lines` reduced each
+                # observation to text/bbox/confidence, so a region the engine
+                # had read two contradictory ways arrived at field
+                # classification indistinguishable from an undisputed one and
+                # could produce a definitive PASS. That is invariant 4.
+                fusion_state=o.fusion_state.value if o.fusion_state else None,
+                alternatives=tuple(str(a) for a in (o.alternatives or ())),
+                region_id=o.region_id,
+            )
             for o in self.observations
             if o.usable_for_extraction
         ]

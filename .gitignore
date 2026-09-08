@@ -49,6 +49,14 @@ ENGINE_UPGRADE_NOTES.md
 # Scratch/working folders
 vision upgrade/
 images dataset/
+CLAUDE 5/
+CLAUDE 1/
+CLAUDE 2/
+
+# Runtime upload/report directories
+backend/uploads/
+backend/reports/
+samples/
 
 # Generated files
 outputs/

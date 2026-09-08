@@ -35,6 +35,7 @@ from schema import (
     SurfaceObservation,
     SurfaceType,
     UNATTRIBUTED_IMAGE_ID as _UNATTRIBUTED_IMAGE_ID,
+    coerce_evidence_agreement,
 )
 from rule_engine import RawExtraction, required_declaration_fields, load_rules
 
@@ -270,6 +271,19 @@ def build_raw_extraction(field: str, data: Dict[str, Any]) -> "RawExtraction":
             )
         )
 
+    # Whether the readings behind this value agreed. Attributed per field by
+    # `ocr_extraction.attach_reading_agreement()`; absent for callers that build
+    # classified fields by hand, where SINGLE_SOURCE is the honest default (one
+    # reading, no cross-check) rather than a claim of corroboration.
+    #
+    # This is the join that the bbox was once dropped at, and for the same
+    # reason: the value was computed upstream and simply had nowhere to go here.
+    # An unrecognised string becomes AGREEMENT_UNKNOWN inside RawExtraction, so
+    # a garbled value from a future caller cannot become "no conflict".
+    alternative_values = data.get("alternative_values") or None
+    if alternative_values is not None:
+        alternative_values = [str(v) for v in alternative_values]
+
     return RawExtraction(
         field=field,
         value=data.get("value"),
@@ -282,6 +296,8 @@ def build_raw_extraction(field: str, data: Dict[str, Any]) -> "RawExtraction":
         raw_text=data.get("raw_text") or data.get("value"),
         normalized_value=data.get("normalized_value"),
         evidence=evidence or None,
+        agreement=coerce_evidence_agreement(data.get("agreement")),
+        alternative_values=alternative_values,
     )
 
 

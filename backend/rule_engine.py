@@ -28,6 +28,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from schema import (
     BBox,
+    EvidenceAgreement,
     EvidenceReference,
     FactStatus,
     ExtractedFact,
@@ -37,6 +38,7 @@ from schema import (
     RuleFinding,
     SurfaceObservation,
     UNATTRIBUTED_IMAGE_ID,
+    coerce_evidence_agreement,
 )
 
 from exemption import ExemptionInput, classify_exemption
@@ -80,10 +82,33 @@ class RawExtraction:
     evidence: Optional[List[EvidenceReference]] = None
     evidence_complete: bool = True
 
+    # How well the independent readings of THIS field agreed with one another.
+    #
+    # The OCR engine already computes this per observation and records the
+    # competing readings, but the value used to stop at the OCR boundary: the
+    # adapter from classified fields to this contract had nowhere to put it. A
+    # field the engine had read as both "Rs. 50.00" and "Rs. 90.00" therefore
+    # reached the legal evaluation looking exactly like an undisputed reading,
+    # and could produce a definitive PASS.
+    #
+    # SINGLE_SOURCE is the default because it is the honest description of a
+    # lone reading with no cross-check: it asserts no corroboration and reports
+    # no conflict. It is NOT a claim that the readings agreed.
+    agreement: EvidenceAgreement = EvidenceAgreement.SINGLE_SOURCE
+
+    # The competing readings, when `agreement` is CONFLICTING. Kept so that a
+    # reviewer is shown what the disagreement actually was instead of merely
+    # being told one exists — the same reason evidence carries a bbox rather
+    # than the word "somewhere".
+    alternative_values: Optional[List[str]] = None
+
     def __post_init__(self) -> None:
         self.confidence = max(0.0, min(1.0, float(self.confidence)))
         if self.raw_text is None:
             self.raw_text = self.value
+        # Accept a plain string from an upstream layer without letting an
+        # unrecognised one quietly become "no conflict".
+        self.agreement = coerce_evidence_agreement(self.agreement)
 
 
 def load_rules(path: Path = RULES_PATH) -> Dict[str, dict]:
@@ -175,6 +200,79 @@ def _evidence_for_extraction(extraction: Optional[RawExtraction]) -> List[Eviden
     ]
 
 
+def agreement_cap(
+    extraction: Optional[RawExtraction],
+    status: FactStatus,
+    reason: str,
+) -> tuple[FactStatus, str, bool]:
+    """
+    Refuse a definitive verdict when the readings of that field disagreed.
+
+    Invariant 4: "CONFLICTING evidence cannot automatically produce a definitive
+    compliance finding." Two readings of the same pixels that cannot both be
+    true mean we do not yet know what the package declares. That is a reason to
+    ask a human, and never in itself a reason to pass or fail a package.
+
+    Returns `(status, reason, review_required)`. Only PASS and FAIL are capped,
+    and only ever downgraded to UNCERTAIN:
+
+      - PASS is capped because a conflicted reading is not proof of a compliant
+        declaration.
+      - FAIL is capped for the more important reason. "UNCERTAIN evidence must
+        NEVER directly become FAIL": accusing a package of a legal breach on the
+        strength of a reading the pipeline itself could not settle is the worst
+        available outcome, worse than the false PASS.
+      - UNCERTAIN, EXEMPT and anything else are returned untouched. Nothing here
+        may ever raise a status; a cap that could promote a verdict would be a
+        route to manufacturing certainty.
+
+    EXEMPT is deliberately left alone: exemption follows from product category
+    and context, not from the disputed value of a declaration, so a conflicted
+    reading of one field is not evidence about the exemption. Where an exemption
+    does depend on a value, invariant 9's review state carries that separately.
+
+    Kept as a module-level function, not a private helper, so the tests can
+    address the rule directly rather than only through a full inspection.
+    """
+    if extraction is None:
+        return status, reason, False
+
+    agreement = coerce_evidence_agreement(extraction.agreement)
+    if agreement.permits_definitive_finding():
+        return status, reason, False
+
+    if status not in (FactStatus.PASS, FactStatus.FAIL):
+        return status, reason, False
+
+    if agreement == EvidenceAgreement.CONFLICTING:
+        detail = (
+            f"Independent readings of '{extraction.field}' disagreed, so its "
+            "declared value is not established."
+        )
+        alternatives = [str(a) for a in (extraction.alternative_values or []) if str(a).strip()]
+        if alternatives:
+            readings = ", ".join(
+                repr(v) for v in ([str(extraction.value)] if extraction.value else []) + alternatives
+            )
+            detail = (
+                f"Independent readings of '{extraction.field}' disagreed "
+                f"({readings}), so its declared value is not established."
+            )
+    else:
+        detail = (
+            f"Whether the readings of '{extraction.field}' agreed could not be "
+            "determined, so its declared value is not established."
+        )
+
+    withheld = (
+        f" A {status.value} finding was withheld: conflicting extraction evidence "
+        "cannot decide legal compliance either way. A reviewer must resolve the "
+        "reading before this requirement can be assessed."
+    )
+
+    return FactStatus.UNCERTAIN, f"{detail}{withheld} Original assessment: {reason}", True
+
+
 def _make_fact(
     *,
     field: str,
@@ -190,6 +288,14 @@ def _make_fact(
     evidence: Optional[List[EvidenceReference]] = None,
     confidence_override: Optional[float] = None,
 ) -> ExtractedFact:
+    # Applied here rather than at each evaluator because every fact in the
+    # system is built through this function, so the invariant holds for
+    # evaluators not yet written. The low-confidence check by contrast is
+    # repeated at roughly ten call sites, which is exactly how a rule like this
+    # comes to be enforced in nine places and forgotten in the tenth.
+    status, reason, conflict_review = agreement_cap(extraction, status, reason)
+    review_required = review_required or conflict_review
+
     confidence = (
         confidence_override
         if confidence_override is not None
@@ -249,7 +355,29 @@ def _finding(
     requirement_description: Optional[str] = None,
     confidence: float = 0.0,
     review_required: bool = False,
+    fact: Optional[ExtractedFact] = None,
 ) -> RuleFinding:
+    """
+    Build a rule finding.
+
+    When `fact` is supplied, the finding's status, reason and review flag are
+    taken FROM the fact rather than from the caller's local variables. This
+    matters because `_make_fact` may downgrade a definitive verdict — see
+    `agreement_cap` — and the evaluators compute `status` once and then pass it
+    to both constructors. Without this, a capped fact would sit next to a
+    finding still claiming PASS: a split verdict for the same requirement, which
+    is worse than either answer alone, because the report renders findings while
+    the reviewer queue reads facts.
+
+    `fact` is not merely accepted here, it is required at every call site that
+    has one; `tests/test_agreement_cap.py` walks this module's syntax tree and
+    fails if a new `_finding(...)` call is added without it.
+    """
+    if fact is not None:
+        status = fact.status
+        reason = fact.reason
+        review_required = review_required or fact.review_required
+
     return RuleFinding(
         rule_id=rule["rule_id"],
         rule_version=rule.get("version"),
@@ -526,6 +654,7 @@ def _evaluate_declaration_rule(
                 requirement_description=req.get("description"),
                 confidence=fact.confidence,
                 review_required=review,
+                fact=fact,
             ))
             continue
 
@@ -575,6 +704,7 @@ def _evaluate_declaration_rule(
             requirement_description=req.get("description"),
             confidence=fact.confidence,
             review_required=True,
+            fact=fact,
         ))
 
     return facts, findings
@@ -761,6 +891,7 @@ def _evaluate_font_height(
             evidence=fact.evidence,
             confidence=fact.confidence if mode == MeasurementMode.VERIFIED else 0.0,
             review_required=status != FactStatus.PASS,
+            fact=fact,
         )
     ]
 
@@ -1085,6 +1216,7 @@ def _evaluate_unit_sale_price(
             evidence=fact.evidence,
             confidence=extraction.confidence,
             review_required=review,
+            fact=fact,
         )
     ]
 
@@ -1163,6 +1295,7 @@ def _evaluate_placement(
             missing_evidence=["pdp_boundary"] if status == FactStatus.UNCERTAIN else [],
             confidence=confidence,
             review_required=status == FactStatus.UNCERTAIN,
+            fact=fact,
         )
     ]
 
