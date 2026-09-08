@@ -11,12 +11,34 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
 
-# Load backend/.env if present (development convenience only). In production,
-# environment variables should be supplied by the deployment platform instead.
-_ENV_PATH = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=_ENV_PATH, override=False)
+    # Load backend/.env if present (development convenience only). In production,
+    # environment variables should be supplied by the deployment platform instead.
+    _ENV_PATH = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=_ENV_PATH, override=False)
+except ImportError:
+    pass
+
+# Ensure Tesseract executable is discovered on Windows
+_TESS_CANDIDATES = [
+    os.environ.get("TESSERACT_CMD", ""),
+    r"C:\Users\HP\tesseract\tesseract.exe",
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+]
+for _candidate in _TESS_CANDIDATES:
+    if _candidate and Path(_candidate).is_file():
+        try:
+            import pytesseract
+            pytesseract.pytesseract.tesseract_cmd = str(_candidate)
+            _tess_dir = str(Path(_candidate).parent)
+            if _tess_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = _tess_dir + os.pathsep + os.environ.get("PATH", "")
+            break
+        except Exception:
+            pass
 
 
 def _env_bool(name: str, default: bool) -> bool:

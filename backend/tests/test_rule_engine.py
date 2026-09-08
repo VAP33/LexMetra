@@ -22,6 +22,8 @@ capable of accusing a compliant package of breaking the law, which is the single
 worst thing this project can do.
 """
 
+import pytest
+
 from schema import (
     EvidenceStatus,
     FactStatus,
@@ -789,3 +791,347 @@ def test_expected_unit_price_never_guesses_across_unit_families():
     assert expected_unit_price_in_declared_unit(100, "g", 50, "furlong") is None
     assert expected_unit_price_in_declared_unit(0, "g", 50, "kg") is None
     assert expected_unit_price_in_declared_unit(-5, "g", 50, "kg") is None
+
+
+# ===========================================================================
+# INVARIANT 4: CONFLICTING EVIDENCE CAP & AST DRIFT GUARD
+# ===========================================================================
+
+def test_invariant_4_conflicting_agreement_caps_pass_to_uncertain():
+    """
+    Invariant 4: Conflicting OCR readings of the same field must never produce
+    a definitive PASS. It must be capped to UNCERTAIN with review_required=True.
+    """
+    ext = RawExtraction(
+        field="mrp",
+        value="MRP Rs 50",
+        confidence=0.95,
+        agreement="CONFLICTING",
+        alternative_values=("MRP Rs 90",),
+    )
+    status, reason, review = engine.agreement_cap(ext, FactStatus.PASS, "Initial test pass")
+    assert status == FactStatus.UNCERTAIN
+    assert review is True
+    assert "disagreed" in reason
+    assert "'MRP Rs 50', 'MRP Rs 90'" in reason
+
+
+def test_invariant_4_conflicting_agreement_caps_fail_to_uncertain():
+    """
+    Invariant 4: Accusing a package of a breach on conflicting readings is illegal.
+    A FAIL on conflicting readings must be downgraded to UNCERTAIN.
+    """
+    ext = RawExtraction(
+        field="net_quantity",
+        value="100 g",
+        confidence=0.95,
+        agreement="CONFLICTING",
+        alternative_values=("700 g",),
+    )
+    status, reason, review = engine.agreement_cap(ext, FactStatus.FAIL, "Net quantity mismatch")
+    assert status == FactStatus.UNCERTAIN
+    assert review is True
+    assert "withheld" in reason
+
+
+def test_invariant_4_corroborated_and_single_source_permit_definitive_verdicts():
+    """
+    Corroborated and single-source readings permit PASS / FAIL without downgrade.
+    """
+    for agreement in ("CORROBORATED", "SINGLE_SOURCE", None):
+        ext = RawExtraction(
+            field="common_name",
+            value="Wheat Flour",
+            confidence=0.95,
+            agreement=agreement,
+        )
+        status, reason, review = engine.agreement_cap(ext, FactStatus.PASS, "All good")
+        assert status == FactStatus.PASS
+        assert review is False
+
+
+def test_invariant_4_unknown_agreement_caps_definitive_verdicts():
+    """
+    An unrecognised/unknown agreement string fails safe to UNCERTAIN.
+    """
+    ext = RawExtraction(
+        field="mrp",
+        value="Rs 50",
+        confidence=0.9,
+        agreement="INVALID_AGREEMENT_STATUS",
+    )
+    status, reason, review = engine.agreement_cap(ext, FactStatus.PASS, "Presence verified")
+    assert status == FactStatus.UNCERTAIN
+    assert review is True
+
+
+def test_ast_drift_guard_finding_calls_pass_fact_argument():
+    """
+    AST Drift Guard (D2):
+    Every call to `_finding()` in rule_engine.py whose status argument is not a
+    literal UNCERTAIN or EXEMPT must pass the `fact=` keyword argument. This
+    guarantees that any variable status is linked to a fact and cannot bypass
+    the Invariant 4 agreement_cap.
+    """
+    import ast
+    from pathlib import Path
+
+    engine_path = Path(engine.__file__)
+    tree = ast.parse(engine_path.read_text(encoding="utf-8"))
+
+    violations = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        func_name = None
+        if isinstance(node.func, ast.Name):
+            func_name = node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            func_name = node.func.attr
+
+        if func_name == "_finding":
+            # Check keywords passed to _finding
+            kwargs = {kw.arg: kw.value for kw in node.keywords}
+            status_arg = kwargs.get("status")
+
+            # Check if status is a literal UNCERTAIN or EXEMPT
+            is_literal_safe = False
+            if isinstance(status_arg, ast.Attribute) and status_arg.attr in ("UNCERTAIN", "EXEMPT"):
+                is_literal_safe = True
+
+            if not is_literal_safe:
+                if "fact" not in kwargs:
+                    violations.append(f"Line {node.lineno}: _finding call without fact= keyword")
+
+    assert not violations, f"AST drift guard failed! Violations: {violations}"
+
+
+def test_rule4_multipack_evaluation():
+    """Rule 4: Multi-pack packages evaluate inner package declarations."""
+    # Without inner package declarations -> UNCERTAIN with review required
+    res1 = run_inspection(
+        inspection_id="t-multipack-1",
+        sale_type="retail",
+        product_category="personal_care",
+        net_quantity_value=150,
+        net_quantity_unit="g",
+        mrp=100,
+        retail_bundle_count=3,
+        extractions={},
+    )
+    m4_facts = [f for f in res1.facts if f.field == "multipack_inner_declarations"]
+    assert len(m4_facts) == 1
+    assert m4_facts[0].status == FactStatus.UNCERTAIN
+    assert m4_facts[0].review_required is True
+
+    # With inner package declarations evidenced -> PASS
+    res2 = run_inspection(
+        inspection_id="t-multipack-2",
+        sale_type="retail",
+        product_category="personal_care",
+        net_quantity_value=150,
+        net_quantity_unit="g",
+        mrp=100,
+        retail_bundle_count=3,
+        extractions={
+            "inner_package_labels": RawExtraction(
+                field="inner_package_labels",
+                value="Inner retail declarations present on 3 sachets",
+                confidence=0.9,
+            )
+        },
+    )
+    m4_facts2 = [f for f in res2.facts if f.field == "multipack_inner_declarations"]
+    assert len(m4_facts2) == 1
+    assert m4_facts2[0].status == FactStatus.PASS
+
+
+def test_rule5_standard_pack_evaluation():
+    """Rule 5: Non-standard pack size declaration passes when present, otherwise uncertainty for scheduled checks."""
+    res_decl = run_inspection(
+        inspection_id="t-r5-1",
+        sale_type="retail",
+        product_category="biscuits",
+        net_quantity_value=65,
+        net_quantity_unit="g",
+        mrp=20,
+        extractions={
+            "nonstandard_pack_declaration": RawExtraction(
+                field="nonstandard_pack_declaration",
+                value="Non-standard size package",
+                confidence=0.9,
+            )
+        },
+    )
+    r5_facts = [f for f in res_decl.facts if f.field == "standard_pack_size"]
+    assert len(r5_facts) == 1
+    assert r5_facts[0].status == FactStatus.PASS
+
+    # Without non-standard declaration -> UNCERTAIN (schedule membership requires verification)
+    res_nodecl = run_inspection(
+        inspection_id="t-r5-2",
+        sale_type="retail",
+        product_category="biscuits",
+        net_quantity_value=65,
+        net_quantity_unit="g",
+        mrp=20,
+        extractions={},
+    )
+    r5_facts2 = [f for f in res_nodecl.facts if f.field == "standard_pack_size"]
+    assert len(r5_facts2) == 1
+    assert r5_facts2[0].status == FactStatus.UNCERTAIN
+
+
+def test_rule25_export_package_domestic_sale():
+    """Rule 25: Export packages sold domestically in India must have relabel/repack compliance."""
+    # Export package sold in domestic retail without repack evidence -> FAIL
+    res_fail = run_inspection(
+        inspection_id="t-r25-fail",
+        sale_type="retail",
+        product_category="food",
+        net_quantity_value=200,
+        net_quantity_unit="g",
+        mrp=150,
+        is_export_only=True,
+        extractions={},
+    )
+    r25_facts = [f for f in res_fail.facts if f.field == "repack_or_relabel_before_india_sale"]
+    assert len(r25_facts) == 1
+    assert r25_facts[0].status == FactStatus.FAIL
+
+    # Export package sold with repack evidence -> PASS
+    res_pass = run_inspection(
+        inspection_id="t-r25-pass",
+        sale_type="retail",
+        product_category="food",
+        net_quantity_value=200,
+        net_quantity_unit="g",
+        mrp=150,
+        is_export_only=True,
+        extractions={
+            "repack_or_relabel_evidence": RawExtraction(
+                field="repack_or_relabel_evidence",
+                value="Repacked and relabelled per LMPC Chapter II",
+                confidence=0.95,
+            )
+        },
+    )
+    r25_facts2 = [f for f in res_pass.facts if f.field == "repack_or_relabel_before_india_sale"]
+    assert len(r25_facts2) == 1
+    assert r25_facts2[0].status == FactStatus.PASS
+
+
+def test_rule26_bc_exemptions_evaluation():
+    """Rule 26(b) fast food and 26(c) drug formulation specific exemptions."""
+    res_ff = run_inspection(
+        inspection_id="t-ff",
+        sale_type="retail",
+        product_category="fast_food",
+        net_quantity_value=300,
+        net_quantity_unit="g",
+        mrp=250,
+        extractions={},
+    )
+    ff_facts = [f for f in res_ff.facts if f.field == "fast_food_exemption"]
+    assert len(ff_facts) == 1
+    assert ff_facts[0].status == FactStatus.UNCERTAIN
+
+    res_drug = run_inspection(
+        inspection_id="t-drug",
+        sale_type="retail",
+        product_category="drug_formulation",
+        net_quantity_value=10,
+        net_quantity_unit="number",
+        mrp=80,
+        extractions={},
+    )
+    drug_facts = [f for f in res_drug.facts if f.field == "drug_formulation_exemption"]
+    assert len(drug_facts) == 1
+    assert drug_facts[0].status == FactStatus.UNCERTAIN
+
+
+def test_rule31_advertisement_evaluation():
+    """Rule 31: E-commerce/advertisement price declaration requires net quantity."""
+    # E-commerce with price and net quantity -> PASS
+    res_pass = run_inspection(
+        inspection_id="t-ad-pass",
+        sale_type="ecommerce",
+        product_category="personal_care",
+        net_quantity_value=100,
+        net_quantity_unit="g",
+        mrp=99,
+        extractions={
+            "mrp": RawExtraction(field="mrp", value="Rs 99", confidence=0.95),
+            "net_quantity": RawExtraction(field="net_quantity", value="100 g", confidence=0.95),
+        },
+    )
+    ad_facts = [f for f in res_pass.facts if f.field == "advertisement_net_quantity"]
+    assert len(ad_facts) == 1
+    assert ad_facts[0].status == FactStatus.PASS
+
+    # E-commerce with price but missing net quantity -> FAIL
+    res_fail = run_inspection(
+        inspection_id="t-ad-fail",
+        sale_type="ecommerce",
+        product_category="personal_care",
+        net_quantity_value=100,
+        net_quantity_unit="g",
+        mrp=99,
+        extractions={
+            "mrp": RawExtraction(field="mrp", value="Rs 99", confidence=0.95),
+        },
+    )
+    ad_facts_fail = [f for f in res_fail.facts if f.field == "advertisement_net_quantity"]
+    assert len(ad_facts_fail) == 1
+    assert ad_facts_fail[0].status == FactStatus.FAIL
+
+
+def test_calibrated_pdp_area_and_numeral_height_inference():
+    """Test that calibration info in captures infers pdp_area_cm2 and numeral height."""
+    from schema import BBox, CalibrationInfo, CalibrationMethod, GeometryType
+
+    calib_info = CalibrationInfo(
+        available=True,
+        reference_type="reference_object",
+        pixels_per_mm=10.0,
+        validated=True,
+        method=CalibrationMethod.REFERENCE_OBJECT,
+    )
+    pdp_bbox = BBox(x=50, y=50, width=500, height=800)
+    mrp_bbox = BBox(x=60, y=70, width=100, height=40)
+
+    obs = SurfaceObservation(
+        surface_id="surf-calib-1",
+        image_id="img-calib-1",
+        calibration=calib_info,
+        pdp_bbox=pdp_bbox,
+        evidence_coverage=0.9,
+    )
+    # pdp_bbox: 500px / 10 px/mm = 50mm = 5cm; 800px / 10 px/mm = 80mm = 8cm -> area = 40 cm2
+    # mrp_bbox height: 40px / 10 px/mm = 4.0 mm
+    # For pdp_area = 40 cm2 (which is <= 50 cm2), min numeral height per Rule 7 is 1.0 mm (or 1.5mm depending on band)
+    # 4.0 mm meets minimum, so it should PASS!
+    res = run_inspection(
+        inspection_id="t-calib-infer",
+        sale_type="retail",
+        product_category="household",
+        net_quantity_value=100,
+        net_quantity_unit="g",
+        mrp=50,
+        geometry=GeometryType.FLAT,
+        captures=[obs],
+        extractions={
+            "mrp": RawExtraction(
+                field="mrp",
+                value="Rs 50",
+                confidence=0.95,
+                bbox=mrp_bbox,
+            )
+        },
+    )
+    height_facts = [f for f in res.facts if f.field == "mrp_numeral_height"]
+    assert len(height_facts) == 1
+    assert height_facts[0].status == FactStatus.PASS
+    assert height_facts[0].measured_value == pytest.approx(4.0, rel=1e-2)
+

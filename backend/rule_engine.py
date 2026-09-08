@@ -42,6 +42,7 @@ from schema import (
 )
 
 from exemption import ExemptionInput, classify_exemption
+import calibration as calib
 from unit_price import (
     compute_unit_sale_price,
     convert_declared_price_to_standard,
@@ -1300,6 +1301,422 @@ def _evaluate_placement(
     ]
 
 
+def _evaluate_rule4_multipack(
+    *,
+    rules: Mapping[str, dict],
+    retail_bundle_count: Optional[int],
+    captures: Sequence[SurfaceObservation],
+    extractions: Mapping[str, RawExtraction],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    """
+    Rule 4 — multi-piece, combination, or group packages.
+    """
+    rule = _find_rule(rules, "LMPC-2011-R4-MULTIPACK")
+    if rule is None:
+        return [], []
+
+    is_multipack = retail_bundle_count is not None and retail_bundle_count > 1
+    if not is_multipack:
+        return [], []
+
+    # Retail package containing multiple inner packages
+    inner_labels_ext = extractions.get("inner_package_labels")
+    if inner_labels_ext is not None and _has_value(inner_labels_ext):
+        status = FactStatus.PASS
+        reason = (
+            f"Multi-pack bundle contains {retail_bundle_count} pieces; inner package "
+            "declarations are evidenced."
+        )
+        review = False
+    else:
+        status = FactStatus.UNCERTAIN
+        reason = (
+            f"Multi-pack bundle contains {retail_bundle_count} pieces. Inner package "
+            "declarations are not observed or package interior is not visible. "
+            "Verification required."
+        )
+        review = True
+
+    fact = _make_fact(
+        field="multipack_inner_declarations",
+        extraction=inner_labels_ext,
+        status=status,
+        rule=rule,
+        reason=reason,
+        review_required=review,
+    )
+    return [fact], [
+        _finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            missing_evidence=["inner_package_labels"] if status == FactStatus.UNCERTAIN else [],
+            confidence=fact.confidence,
+            review_required=review,
+            requirement_id="multipack.inner_declarations",
+            fact=fact,
+        )
+    ]
+
+
+def _evaluate_rule5_standard_pack(
+    *,
+    rules: Mapping[str, dict],
+    product_category: str,
+    net_quantity_value: float,
+    net_quantity_unit: str,
+    extractions: Mapping[str, RawExtraction],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    """
+    Rule 5 & Second Schedule — Standard package quantities.
+    """
+    rule5 = _find_rule(rules, "LMPC-2011-R5-STANDARD-PACK")
+    sched2 = _find_rule(rules, "LMPC-2011-SCHEDULE-II")
+    target_rule = rule5 or sched2
+    if target_rule is None:
+        return [], []
+
+    # Check if category is a known Second Schedule commodity
+    # Standard Schedule commodities include: baby food, biscuits, bread, cereals/pulses, tea, coffee, etc.
+    # When schedule membership or current schedule text is unverified, safe status is UNCERTAIN or PASS if non-standard declaration is present.
+    norm_cat = product_category.strip().lower()
+    nonstandard_decl = extractions.get("nonstandard_pack_declaration")
+    if nonstandard_decl is not None and _has_value(nonstandard_decl):
+        status = FactStatus.PASS
+        reason = "Prominent non-standard pack size declaration is evidenced."
+        review = False
+        fact = _make_fact(
+            field="standard_pack_size",
+            extraction=nonstandard_decl,
+            status=status,
+            rule=target_rule,
+            reason=reason,
+            review_required=review,
+        )
+        return [fact], [
+            _finding(
+                rule=target_rule,
+                status=status,
+                reason=reason,
+                confidence=fact.confidence,
+                review_required=review,
+                requirement_id="standard_pack_size",
+                fact=fact,
+            )
+        ]
+
+    # For general commodities not asserted to be in Second Schedule:
+    # Schedule membership is uncertain unless specified.
+    status = FactStatus.UNCERTAIN
+    reason = (
+        f"Second Schedule standard quantity applicability for '{product_category}' "
+        "requires verification against the current consolidated Second Schedule."
+    )
+    fact = _make_fact(
+        field="standard_pack_size",
+        extraction=extractions.get("net_quantity"),
+        status=status,
+        rule=target_rule,
+        reason=reason,
+        review_required=True,
+    )
+    return [fact], [
+        _finding(
+            rule=target_rule,
+            status=status,
+            reason=reason,
+            confidence=0.0,
+            review_required=True,
+            missing_evidence=["second_schedule_membership"],
+            requirement_id="standard_pack_size",
+            fact=fact,
+        )
+    ]
+
+
+def _evaluate_rule25_export_package(
+    *,
+    rules: Mapping[str, dict],
+    sale_type: str,
+    is_export_only: bool,
+    extractions: Mapping[str, RawExtraction],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    """
+    Rule 25 — Export packages sold domestically in India.
+    """
+    rule = _find_rule(rules, "LMPC-2011-R25-EXPORT")
+    if rule is None:
+        return [], []
+
+    # Only triggers when package is designated for export but offered in domestic channels
+    if not (is_export_only and sale_type.lower() in {"retail", "wholesale", "ecommerce"}):
+        return [], []
+
+    repack_ext = extractions.get("repack_or_relabel_evidence")
+    if repack_ext is not None and _has_value(repack_ext):
+        status = FactStatus.PASS
+        reason = "Export package sold in India carries verified repack/relabel compliance declarations."
+        review = False
+    else:
+        status = FactStatus.FAIL
+        reason = (
+            "Export package is offered for domestic sale in India without verified "
+            "re-packing or relabelling per Rule 25."
+        )
+        review = True
+
+    fact = _make_fact(
+        field="repack_or_relabel_before_india_sale",
+        extraction=repack_ext,
+        status=status,
+        rule=rule,
+        reason=reason,
+        review_required=review,
+    )
+    return [fact], [
+        _finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            missing_evidence=["repack_or_relabel_evidence"] if status == FactStatus.FAIL else [],
+            confidence=fact.confidence if status == FactStatus.PASS else 1.0,
+            review_required=review,
+            requirement_id="repack_or_relabel_before_india_sale",
+            fact=fact,
+        )
+    ]
+
+
+def _evaluate_rule26_bc_exemptions(
+    *,
+    rules: Mapping[str, dict],
+    product_category: str,
+    context: Mapping[str, Any],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    """
+    Rule 26(b) Fast Food and Rule 26(c) Drug Formulation exemptions.
+    """
+    facts: List[ExtractedFact] = []
+    findings: List[RuleFinding] = []
+    norm_cat = product_category.strip().lower()
+
+    if norm_cat in {"fast_food", "restaurant_pack", "hotel_pack"}:
+        r26b = _find_rule(rules, "LMPC-2011-R26-B-FAST-FOOD")
+        if r26b:
+            is_hotel_packed = bool(context.get("packed_by_restaurant_or_hotel"))
+            if is_hotel_packed:
+                status = FactStatus.EXEMPT
+                reason = "Fast food item packed by restaurant/hotel is exempt under Rule 26(b)."
+                review = False
+            else:
+                status = FactStatus.UNCERTAIN
+                reason = "Product category is fast food, but packer establishment type requires verification."
+                review = True
+
+            fact = _make_fact(
+                field="fast_food_exemption",
+                extraction=None,
+                status=status,
+                rule=r26b,
+                reason=reason,
+                review_required=review,
+                confidence_override=1.0 if status == FactStatus.EXEMPT else 0.0,
+            )
+            facts.append(fact)
+            findings.append(_finding(
+                rule=r26b,
+                status=status,
+                reason=reason,
+                confidence=fact.confidence,
+                review_required=review,
+                requirement_id="fast_food_exemption",
+                fact=fact,
+            ))
+
+    if norm_cat in {"drug", "drug_formulation", "pharmaceutical"}:
+        r26c = _find_rule(rules, "LMPC-2011-R26-C-DRUG-FORMULATIONS")
+        if r26c:
+            covered_by_dpco = bool(context.get("covered_by_drug_price_control"))
+            if covered_by_dpco:
+                status = FactStatus.EXEMPT
+                reason = "Drug formulation covered by Drug Price Control Order is exempt under Rule 26(c)."
+                review = False
+            else:
+                status = FactStatus.UNCERTAIN
+                reason = "Drug formulation price-control coverage requires regulatory verification."
+                review = True
+
+            fact = _make_fact(
+                field="drug_formulation_exemption",
+                extraction=None,
+                status=status,
+                rule=r26c,
+                reason=reason,
+                review_required=review,
+                confidence_override=1.0 if status == FactStatus.EXEMPT else 0.0,
+            )
+            facts.append(fact)
+            findings.append(_finding(
+                rule=r26c,
+                status=status,
+                reason=reason,
+                confidence=fact.confidence,
+                review_required=review,
+                requirement_id="drug_formulation_exemption",
+                fact=fact,
+            ))
+
+    return facts, findings
+
+
+def _evaluate_rule27_registration(
+    *,
+    rules: Mapping[str, dict],
+    context: Mapping[str, Any],
+    extractions: Mapping[str, RawExtraction],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    """
+    Rule 27 — Manufacturer/Packer/Importer registration reference.
+    """
+    rule = _find_rule(rules, "LMPC-2011-R27-REGISTRATION")
+    if rule is None:
+        return [], []
+
+    reg_ext = extractions.get("registration_number")
+    if reg_ext is not None and _has_value(reg_ext):
+        status = FactStatus.PASS
+        reason = f"Entity registration reference '{reg_ext.value}' is evidenced."
+        review = False
+    elif context.get("check_registration"):
+        status = FactStatus.UNCERTAIN
+        reason = "Registration reference is not evidenced in the package observation dataset."
+        review = True
+    else:
+        # Rule 27 registration check is not in package inspection scope unless requested
+        return [], []
+
+    fact = _make_fact(
+        field="registration_number",
+        extraction=reg_ext,
+        status=status,
+        rule=rule,
+        reason=reason,
+        review_required=review,
+    )
+    return [fact], [
+        _finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            confidence=fact.confidence,
+            review_required=review,
+            requirement_id="manufacturer_packer_importer_registration",
+            fact=fact,
+        )
+    ]
+
+
+def _evaluate_rule31_advertisement(
+    *,
+    rules: Mapping[str, dict],
+    sale_type: str,
+    extractions: Mapping[str, RawExtraction],
+) -> tuple[List[ExtractedFact], List[RuleFinding]]:
+    """
+    Rule 31 — Advertisement mentioning retail sale price must also declare net quantity.
+    """
+    rule = _find_rule(rules, "LMPC-2011-R31-ADVERTISEMENT")
+    if rule is None:
+        return [], []
+
+    # Applies when inspecting ecommerce or advertisement media mentioning price
+    if sale_type.lower() not in {"ecommerce", "advertisement"}:
+        return [], []
+
+    mrp_ext = extractions.get("mrp")
+    qty_ext = extractions.get("net_quantity")
+
+    if mrp_ext and _has_value(mrp_ext):
+        if qty_ext and _has_value(qty_ext):
+            status = FactStatus.PASS
+            reason = "E-commerce/advertisement listing displays both retail price and net quantity."
+            review = False
+        else:
+            status = FactStatus.FAIL
+            reason = "E-commerce/advertisement displays retail price without mandatory net quantity declaration."
+            review = True
+
+        fact = _make_fact(
+            field="advertisement_net_quantity",
+            extraction=qty_ext,
+            status=status,
+            rule=rule,
+            reason=reason,
+            review_required=review,
+        )
+        return [fact], [
+            _finding(
+                rule=rule,
+                status=status,
+                reason=reason,
+                missing_evidence=["net_quantity"] if status == FactStatus.FAIL else [],
+                confidence=fact.confidence,
+                review_required=review,
+                requirement_id="advertisement_net_quantity",
+                fact=fact,
+            )
+        ]
+
+    return [], []
+
+
+def _infer_pdp_area_from_captures(
+    captures: Sequence[SurfaceObservation],
+    shape: GeometryType,
+) -> Optional[float]:
+    """
+    Optional PDP area inference using calibration.measure_pdp_area().
+    Only infers when a calibrated capture with a PDP bbox is present.
+    """
+    for c in captures:
+        if c.calibration and c.calibration.available and c.pdp_bbox:
+            pdp_geom = calib.PDPGeometry(
+                source_image=c.image_id,
+                bbox=c.pdp_bbox,
+            )
+            measurement = calib.measure_pdp_area(pdp_geom, shape or c.geometry, c.calibration)
+            if measurement.value is not None and measurement.value > 0:
+                return measurement.value
+    return None
+
+
+def _infer_numeral_height_from_captures(
+    extractions: Mapping[str, RawExtraction],
+    captures: Sequence[SurfaceObservation],
+) -> None:
+    """
+    Optional numeral height inference for MRP bounding box if calibrated.
+    Updates measured_height_mm and measurement_mode in place if not already set.
+    """
+    mrp_ext = extractions.get("mrp")
+    if mrp_ext is None or mrp_ext.measured_height_mm is not None:
+        return
+
+    bbox = _bbox_from_any(mrp_ext.bbox)
+    if bbox is None:
+        return
+
+    for c in captures:
+        if c.calibration and c.calibration.available:
+            measurements = calib.measure_bbox(bbox, c.calibration, source_image=c.image_id)
+            # measurements[1] is region_height
+            height_m = measurements[1]
+            if height_m.value is not None:
+                mrp_ext.measured_height_mm = height_m.value
+                mrp_ext.measurement_mode = height_m.status
+                break
+
+
 def _aggregate_status(facts: Iterable[ExtractedFact]) -> FactStatus:
     statuses = [fact.status for fact in facts]
     if not statuses:
@@ -1450,8 +1867,15 @@ def run_inspection(
         )
 
     # ------------------------------------------------------------------
-    # 2. Build contextual applicability facts.
+    # 2. Build contextual applicability facts & calibration inference.
     # ------------------------------------------------------------------
+    if pdp_area_cm2 is None and captures:
+        inferred_area = _infer_pdp_area_from_captures(captures, geometry)
+        if inferred_area is not None:
+            pdp_area_cm2 = inferred_area
+
+    _infer_numeral_height_from_captures(extractions, captures)
+
     context = {
         "is_imported": is_imported,
         "dimensions_relevant": dimensions_relevant,
@@ -1486,6 +1910,78 @@ def run_inspection(
         )
         facts.extend(r24_facts)
         findings.extend(r24_findings)
+
+    # ------------------------------------------------------------------
+    # 3c. Rule 4 multi-piece / combination package declarations.
+    # ------------------------------------------------------------------
+    if sale_type.lower() == "retail" and retail_bundle_count and retail_bundle_count > 1:
+        r4_facts, r4_findings = _evaluate_rule4_multipack(
+            rules=rules,
+            retail_bundle_count=retail_bundle_count,
+            captures=captures,
+            extractions=extractions,
+        )
+        facts.extend(r4_facts)
+        findings.extend(r4_findings)
+
+    # ------------------------------------------------------------------
+    # 3d. Rule 5 / Second Schedule standard pack sizes.
+    # ------------------------------------------------------------------
+    if sale_type.lower() in {"retail", "wholesale"}:
+        r5_facts, r5_findings = _evaluate_rule5_standard_pack(
+            rules=rules,
+            product_category=product_category,
+            net_quantity_value=net_quantity_value,
+            net_quantity_unit=net_quantity_unit,
+            extractions=extractions,
+        )
+        facts.extend(r5_facts)
+        findings.extend(r5_findings)
+
+    # ------------------------------------------------------------------
+    # 3e. Rule 25 export package domestic sale.
+    # ------------------------------------------------------------------
+    r25_facts, r25_findings = _evaluate_rule25_export_package(
+        rules=rules,
+        sale_type=sale_type,
+        is_export_only=is_export_only,
+        extractions=extractions,
+    )
+    facts.extend(r25_facts)
+    findings.extend(r25_findings)
+
+    # ------------------------------------------------------------------
+    # 3f. Rule 26(b)/(c) fast food and drug formulation exemptions.
+    # ------------------------------------------------------------------
+    r26bc_facts, r26bc_findings = _evaluate_rule26_bc_exemptions(
+        rules=rules,
+        product_category=product_category,
+        context=context,
+    )
+    facts.extend(r26bc_facts)
+    findings.extend(r26bc_findings)
+
+    # ------------------------------------------------------------------
+    # 3g. Rule 27 registration reference.
+    # ------------------------------------------------------------------
+    r27_facts, r27_findings = _evaluate_rule27_registration(
+        rules=rules,
+        context=context,
+        extractions=extractions,
+    )
+    facts.extend(r27_facts)
+    findings.extend(r27_findings)
+
+    # ------------------------------------------------------------------
+    # 3h. Rule 31 advertisement price & net quantity.
+    # ------------------------------------------------------------------
+    r31_facts, r31_findings = _evaluate_rule31_advertisement(
+        rules=rules,
+        sale_type=sale_type,
+        extractions=extractions,
+    )
+    facts.extend(r31_facts)
+    findings.extend(r31_findings)
 
     # ------------------------------------------------------------------
     # 4. Rule 7 font height / PDP evidence.

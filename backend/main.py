@@ -27,6 +27,8 @@ import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
@@ -77,6 +79,28 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     db.init_schema()
+
+
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+_REACT_DIST_DIR = _FRONTEND_DIR / "react-app" / "dist"
+
+if _REACT_DIST_DIR.exists():
+    app.mount("/app", StaticFiles(directory=str(_REACT_DIST_DIR), html=True), name="react_app")
+
+if _FRONTEND_DIR.exists():
+    app.mount("/frontend", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    if _REACT_DIST_DIR.exists():
+        return RedirectResponse(url="/app/")
+    return RedirectResponse(url="/frontend/dashboard.html")
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard_shortcut():
+    return RedirectResponse(url="/frontend/dashboard.html")
 
 
 # ---------------------------------------------------------------------------

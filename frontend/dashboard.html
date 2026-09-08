@@ -45,17 +45,101 @@
 <body>
 <header>
   <h1>LMPC Compliance Dashboard</h1>
-  <nav>
-    <button data-view="scan" class="active">Scan</button>
-    <button data-view="inspections">Inspections</button>
-    <button data-view="review">Review Queue</button>
-  </nav>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div id="authStatus" style="font-size:12px; color:#ddd; display:flex; align-items:center; gap:6px;">
+      <span id="authUserText">Guest</span>
+      <input type="text" id="authUserInput" placeholder="User" value="admin" style="width:70px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
+      <input type="password" id="authPassInput" placeholder="Pass" value="password123" style="width:80px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
+      <button id="authLoginBtn" style="padding:3px 8px; font-size:11px; background:#4ade80; color:#14213d; font-weight:600; border:none; border-radius:4px; cursor:pointer;">Sign In</button>
+      <button id="authClearBtn" style="padding:3px 8px; font-size:11px; background:transparent; color:#ff8888; border:1px solid #ff8888; border-radius:4px; cursor:pointer;">Sign Out</button>
+    </div>
+    <nav>
+      <button data-view="scan" class="active">Scan</button>
+      <button data-view="inspections">Inspections</button>
+      <button data-view="review">Review Queue</button>
+    </nav>
+  </div>
 </header>
 <main><div id="view"></div></main>
 
 <script>
-const API = "http://localhost:8000";
+const API = window.location.origin.includes(":8000") ? window.location.origin : "http://localhost:8000";
 let currentView = "scan";
+let authToken = localStorage.getItem("lmpc_token") || "";
+
+function updateAuthUI() {
+  const userText = document.getElementById("authUserText");
+  const userInput = document.getElementById("authUserInput");
+  const passInput = document.getElementById("authPassInput");
+  const loginBtn = document.getElementById("authLoginBtn");
+  const clearBtn = document.getElementById("authClearBtn");
+  const storedUser = localStorage.getItem("lmpc_username") || "admin";
+
+  if (authToken) {
+    userText.textContent = `✓ Signed in (${storedUser})`;
+    userText.style.color = "#4ade80";
+    userInput.style.display = "none";
+    passInput.style.display = "none";
+    loginBtn.style.display = "none";
+    clearBtn.style.display = "inline-block";
+  } else {
+    userText.textContent = "Guest";
+    userText.style.color = "#fbbf24";
+    userInput.style.display = "inline-block";
+    passInput.style.display = "inline-block";
+    loginBtn.style.display = "inline-block";
+    clearBtn.style.display = "none";
+  }
+}
+
+async function doLogin(u, p) {
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ username: u, password: p })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    authToken = data.access_token;
+    localStorage.setItem("lmpc_token", authToken);
+    localStorage.setItem("lmpc_username", u);
+    updateAuthUI();
+    return true;
+  } catch (e) {
+    console.error("Login error:", e);
+    return false;
+  }
+}
+
+document.getElementById("authLoginBtn").onclick = async () => {
+  const u = document.getElementById("authUserInput").value.trim();
+  const p = document.getElementById("authPassInput").value;
+  const ok = await doLogin(u, p);
+  if (!ok) alert("Login failed. Check server status and credentials.");
+};
+
+document.getElementById("authClearBtn").onclick = () => {
+  authToken = "";
+  localStorage.removeItem("lmpc_token");
+  localStorage.removeItem("lmpc_username");
+  updateAuthUI();
+};
+
+updateAuthUI();
+
+// Auto-login with default admin credentials if not logged in
+if (!authToken) {
+  doLogin("admin", "password123");
+}
+
+function authHeaders(headers = {}) {
+  const h = { ...headers };
+  if (authToken) {
+    h["Authorization"] = `Bearer ${authToken}`;
+  }
+  return h;
+}
 
 document.querySelectorAll("nav button").forEach(btn => {
   btn.onclick = () => { setView(btn.dataset.view); };
@@ -112,7 +196,11 @@ function renderScan() {
     if (document.getElementById("scanMrp").value) fd.append("mrp", document.getElementById("scanMrp").value);
 
     try {
-      const res = await fetch(`${API}/scan`, { method: "POST", body: fd });
+      const res = await fetch(`${API}/scan`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: fd
+      });
       const data = await res.json();
       btn.disabled = false; btn.textContent = "Run inspection";
       if (!res.ok) { document.getElementById("scanResult").innerHTML = `<div class="flag">Error: ${JSON.stringify(data)}</div>`; return; }
@@ -156,7 +244,7 @@ async function renderInspections(reviewOnly = false) {
   document.getElementById("view").innerHTML = `<div class="card"><h2>${reviewOnly ? "Review queue" : "All inspections"}</h2><div class="loading">Loading…</div></div>`;
   try {
     const url = reviewOnly ? `${API}/inspections?needs_review=true&limit=100` : `${API}/inspections?limit=100`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: authHeaders() });
     const rows = await res.json();
     if (!rows.length) {
       document.getElementById("view").innerHTML = `<div class="card"><h2>${reviewOnly ? "Review queue" : "All inspections"}</h2><p class="muted">Nothing here yet — run a scan first.</p></div>`;
@@ -181,7 +269,7 @@ async function renderInspections(reviewOnly = false) {
 }
 
 async function showDetail(id) {
-  const res = await fetch(`${API}/inspections/${encodeURIComponent(id)}`);
+  const res = await fetch(`${API}/inspections/${encodeURIComponent(id)}`, { headers: authHeaders() });
   const d = await res.json();
   const rows = d.facts.map(f => `
     <tr class="factrow ${f.review_required ? 'review' : ''}">
@@ -204,7 +292,9 @@ async function showDetail(id) {
 async function markReviewed(id) {
   const note = document.getElementById("reviewNote").value;
   await fetch(`${API}/inspections/${encodeURIComponent(id)}/review`, {
-    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ note })
+    method: "POST",
+    headers: authHeaders({"Content-Type": "application/json"}),
+    body: JSON.stringify({ note })
   });
   showDetail(id);
 }

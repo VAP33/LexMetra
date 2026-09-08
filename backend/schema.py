@@ -36,6 +36,43 @@ class MeasurementMode(str, Enum):
     VERIFIED = "VERIFIED"
     ESTIMATED = "ESTIMATED"
     UNCERTAIN = "UNCERTAIN"
+    NOT_OBSERVED = "NOT_OBSERVED"
+
+
+class PackageShapeHint(str, Enum):
+    RECTANGULAR = "RECTANGULAR"
+    CYLINDRICAL = "CYLINDRICAL"
+    NEAR_CYLINDRICAL = "NEAR_CYLINDRICAL"
+    POUCH = "POUCH"
+    BOTTLE = "BOTTLE"
+    JAR = "JAR"
+    BOX = "BOX"
+    IRREGULAR = "IRREGULAR"
+    UNKNOWN = "UNKNOWN"
+
+
+class CalibrationMethod(str, Enum):
+    REFERENCE_OBJECT = "REFERENCE_OBJECT"
+    KNOWN_PACKAGE_DIMENSION = "KNOWN_PACKAGE_DIMENSION"
+    USER_ENTERED_REFERENCE = "USER_ENTERED_REFERENCE"
+    DEPTH_SENSOR = "DEPTH_SENSOR"
+    NONE = "NONE"
+
+
+class PDPObservationStatus(str, Enum):
+    OBSERVED = "OBSERVED"
+    PARTIAL = "PARTIAL"
+    NOT_OBSERVED = "NOT_OBSERVED"
+
+
+class GeometryReadiness(str, Enum):
+    PACKAGE_NOT_DETECTED = "PACKAGE_NOT_DETECTED"
+    PACKAGE_PARTIALLY_OUT_OF_FRAME = "PACKAGE_PARTIALLY_OUT_OF_FRAME"
+    PDP_TOO_OBLIQUE = "PDP_TOO_OBLIQUE"
+    INSUFFICIENT_SURFACE_VISIBLE = "INSUFFICIENT_SURFACE_VISIBLE"
+    CALIBRATION_REQUIRED = "CALIBRATION_REQUIRED"
+    GOOD_GEOMETRY = "GOOD_GEOMETRY"
+    READY_FOR_CAPTURE = "READY_FOR_CAPTURE"
 
 
 class GeometryType(str, Enum):
@@ -241,6 +278,14 @@ class CalibrationInfo(BaseModel):
     validated: bool = False
     validation_note: Optional[str] = None
 
+    # Geometry subsystem additions (all optional / backward compatible)
+    method: Optional[CalibrationMethod] = None
+    source_image: Optional[str] = None
+    scale_uncertainty_relative: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0
+    )
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
 
 class SurfaceObservation(BaseModel):
     """
@@ -318,6 +363,133 @@ class EvidenceReference(BaseModel):
         return self.is_attributed() and (
             self.bbox is not None or bool(self.polygon)
         )
+
+
+# ---------------------------------------------------------------------------
+# Geometry / PDP / calibration / physical-measurement evidence
+#
+# Produced by geometry.py and calibration.py. This is evidence, exactly like
+# ImageQuality or CalibrationInfo above: it never contains a legal
+# PASS/FAIL/EXEMPT decision. The rule engine remains the only place that
+# decides compliance; these models only carry what was observed/measured and
+# how confident/uncertain that observation is.
+# ---------------------------------------------------------------------------
+
+class PackageGeometry(BaseModel):
+    """Package-boundary evidence for one captured image."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_image: str
+    shape: GeometryType = GeometryType.UNKNOWN
+    shape_hint: PackageShapeHint = PackageShapeHint.UNKNOWN
+    shape_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    coordinate_system: PositionCoordinateSystem = (
+        PositionCoordinateSystem.IMAGE_PIXELS
+    )
+    bbox: Optional[BBox] = None
+    polygon: Optional[List[PolygonPoint]] = None
+
+    # Fraction of the full image frame occupied by the detected package
+    # contour. Useful for "partially out of frame" / "too far away" checks.
+    contour_area_fraction: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0
+    )
+    touches_image_border: bool = False
+
+    notes: List[str] = Field(default_factory=list)
+
+
+class PDPGeometry(BaseModel):
+    """
+    Principal Display Panel candidate geometry for one captured image.
+
+    Distinct from PackageGeometry: a package boundary is not a PDP, and a
+    PDP is not automatically planar (see `is_planar`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_image: str
+    observation_status: PDPObservationStatus = PDPObservationStatus.NOT_OBSERVED
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    coordinate_system: PositionCoordinateSystem = (
+        PositionCoordinateSystem.IMAGE_PIXELS
+    )
+    bbox: Optional[BBox] = None
+    polygon: Optional[List[PolygonPoint]] = None
+
+    is_planar: bool = False
+    orientation_deg: Optional[float] = None
+    surface_hint: SurfaceType = SurfaceType.UNKNOWN
+
+    # True only when this PDPGeometry was derived purely from package
+    # geometry (i.e. no OCR/text evidence contributed), which callers may
+    # want to weight differently.
+    derived_from_package_boundary_only: bool = False
+
+    notes: List[str] = Field(default_factory=list)
+
+
+class RectificationResult(BaseModel):
+    """
+    Perspective-rectification provenance for a planar PDP candidate.
+
+    The rectified image is a DERIVED artifact. The original image and
+    coordinates are never overwritten or discarded.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_image: str
+    source_polygon: List[PolygonPoint] = Field(min_length=4, max_length=4)
+    # Row-major 3x3 homography (9 values) mapping source-image pixel
+    # coordinates -> rectified-image pixel coordinates.
+    homography: List[float] = Field(min_length=9, max_length=9)
+    rectified_width_px: int = Field(gt=0)
+    rectified_height_px: int = Field(gt=0)
+    # Mean corner reprojection error in source-image pixels; a rough
+    # rectification-quality indicator, not a legal precision claim.
+    reprojection_error_px: Optional[float] = Field(default=None, ge=0.0)
+    notes: List[str] = Field(default_factory=list)
+
+
+class PhysicalMeasurement(BaseModel):
+    """
+    One physical-unit measurement derived from pixels + calibration.
+
+    `status` reuses MeasurementMode so downstream evaluators (e.g.
+    rule_engine._evaluate_font_height) can keep comparing against
+    MeasurementMode.VERIFIED without a second parallel status type.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    quantity: str  # e.g. "pdp_width", "pdp_height", "pdp_area", "numeral_height"
+    value: Optional[float] = None
+    unit: str = "mm"
+    uncertainty: Optional[float] = Field(default=None, ge=0.0)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    status: MeasurementMode = MeasurementMode.NOT_OBSERVED
+
+    source_image: Optional[str] = None
+    source_region: Optional[BBox] = None
+    calibration_method: Optional[CalibrationMethod] = None
+
+    reason: str = ""
+    notes: List[str] = Field(default_factory=list)
+
+
+class GeometryReadinessResult(BaseModel):
+    """Live-capture-facing geometry signal. Never a compliance signal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: GeometryReadiness = GeometryReadiness.PACKAGE_NOT_DETECTED
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reasons: List[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
