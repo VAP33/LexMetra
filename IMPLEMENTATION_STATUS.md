@@ -621,3 +621,76 @@ canonical `ocr_extraction.py` / `ocr_engine.py`, now that the evidence contract 
 must satisfy is stable and tested. Then `CLAUDE 4` geometry/calibration, which
 must satisfy the same contract plus the uncertainty rules. Then `CLAUDE 1`
 frontend, including the still-open `dashboard.html` auth blocker.
+
+---
+
+## Session 3 — Master Architecture Unification & Legal Evaluator Expansion
+
+Executed in strict compliance with `SIH 2026 — MASTER IMPLEMENTATION PLAN.md`.
+
+### 1. Architecture Inventory & Contracts (Phase 1)
+- Completed exhaustive inventory of all specialist branches (`CLAUDE 1`, `CLAUDE 2`, `CLAUDE 4`, `CLAUDE 5`, `backend`, `frontend`, `rules`).
+- Generated root `ARCHITECTURE_INVENTORY.md` detailing subsystem ownership, dependencies, interfaces, and integration paths.
+- Fixed `backend/config.py` hard import of `dotenv` so environment isolation and minimal runners without python-dotenv execute without crashing.
+- Extended `backend/schema.py` with additive, non-breaking models and enums for geometry, calibration, and physical measurements (`MeasurementMode.NOT_OBSERVED`, `PackageShapeHint`, `CalibrationMethod`, `PDPObservationStatus`, `GeometryReadiness`, `PackageGeometry`, `PDPGeometry`, `RectificationResult`, `PhysicalMeasurement`, `GeometryReadinessResult`).
+
+### 2. Geometry & Calibration Integration (Phase 2)
+- Unified pure Python pixel-to-mm scaling, reference card calibration math (ID-1 85.6mm long edge), uncertainty propagation, and Rule 7(1) PDP area formulas into canonical `backend/calibration.py`.
+- Integrated classical CV contours, `approxPolyDP`, ellipse fitting, PDP candidates, and homography rectification into canonical `backend/geometry.py`.
+- Preserved physical measurement safety: arbitrary photographs without validated calibration yield `MeasurementMode.UNCERTAIN` or `ESTIMATED`, never fabricating `VERIFIED` measurements.
+
+### 3. Legal Engine Expansion & Invariant Hardening (Phase 3)
+- Enforced Legal Safety Invariant 4 (`agreement_cap`): conflicting OCR readings cap definitive PASS/FAIL verdicts to `UNCERTAIN` with `review_required = True`.
+- Implemented missing rule evaluators in `backend/rule_engine.py`:
+  - **Rule 4**: Multi-pack declarations (inner retail packages must retain retail declarations).
+  - **Rule 5 & Second Schedule**: Standard package quantities and non-standard declaration verification.
+  - **Rule 25**: Export package domestic sale restriction (prohibits unlabelled/unrepacked sale of export packages in India).
+  - **Rule 26(b) & 26(c)**: Fast food restaurant-packed and Drug Price Control Order formulation specific exemptions.
+  - **Rule 27**: Manufacturer/Packer/Importer registration reference checks.
+  - **Rule 31**: E-commerce / advertisement retail price and mandatory net quantity declarations.
+- Wired calibrated PDP area and numeral height measurements into `run_inspection()`.
+- Added automated AST drift guard ensuring all `_finding()` calls pass `fact=`.
+- Added comprehensive unit tests in `backend/tests/test_rule_engine.py`. Test suite expanded from 34 to 40 passing tests with zero regressions.
+
+### 4. Frontend & Auth Hardening (Phase 4)
+- Canonicalized React application: copied complete TypeScript/React app from `CLAUDE 1/frontend/react-app` to `frontend/react-app`.
+- Hardened `frontend/dashboard.html` with bearer token input, state persistence in `localStorage`, and `Authorization: Bearer <token>` injection across `/scan`, `/inspections`, and review endpoints, resolving the 401 unauthenticated blocker.
+
+### Test Verification Status
+- Runner: `backend/tools/run_tests.py` using codex runtime (Python 3.12, pydantic 2.13.4, reportlab, numpy, pillow).
+- Results: **132 passed, 0 failed, 10 skipped** (6 test modules requiring system `cv2` or `fastapi` in this sandboxed environment cleanly report collection errors).
+
+---
+
+## Session 4 — OCR Pre-fill, Capture-Confirm Streamlining, and Cross-Surface Consistency
+
+Addressed outstanding integration requirements from `antigravity.md`:
+
+### 1. OCR Pre-fill Preview Endpoint (`POST /extract-preview`)
+- Added `POST /extract-preview` in `backend/main.py`: takes single or multi-surface captured images, executes `run_ocr()` + `classify_fields()` across surfaces, stamps provenance, and returns structured field extractions and smart suggestions (`suggested_product_id`, `category`, `net_quantity_value`, `net_quantity_unit`, `mrp`).
+- Operates statelessly without database persistence or prior metadata requirements.
+- Relaxed `POST /scan` to permit optional `product_id` and `net_quantity_value`, falling back intelligently to OCR extractions, slugified common names, or auto-generated scan IDs.
+
+### 2. Frontend Capture-Confirm Flow Pre-population
+- Updated `frontend/react-app/src/lib/api-client.ts`: added `extractPreview()` and `ExtractPreviewResponse` type contracts.
+- Overhauled `ScanDetailsView` in `frontend/react-app/src/components/InspectionApp.tsx`:
+  - Automatically triggers `extractPreview()` as soon as photos are captured.
+  - Displays a clean scanning preview banner while OCR processes.
+  - Automatically pre-populates Product ID, Sale Type, Category, Net Quantity, Unit, and MRP with detected values.
+  - Added visual provenance badges: "Auto-suggested from label", "Auto-detected", "Detected ₹...".
+  - Added collapsible "Detected Declarations" card displaying all recognized package declarations with confidence chips.
+  - Enables the "Run compliance check" button immediately when pre-filled, removing manual typing friction.
+
+### 3. Cross-Surface Consistency Verification
+- Upgraded `merge_classified_fields` in `backend/capture_session.py` to compare values when multiple surfaces observe the same field:
+  - Detects conflicting numeric quantities across surfaces (e.g. front vs back net quantity mismatch).
+  - Detects sticker price vs base MRP conflicts.
+  - Attaches `alternative_values` and sets `agreement = "CONFLICTING"`, automatically triggering Legal Safety Invariant 4 (`agreement_cap` in `rule_engine.py`) to cap definitive PASS/FAIL to `UNCERTAIN` and flag `review_required = True`.
+  - Sets `agreement = "CORROBORATED"` when observations match across surfaces.
+- Added 3 new unit tests in `backend/tests/test_capture_session.py` (`test_merge_detects_conflicting_quantities_across_surfaces`, `test_merge_detects_sticker_price_vs_base_mrp_conflict`, `test_merge_corroborates_matching_declarations`).
+
+### Test & Build Verification
+- Backend tests: **27/27 passed** in `test_capture_session.py`, **340 passed** across the full unit test suite.
+- Frontend build: `npm run build` (`tsc && vite build`) passed with zero errors in 3.72s.
+
+

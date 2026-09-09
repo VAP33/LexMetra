@@ -392,14 +392,14 @@ def measure_pdp_area(
                 confidence=0.0,
                 source_image=pdp.source_image,
                 source_region=pdp.bbox,
-                reason=(
-                    "Package is cylindrical/near-cylindrical, which requires a measured "
-                    "circumference (not just a single flat width) per the Rule 7(1) "
-                    "formula; no circumference evidence was supplied."
-                ),
+                reason="Circumference evidence is required to compute cylindrical PDP area; none was observed.",
             )
         circumference_m = measure_length_px(
-            circumference_bbox.width, calibration, quantity="pdp_circumference", source_image=pdp.source_image, source_region=circumference_bbox,
+            circumference_bbox.width,
+            calibration,
+            quantity="pdp_circumference",
+            source_image=pdp.source_image,
+            source_region=circumference_bbox,
         )
         if circumference_m.value is None:
             return PhysicalMeasurement(
@@ -415,7 +415,8 @@ def measure_pdp_area(
         circumference_cm = circumference_m.value / MM_PER_CM
         area_cm2 = PDP_AREA_CYLINDRICAL_FACTOR * height_cm * circumference_cm
         confidence = min(confidence, circumference_m.confidence)
-        status = MeasurementMode.VERIFIED if status == MeasurementMode.VERIFIED and circumference_m.status == MeasurementMode.VERIFIED else MeasurementMode.ESTIMATED
+        if circumference_m.status != MeasurementMode.VERIFIED:
+            status = MeasurementMode.ESTIMATED
         reason = (
             f"Cylindrical PDP area = 0.40 * height_cm * circumference_cm = "
             f"0.40 * {height_cm:.2f} * {circumference_cm:.2f} cm2."
@@ -429,11 +430,7 @@ def measure_pdp_area(
             confidence=0.0,
             source_image=pdp.source_image,
             source_region=pdp.bbox,
-            reason=(
-                f"Package shape '{shape.value}' does not have a reliable single-image "
-                "area formula in this module (Rule 7(1) 'other shape' requires total "
-                "surface area or an alternative applicable PDP area). Not estimated."
-            ),
+            reason=f"PDP area for package shape {shape.value} is not estimated here; inspector measurement required.",
         )
 
     # Area uncertainty via relative-error combination in quadrature.

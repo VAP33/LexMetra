@@ -350,9 +350,10 @@ def _full_analysis_contour(img_bgr: np.ndarray) -> Optional[np.ndarray]:
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     candidates, region = _content_region_candidates(gray)
 
-    grabcut_candidate = _grabcut_foreground_contour(img_bgr)
-    if grabcut_candidate is not None:
-        candidates.append(grabcut_candidate)
+    if not candidates:
+        grabcut_candidate = _grabcut_foreground_contour(img_bgr)
+        if grabcut_candidate is not None:
+            candidates.append(grabcut_candidate)
 
     return _pick_best_contour(candidates, region)
 

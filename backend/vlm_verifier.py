@@ -369,6 +369,38 @@ def verify_ambiguous_field_with_provider(
     )
 
 
+def _gemini_provider_call(prompt: str, *, model: str = "gemini-2.5-flash-lite") -> str:
+    import google.generativeai as genai
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set. The semantic verifier requires an "
+            "explicit API key and does not fabricate an offline model result."
+        )
+    genai.configure(api_key=api_key)
+    client = genai.GenerativeModel(model, system_instruction=VERIFIER_SYSTEM_PROMPT)
+    response = client.generate_content(prompt, generation_config={"temperature": 0})
+    return (response.text or "").strip()
+
+
+def verify_ambiguous_field_gemini(
+    field: str,
+    extracted_text: str,
+    rule_requirement: str,
+    *,
+    model: str = "gemini-2.5-flash-lite",
+) -> VerifierResult:
+    """Run semantic verification with Google Gemini as the provider."""
+    return verify_ambiguous_field_with_provider(
+        field,
+        extracted_text,
+        rule_requirement,
+        provider_call=lambda p: _gemini_provider_call(p, model=model),
+        model=model,
+        provider_name="gemini",
+    )
+
+
 def verify_ambiguous_field_mocked(
     field: str,
     extracted_text: str,

@@ -88,6 +88,11 @@ def merge_classified_fields(
     has the higher extraction confidence. This lets a later, clearer photo
     of the same declaration override an earlier blurry one, while never
     discarding a good earlier reading in favor of a worse new one.
+
+    Cross-surface consistency: when both captures observe the same field,
+    record alternative values and flag conflicting readings (Invariant 4)
+    if the extracted values contradict each other (e.g. front vs back
+    quantity mismatch, sticker price vs base MRP).
     """
     merged = dict(accumulated)
     for name, data in new_fields.items():
@@ -97,8 +102,47 @@ def merge_classified_fields(
         if existing is None:
             merged[name] = data
             continue
-        if _field_confidence({name: data}, name) > _field_confidence({name: existing}, name):
-            merged[name] = data
+
+        existing_conf = _field_confidence({name: existing}, name)
+        new_conf = _field_confidence({name: data}, name)
+        winner = dict(data) if new_conf > existing_conf else dict(existing)
+        loser = existing if new_conf > existing_conf else data
+
+        # Check cross-surface consistency when both observations have values
+        v_win = winner.get("value")
+        v_lose = loser.get("value")
+        if v_win and v_lose:
+            s_win = str(v_win).strip().lower()
+            s_lose = str(v_lose).strip().lower()
+
+            num_win = winner.get("numeric_value")
+            num_lose = loser.get("numeric_value")
+
+            has_numeric_conflict = False
+            if num_win is not None and num_lose is not None:
+                try:
+                    if abs(float(num_win) - float(num_lose)) > 0.001:
+                        has_numeric_conflict = True
+                except (ValueError, TypeError):
+                    pass
+
+            has_text_conflict = (s_win != s_lose) and (s_win not in s_lose) and (s_lose not in s_win)
+
+            alt_values = list(winner.get("alternative_values") or [])
+            for val in [loser.get("value"), existing.get("value"), data.get("value")]:
+                if val and str(val) not in [str(x) for x in alt_values] and str(val) != str(v_win):
+                    alt_values.append(str(val))
+
+            if has_numeric_conflict or (has_text_conflict and name in ("net_quantity", "mrp", "common_name", "best_before_use_by", "expiry_date")):
+                winner["alternative_values"] = alt_values
+                winner["agreement"] = "CONFLICTING"
+                winner["agreement_note"] = (
+                    f"Conflicting declarations detected across surfaces: '{v_win}' vs '{v_lose}'."
+                )
+            elif not winner.get("agreement") or winner.get("agreement") == "SINGLE_SOURCE":
+                winner["agreement"] = "CORROBORATED"
+
+        merged[name] = winner
     return merged
 
 
@@ -119,23 +163,70 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
     bridged = {k: v for k, v in classified.items() if not k.startswith("_")}
 
     if "manufacturer_name_address" not in bridged:
-        for source_field in ("manufacturer_name", "packer_name", "importer_name"):
-            data = bridged.get(source_field)
-            if data and data.get("value") and str(data["value"]).strip():
-                bridged["manufacturer_name_address"] = data
+        # Prefer a source that carries an actual value; fall back to one that
+        # was observed as a label only. See `_is_observed` for why the
+        # label-only case must survive this hop.
+        for predicate in (_has_value, _is_observed):
+            picked = None
+            for source_field in ("manufacturer_name", "packer_name", "importer_name"):
+                data = bridged.get(source_field)
+                if data and predicate(data):
+                    picked = data
+                    break
+            if picked is not None:
+                bridged["manufacturer_name_address"] = picked
                 break
 
     if "best_before_use_by" not in bridged:
         data = bridged.get("expiry_date")
-        if data and data.get("value") and str(data["value"]).strip():
+        if data and _is_observed(data):
             bridged["best_before_use_by"] = data
 
     if "wholesale_count_or_net_quantity" not in bridged:
         data = bridged.get("net_quantity")
-        if data and data.get("value") and str(data["value"]).strip():
+        if data and _is_observed(data):
             bridged["wholesale_count_or_net_quantity"] = data
 
     return bridged
+
+
+def _has_value(data: Dict[str, Any]) -> bool:
+    """True when the observation carries a non-empty extracted value."""
+    value = data.get("value")
+    return bool(value and str(value).strip())
+
+
+def _is_observed(data: Dict[str, Any]) -> bool:
+    """
+    True when the reader saw ANYTHING attributable to this declaration — a
+    value, or the printed label alone.
+
+    WHY A LABEL ALONE HAS TO CROSS THIS BRIDGE. These three bridges once
+    required a non-empty value, so an observation consisting of the caption
+    "USE BY" with an unreadable date beside it was dropped here and never
+    reached the rule engine under its legal name. The engine then saw no
+    `best_before_use_by` observation at all, which is the input to its ABSENCE
+    branch — and absence, once package coverage is sufficient, is a FAIL.
+
+    Those two situations are not the same and must not be collapsed:
+
+      "the pack declares USE BY, we could not read the date"  -> UNCERTAIN,
+                                                                 human review
+      "no best-before declaration was observed anywhere"      -> may be absent
+
+    The first is a photograph problem, the second is a compliance problem.
+    Silently converting the former into the latter manufactures a violation
+    against a package that may be perfectly compliant, which is the single
+    worst error this system can make. Invariants 2 and 3: NOT_OBSERVED and
+    UNREADABLE are not MISSING.
+    """
+    if _has_value(data):
+        return True
+    label = data.get("label")
+    if label and str(label).strip():
+        return True
+    raw_text = data.get("raw_text")
+    return bool(raw_text and str(raw_text).strip())
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +375,24 @@ def build_raw_extraction(field: str, data: Dict[str, Any]) -> "RawExtraction":
     if alternative_values is not None:
         alternative_values = [str(v) for v in alternative_values]
 
+    # A date declaration that arrives as free text with no normalized form.
+    #
+    # The rule engine treats `mfg_date` / `best_before_use_by` as unresolved
+    # when no normalized date accompanies the reading, which is correct: a date
+    # nobody could parse must not be reported as a satisfied declaration. But
+    # the check assumed every caller had already normalized, and the structured
+    # `/inspect` path never did — so a caller supplying a perfectly good
+    # "12/10/2027" was told its date could not be established.
+    #
+    # Normalizing HERE rather than in the rule engine is deliberate. This module
+    # is the translation layer between what a reader saw and what the legal
+    # engine consumes; the rule engine performs no text parsing by design. If
+    # the string cannot be normalized the field stays unresolved, which is the
+    # honest outcome, not a failure.
+    normalized_value = data.get("normalized_value")
+    if normalized_value is None and field in _DATE_VALUED_FIELDS:
+        normalized_value = _normalize_date_value(data.get("value"))
+
     return RawExtraction(
         field=field,
         value=data.get("value"),
@@ -294,11 +403,46 @@ def build_raw_extraction(field: str, data: Dict[str, Any]) -> "RawExtraction":
         numeric_value=data.get("numeric_value"),
         numeric_unit=data.get("numeric_unit"),
         raw_text=data.get("raw_text") or data.get("value"),
-        normalized_value=data.get("normalized_value"),
+        normalized_value=normalized_value,
         evidence=evidence or None,
         agreement=coerce_evidence_agreement(data.get("agreement")),
         alternative_values=alternative_values,
+        # The label/value distinction and the extractor's own reasoning, which
+        # previously stopped here. See the field comments on `RawExtraction`.
+        label=data.get("label"),
+        reason=data.get("reason"),
+        detection_status=data.get("status"),
     )
+
+
+#: Fields whose value is a date and which the rule engine will treat as
+#: unresolved unless a normalized form accompanies the reading.
+_DATE_VALUED_FIELDS = frozenset({"mfg_date", "best_before_use_by", "expiry_date"})
+
+
+def _normalize_date_value(value: Any) -> Optional[str]:
+    """
+    Best-effort ISO normalization of a date string, importing the extractor's
+    own parser so there is exactly one date grammar in the system.
+
+    Returns None when the text cannot be parsed, when the extractor is
+    unavailable (it needs PIL/pytesseract, which the rule-engine tests do not),
+    or when the value is not a string. None means "not established", which is
+    the state the caller already handles conservatively.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        import ocr_extraction
+    except Exception:
+        return None
+    normalizer = getattr(ocr_extraction, "normalize_date", None)
+    if normalizer is None:
+        return None
+    try:
+        return normalizer(value)
+    except Exception:
+        return None
 
 
 def _has_validated_calibration(data: Dict[str, Any]) -> bool:
@@ -442,9 +586,9 @@ def build_surface_observation(
     *,
     image_id: str,
     surface_type: SurfaceType,
-    image_quality: ImageQuality,
-    coverage: float,
-    pdp_bbox_px: Optional[Tuple[float, float, float, float]],
+    image_quality: Optional[ImageQuality] = None,
+    coverage: float = 1.0,
+    pdp_bbox_px: Optional[Tuple[float, float, float, float]] = None,
     rotation_index: Optional[int] = None,
     surface_id: Optional[str] = None,
 ) -> SurfaceObservation:
@@ -456,6 +600,9 @@ def build_surface_observation(
         except Exception:
             pdp_bbox = None
 
+    if image_quality is None:
+        image_quality = ImageQuality()
+
     return SurfaceObservation(
         surface_id=surface_id or new_surface_id(),
         image_id=image_id,
@@ -465,5 +612,5 @@ def build_surface_observation(
         evidence_coverage=max(0.0, min(1.0, coverage)),
         image_quality=image_quality,
         rotation_index=rotation_index,
-        notes=list(image_quality.notes),
+        notes=list(image_quality.notes) if image_quality else [],
     )

@@ -32,6 +32,219 @@ class FactStatus(str, Enum):
     EXEMPT = "EXEMPT"
 
 
+class CanonicalStatus(str, Enum):
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    NOT_DETECTED_IN_PROVIDED_IMAGES = "NOT_DETECTED_IN_PROVIDED_IMAGES"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    PARTIALLY_DETECTED = "PARTIALLY_DETECTED"
+    DETECTED = "DETECTED"
+    VERIFIED = "VERIFIED"
+    NON_COMPLIANT = "NON_COMPLIANT"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+
+
+class CanonicalDeclarationField(str, Enum):
+    MANUFACTURER_NAME_ADDRESS = "manufacturer_name_address"
+    COMMON_NAME = "common_name"
+    NET_QUANTITY = "net_quantity"
+    MFG_DATE = "mfg_date"
+    BEST_BEFORE_USE_BY = "best_before_use_by"
+    MRP = "mrp"
+    CONSUMER_CARE = "consumer_care"
+    UNIT_SALE_PRICE = "unit_sale_price"
+    STANDARD_PACK_SIZE = "standard_pack_size"
+    COUNTRY_OF_ORIGIN = "country_of_origin"
+
+
+class DeclarationEvidence(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    image_id: str
+    page_or_view: Optional[str] = "other"  # "front", "back", "other"
+    bbox: Optional[List[float]] = None     # [x1, y1, x2, y2]
+    source: str = "ocr"                    # "ocr", "vlm", "both"
+
+
+class ValidationDetails(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    present: Optional[bool] = None
+    readable: Optional[bool] = None
+    correct_format: Optional[bool] = None
+    compliant: Optional[bool] = None
+
+
+class CanonicalDeclaration(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    field: str
+    canonical_name: str
+    label: Optional[str] = None
+    value: Optional[str] = None
+    normalized_value: Optional[Any] = None
+    raw_text: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    ocr_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    extraction_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    evidence_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    status: CanonicalStatus = CanonicalStatus.INSUFFICIENT_EVIDENCE
+    evidence: Optional[DeclarationEvidence] = None
+    validation: ValidationDetails = Field(default_factory=ValidationDetails)
+    reason: str = ""
+    rule_id: Optional[str] = None
+    rule_clause: Optional[str] = None
+
+    @property
+    def canonical_field(self) -> str:
+        return self.field
+
+    @property
+    def extracted_value(self) -> Optional[str]:
+        return self.value
+
+    @property
+    def label_present(self) -> bool:
+        return bool(self.label)
+
+    @property
+    def value_present(self) -> bool:
+        return bool(self.value)
+
+    @property
+    def provenance(self) -> Optional[DeclarationEvidence]:
+        return self.evidence
+
+    @property
+    def statutory_rule(self) -> Optional[str]:
+        return self.rule_clause or self.rule_id
+
+    @property
+    def rule_description(self) -> Optional[str]:
+        return self.reason
+
+
+CANONICAL_DECLARATION_DEFINITIONS: Dict[str, Dict[str, str]] = {
+    "manufacturer_name_address": {
+        "canonical_name": "Manufacturer / Packer / Importer Name & Address",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(a)/(b)/(c)",
+    },
+    "common_name": {
+        "canonical_name": "Common / Generic Name of Commodity",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(b)",
+    },
+    "net_quantity": {
+        "canonical_name": "Net Quantity",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(e)",
+    },
+    "mfg_date": {
+        "canonical_name": "Manufacturing / Packing Date",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(d)",
+    },
+    "best_before_use_by": {
+        "canonical_name": "Best Before / Use By / Expiry Date",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(d) proviso",
+    },
+    "mrp": {
+        "canonical_name": "Maximum Retail Price (MRP)",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(da)",
+    },
+    "consumer_care": {
+        "canonical_name": "Consumer Care Details",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(da)/(f)",
+    },
+    "unit_sale_price": {
+        "canonical_name": "Unit Sale Price",
+        "rule_id": "LMPC-2011-R6-11-UNIT-PRICE",
+        "rule_clause": "Rule 6(11)",
+    },
+    "standard_pack_size": {
+        "canonical_name": "Standard Pack Size (Second Schedule)",
+        "rule_id": "LMPC-2011-R5-STANDARD-PACK",
+        "rule_clause": "Rule 5 / Second Schedule",
+    },
+    "country_of_origin": {
+        "canonical_name": "Country of Origin (Imported)",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(a) proviso",
+    },
+}
+
+CANONICAL_FIELD_ALIASES: Dict[str, str] = {
+    "mrp": "mrp",
+    "maximum retail price": "mrp",
+    "m.r.p.": "mrp",
+    "mrp:": "mrp",
+    "mrp rs.": "mrp",
+    "mrp ₹": "mrp",
+    "retail price": "mrp",
+    "retail sale price": "mrp",
+    "use by": "best_before_use_by",
+    "use before": "best_before_use_by",
+    "best before": "best_before_use_by",
+    "best before/use by": "best_before_use_by",
+    "best before / use by": "best_before_use_by",
+    "expiry": "best_before_use_by",
+    "expiry_date": "best_before_use_by",
+    "exp date": "best_before_use_by",
+    "consume before": "best_before_use_by",
+    "mfg date": "mfg_date",
+    "mfd": "mfg_date",
+    "mfg_date": "mfg_date",
+    "date of manufacture": "mfg_date",
+    "date of packing": "mfg_date",
+    "packed date": "mfg_date",
+    "pkd": "mfg_date",
+    "pkd.": "mfg_date",
+    "manufacturer": "manufacturer_name_address",
+    "manufacturer_name": "manufacturer_name_address",
+    "manufacturer_name_address": "manufacturer_name_address",
+    "manufactured by": "manufacturer_name_address",
+    "packed by": "manufacturer_name_address",
+    "packer_name": "manufacturer_name_address",
+    "imported by": "manufacturer_name_address",
+    "importer_name": "manufacturer_name_address",
+    "marketer": "manufacturer_name_address",
+    "marketed by": "manufacturer_name_address",
+    "net quantity": "net_quantity",
+    "net_quantity": "net_quantity",
+    "net qty": "net_quantity",
+    "net weight": "net_quantity",
+    "net wt": "net_quantity",
+    "net vol": "net_quantity",
+    "net volume": "net_quantity",
+    "common name": "common_name",
+    "common_name": "common_name",
+    "generic name": "common_name",
+    "consumer care": "consumer_care",
+    "consumer_care": "consumer_care",
+    "customer care": "consumer_care",
+    "helpline": "consumer_care",
+    "unit sale price": "unit_sale_price",
+    "unit_sale_price": "unit_sale_price",
+    "unit price": "unit_sale_price",
+    "usp": "unit_sale_price",
+    "standard pack size": "standard_pack_size",
+    "standard_pack_size": "standard_pack_size",
+    "country of origin": "country_of_origin",
+    "country_of_origin": "country_of_origin",
+}
+
+
+def normalize_declaration_field(field_name: str) -> Optional[str]:
+    clean = field_name.strip().lower().replace("-", "_")
+    if clean in CANONICAL_FIELD_ALIASES:
+        return CANONICAL_FIELD_ALIASES[clean]
+    clean_spaces = clean.replace("_", " ")
+    if clean_spaces in CANONICAL_FIELD_ALIASES:
+        return CANONICAL_FIELD_ALIASES[clean_spaces]
+    return clean if clean in CANONICAL_DECLARATION_DEFINITIONS else None
+
+
+
 class MeasurementMode(str, Enum):
     VERIFIED = "VERIFIED"
     ESTIMATED = "ESTIMATED"
@@ -533,6 +746,12 @@ class ExtractedFact(BaseModel):
     # Useful when an extracted value was normalized from OCR text.
     raw_text: Optional[str] = None
     normalized_value: Optional[str] = None
+    label: Optional[str] = None
+    canonical_field: Optional[str] = None
+    canonical_name: Optional[str] = None
+    canonical_status: Optional[str] = None
+    validation: Optional[Dict[str, Optional[bool]]] = None
+    ocr_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
     reason: str = ""
     review_required: bool = False
@@ -544,6 +763,7 @@ class ExtractedFact(BaseModel):
     decision_confidence: Optional[float] = Field(
         default=None, ge=0.0, le=1.0
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -648,8 +868,13 @@ class ProductInspection(BaseModel):
     # Extracted declaration facts
     facts: List[ExtractedFact] = Field(default_factory=list)
 
+    # Canonical declaration list & summary (deduplicated, typed, evidence-backed)
+    declarations: List[CanonicalDeclaration] = Field(default_factory=list)
+    declaration_summary: Dict[str, int] = Field(default_factory=dict)
+
     # Rule-level results
     findings: List[RuleFinding] = Field(default_factory=list)
+
 
     # Optional identity/history metadata
     product_identity: Optional[ProductIdentity] = None

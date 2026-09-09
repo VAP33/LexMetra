@@ -121,8 +121,9 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", False) and bool(
-    ANTHROPIC_API_KEY
+    ANTHROPIC_API_KEY or GEMINI_API_KEY
 )
 
 # ---------------------------------------------------------------------------

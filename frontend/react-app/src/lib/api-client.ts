@@ -129,6 +129,87 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Every member of backend/schema.py's CanonicalStatus enum. All eight, in the
+ * same order. The UI previously declared only five, and TWO of those five
+ * ("ABSENT", "UNOBSERVED") are not emitted by the backend at all — they were
+ * invented here. The practical effect was that NON_COMPLIANT (a real statutory
+ * violation), PARTIALLY_DETECTED, NOT_DETECTED_IN_PROVIDED_IMAGES and
+ * INSUFFICIENT_EVIDENCE all fell through mapCanonicalStatus's `default` branch
+ * and rendered identically as "Review". A violation and an unphotographed
+ * panel are opposite findings; collapsing them is not acceptable in
+ * enforcement software. Keep this list in sync with schema.py by hand. */
+export type RawCanonicalStatus =
+  | "NOT_APPLICABLE"
+  | "NOT_DETECTED_IN_PROVIDED_IMAGES"
+  | "INSUFFICIENT_EVIDENCE"
+  | "PARTIALLY_DETECTED"
+  | "DETECTED"
+  | "VERIFIED"
+  | "NON_COMPLIANT"
+  | "REVIEW_REQUIRED";
+
+/**
+ * The ACTUAL JSON shape of backend/schema.py's CanonicalDeclaration.
+ *
+ * This interface previously described a contract that never existed on the
+ * wire. CanonicalDeclaration exposes `canonical_field`, `extracted_value`,
+ * `label_present`, `value_present`, `provenance`, `statutory_rule` and
+ * `rule_description` as plain Python `@property` accessors — and Pydantic
+ * serializes DECLARED FIELDS ONLY, never properties (nothing in the backend
+ * uses `@computed_field`). So none of those seven keys are present in the
+ * response body. Reading them yielded `undefined` on every row, which is why
+ * every declaration displayed "Not detected" with no explanation even when the
+ * value had been extracted correctly, and why an inspection could show
+ * "Verified 79%" next to "Not detected" — `status` and `confidence` are real
+ * fields and survived, the value and reason did not.
+ *
+ * The names below are the declared fields. Do not reintroduce the property
+ * names here unless the backend is changed to emit them via @computed_field.
+ */
+export interface RawCanonicalDeclaration {
+  field: string;
+  canonical_name: string;
+  label?: string | null;
+  value?: string | null;
+  normalized_value?: unknown;
+  raw_text?: string | null;
+  confidence?: number | null;
+  ocr_confidence?: number | null;
+  extraction_confidence?: number | null;
+  evidence_confidence?: number | null;
+  status: RawCanonicalStatus;
+  // Note: DeclarationEvidence.bbox is a bare List[float]. Its docstring says
+  // [x1, y1, x2, y2] but its only producer (rule_engine.py
+  // _build_canonical_declarations) writes [x, y, width, height]. The producer
+  // wins — see bboxFromEvidence() in adapters.ts.
+  evidence?: {
+    image_id?: string | null;
+    page_or_view?: string | null;
+    bbox?: number[] | null;
+    source?: string | null;
+  } | null;
+  // backend ValidationDetails — four optional tri-state booleans. There is no
+  // `issues` array and no `requires_inspector_review` flag; the old interface
+  // claimed both, so validation issues never rendered.
+  validation?: {
+    present?: boolean | null;
+    readable?: boolean | null;
+    correct_format?: boolean | null;
+    compliant?: boolean | null;
+  } | null;
+  reason?: string | null;
+  rule_id?: string | null;
+  rule_clause?: string | null;
+}
+
+export interface RawDeclarationSummary {
+  applicable: number;
+  detected: number;
+  verified: number;
+  review_required: number;
+  non_compliant: number;
+}
+
 /** Raw shape returned by POST /scan — see backend/main.py. */
 export interface RawScanResponse {
   inspection: {
@@ -149,9 +230,32 @@ export interface RawScanResponse {
       reason: string;
       review_required: boolean;
       bbox?: { x: number; y: number; width: number; height: number } | null;
+      // Named inputs the rule engine needed but never received. Populated by
+      // backend/rule_engine.py (e.g. ["calibrated_pdp_area_cm2"] when Rule 7(2)
+      // font-height could not select a threshold). Already serialized by the
+      // backend; the UI uses it to tell "we looked and judged" apart from
+      // "we could not look because an input is missing".
+      missing_evidence?: string[];
     }>;
+    declarations?: RawCanonicalDeclaration[];
+    declaration_summary?: RawDeclarationSummary;
   };
   raw_ocr_fields?: Record<string, { value?: string; confidence?: number }>;
+  resolved_inputs?: {
+    mrp?: number | null;
+    mrp_source?: string;
+    net_quantity_value?: number | null;
+    net_quantity_unit?: string | null;
+    net_quantity_source?: string;
+    pdp_area_cm2?: number | null;
+  };
+  barcode_info?: {
+    status: string;
+    symbol_count: number;
+    primary_gtin?: string | null;
+    primary_symbology?: string | null;
+    primary_method?: string | null;
+  } | null;
   sticker_suspects?: Array<{ bbox: [number, number, number, number]; confidence: number; reason: string }>;
   nearest_matches?: Array<{ product_id: string; image_id: string; score: number }>;
   price_or_label_change_flag?: string | null;
@@ -174,6 +278,8 @@ export interface RawInspectionRow {
   reviewer_note?: string | null;
   review_required?: boolean;
   facts?: RawScanResponse["inspection"]["facts"];
+  declarations?: RawCanonicalDeclaration[];
+  declaration_summary?: RawDeclarationSummary;
 }
 
 export async function scanPackage(file: Blob, details: ScanDetails): Promise<RawScanResponse> {
@@ -191,6 +297,69 @@ export async function scanPackage(file: Blob, details: ScanDetails): Promise<Raw
   if (details.isImported !== undefined) form.append("is_imported", String(details.isImported));
   return request<RawScanResponse>("/scan", { method: "POST", body: form });
 }
+
+export interface ExtractPreviewResponse {
+  status: string;
+  images: Array<{
+    index: number;
+    image_id: string;
+    width: number;
+    height: number;
+    lines_detected: number;
+  }>;
+  total_lines: number;
+  suggested_details: {
+    product_id: string;
+    product_id_source?: string;
+    needs_manual_entry?: boolean;
+    barcode_needs_confirmation?: boolean;
+    barcode_info?: {
+      status: string;
+      symbol_count: number;
+      primary_gtin?: string | null;
+      primary_symbology?: string | null;
+      primary_method?: string | null;
+      notes?: string[];
+    } | null;
+    sale_type: "retail" | "wholesale" | "industrial" | "institutional";
+    category: string;
+    net_quantity_value: number | null;
+    net_quantity_unit: string;
+    mrp: number | null;
+    pdp_area_cm2?: number | null;
+  };
+  field_extractions: Record<
+    string,
+    {
+      value?: string | null;
+      confidence: number;
+      source_image?: string | null;
+      detected: boolean;
+    }
+  >;
+  raw_ocr_fields: Record<string, any>;
+}
+
+/**
+ * Lightweight OCR extraction preview for the capture -> confirm flow.
+ * Runs OCR across surfaces to pre-fill the confirmation form and give the inspector
+ * immediate feedback on detected declarations before the full legal compliance check.
+ */
+export async function extractPreview(images: Blob[]): Promise<ExtractPreviewResponse> {
+  const form = new FormData();
+  if (images.length === 1) {
+    form.append("file", images[0], "surface_1.jpg");
+  } else {
+    images.forEach((img, idx) => {
+      form.append("files", img, `surface_${idx + 1}.jpg`);
+    });
+  }
+  return request<ExtractPreviewResponse>("/extract-preview", {
+    method: "POST",
+    body: form,
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // Multi-surface inspection sessions — the real way to capture more than one

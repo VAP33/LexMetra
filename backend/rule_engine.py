@@ -28,6 +28,10 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from schema import (
     BBox,
+    CanonicalDeclaration,
+    CanonicalStatus,
+    CANONICAL_DECLARATION_DEFINITIONS,
+    DeclarationEvidence,
     EvidenceAgreement,
     EvidenceReference,
     FactStatus,
@@ -38,10 +42,17 @@ from schema import (
     RuleFinding,
     SurfaceObservation,
     UNATTRIBUTED_IMAGE_ID,
+    ValidationDetails,
     coerce_evidence_agreement,
 )
 
-from exemption import ExemptionInput, classify_exemption
+
+import exemption as exemption_module
+from exemption import (
+    QUANTITY_NOT_ESTABLISHED,
+    ExemptionInput,
+    classify_exemption,
+)
 import calibration as calib
 from unit_price import (
     compute_unit_sale_price,
@@ -102,6 +113,38 @@ class RawExtraction:
     # being told one exists — the same reason evidence carries a bbox rather
     # than the word "somewhere".
     alternative_values: Optional[List[str]] = None
+
+    # THE LABEL, SEPARATE FROM THE VALUE.
+    #
+    # `ocr_extraction.classify_fields()` distinguishes the printed caption
+    # ("M.R.P.", "USE BY") from the datum beside it, because a caption proves a
+    # declaration was ATTEMPTED while saying nothing about whether its value is
+    # present or readable. That distinction is the whole basis of the
+    # PARTIALLY_DETECTED outcome: "the pack says MRP but we could not read the
+    # amount" is a materially different report to a reviewer than "no MRP
+    # anywhere on the pack", and only one of them can ever justify an absence
+    # finding.
+    #
+    # The distinction previously stopped at this boundary. `classify_fields`
+    # computed `label`, `status` and `reason`; `build_raw_extraction` did not
+    # forward them; every downstream `getattr(ext, "label", None)` therefore
+    # returned None in production, so the PARTIALLY_DETECTED branch was
+    # unreachable and label-only observations were indistinguishable from
+    # nothing-observed. Same class of defect as the dropped bbox: a value
+    # computed correctly upstream with nowhere to land.
+    label: Optional[str] = None
+
+    # The extractor's own account of WHY this reading is in the state it is in
+    # ("label matched but no adjacent value line"). Carried so the explanation
+    # shown to a reviewer is the one the extractor actually formed, rather than
+    # a generic sentence reconstructed after the fact.
+    reason: Optional[str] = None
+
+    # `classify_fields`' own status string (e.g. "DETECTED",
+    # "REVIEW_REQUIRED"). Deliberately NOT named `status`: this is the
+    # EXTRACTOR's opinion about readability, never a legal status. The rule
+    # engine decides compliance; this field only reports what the reader saw.
+    detection_status: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.confidence = max(0.0, min(1.0, float(self.confidence)))
@@ -605,26 +648,42 @@ def _evaluate_declaration_rule(
     captures: Sequence[SurfaceObservation],
     context: Mapping[str, Any],
     low_confidence_threshold: float,
+    exclude_fields: Optional[set[str]] = None,
 ) -> tuple[List[ExtractedFact], List[RuleFinding]]:
     """
     Generic mandatory-declaration evaluator.
 
     Shared by Rule 6 (retail mandatory declarations) and Rule 24 (wholesale
-    package declarations) — both rules have the same shape in rules.json:
-    a list of {id, field, description} requirements that must each be
-    evidenced, with conservative FAIL-only-when-evidence-is-sufficient
-    semantics for absence.
+    package declarations).
     """
-
     facts: List[ExtractedFact] = []
     findings: List[RuleFinding] = []
     requirements = _build_requirement_map(rule, context)
+    exclude_fields = exclude_fields or set()
 
     for field, req in requirements.items():
+        if field in exclude_fields:
+            continue
+
         extraction = extractions.get(field)
 
         if _has_value(extraction):
-            if extraction.confidence < low_confidence_threshold:
+            # Strict field value validation:
+            if field == "mrp" and getattr(extraction, "numeric_value", None) is None:
+                status = FactStatus.UNCERTAIN
+                reason = (
+                    getattr(extraction, "reason", "")
+                    or f"MRP text '{extraction.value}' does not contain a verified positive monetary amount."
+                )
+                review = True
+            elif field in {"best_before_use_by", "mfg_date"} and getattr(extraction, "date_value", None) is None and getattr(extraction, "normalized_value", None) is None:
+                status = FactStatus.UNCERTAIN
+                reason = (
+                    getattr(extraction, "reason", "")
+                    or f"Declaration label '{extraction.value}' was detected, but no valid date value could be established."
+                )
+                review = True
+            elif extraction.confidence < low_confidence_threshold:
                 status = FactStatus.UNCERTAIN
                 reason = (
                     f"'{field}' was detected, but extraction confidence "
@@ -659,12 +718,15 @@ def _evaluate_declaration_rule(
             ))
             continue
 
-        if req.get("_applicability_uncertain"):
-            # This engine version could not determine whether the requirement
-            # applies to this package (unrecognised condition, or a context key
-            # the caller never supplied). An undetermined requirement must never
-            # be failed for absence — that would accuse a package of breaching a
-            # declaration that may not apply to it at all.
+        if extraction is not None and (getattr(extraction, "raw_text", None) or getattr(extraction, "label", None)):
+            # Label was observed, but value is missing/unresolved
+            status = FactStatus.UNCERTAIN
+            reason = (
+                getattr(extraction, "reason", "")
+                or f"Declaration label for '{field}' was observed, but corresponding value was not reliably detected."
+            )
+            review = True
+        elif req.get("_applicability_uncertain"):
             status = FactStatus.UNCERTAIN
             reason = (
                 f"Required declaration '{field}' was not observed, and whether "
@@ -672,28 +734,30 @@ def _evaluate_declaration_rule(
                 f"condition '{req.get('condition')}'. Absence cannot be "
                 "assessed until applicability is resolved by a reviewer."
             )
+            review = True
         elif _evidence_sufficient_for_missing_field(captures):
             status = FactStatus.FAIL
             reason = (
                 f"Required declaration '{field}' was not evidenced after "
                 "sufficient package coverage."
             )
+            review = True
         else:
             status = FactStatus.UNCERTAIN
             reason = (
-                f"Required declaration '{field}' was not observed, but the "
-                "available package evidence is insufficient to conclude that "
-                "the declaration is absent."
+                f"Required declaration '{field}' was not observed in the provided image(s). "
+                "Available package evidence is insufficient to conclude that the declaration is absent."
             )
+            review = True
 
         fact = _make_fact(
             field=field,
-            extraction=None,
+            extraction=extraction if extraction else None,
             status=status,
             rule=rule,
             reason=reason,
-            review_required=True,
-            confidence_override=1.0 if status == FactStatus.FAIL else 0.0,
+            review_required=review,
+            confidence_override=1.0 if status == FactStatus.FAIL else (extraction.confidence if extraction else 0.0),
         )
         facts.append(fact)
         findings.append(_finding(
@@ -729,7 +793,9 @@ def _evaluate_rule6_declarations(
         captures=captures,
         context=context,
         low_confidence_threshold=low_confidence_threshold,
+        exclude_fields={"unit_sale_price"},
     )
+
 
 
 def _evaluate_rule24_wholesale_declarations(
@@ -901,8 +967,8 @@ def _evaluate_unit_sale_price(
     *,
     rules: Mapping[str, dict],
     extractions: Mapping[str, RawExtraction],
-    net_quantity_value: float,
-    net_quantity_unit: str,
+    net_quantity_value: Optional[float],
+    net_quantity_unit: Optional[str],
     mrp: Optional[float],
     sale_type: str,
     low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
@@ -976,6 +1042,45 @@ def _evaluate_unit_sale_price(
                 reason=reason,
                 missing_evidence=["valid_mrp"],
                 confidence=mrp_extraction.confidence,
+                review_required=True,
+            )
+        ]
+
+    # Rule 6(11) is arithmetic on the net quantity, and its own exception —
+    # no declaration is required where the pack contains exactly one standard
+    # unit — is also a function of that quantity. With the quantity unestablished
+    # neither can be evaluated.
+    #
+    # `compute_unit_sale_price` does not raise on a None quantity; it returns a
+    # result carrying `declaration_required=True`. So the except-branch below
+    # never fired and execution fell through, asserting that the declaration IS
+    # required on the strength of a quantity nobody had read. It errs toward more
+    # obligation rather than less, so it produced no false FAIL, but it is still
+    # an applicability decision made on absent evidence. The honest answer is
+    # UNCERTAIN, naming the quantity as the missing evidence.
+    if not exemption_module.quantity_is_established(net_quantity_value,
+                                                    net_quantity_unit):
+        reason = (
+            "The unit sale price could not be assessed because the net quantity "
+            "was not established. Whether Rule 6(11) requires a unit-sale-price "
+            "declaration at all depends on that quantity, so neither the "
+            "requirement nor its exception has been decided."
+        )
+        fact = _make_fact(
+            field="unit_sale_price",
+            extraction=extractions.get("unit_sale_price"),
+            status=FactStatus.UNCERTAIN,
+            rule=rule,
+            reason=reason,
+            review_required=True,
+        )
+        return [fact], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                missing_evidence=["valid_net_quantity"],
+                confidence=0.0,
                 review_required=True,
             )
         ]
@@ -1363,8 +1468,14 @@ def _evaluate_rule5_standard_pack(
     *,
     rules: Mapping[str, dict],
     product_category: str,
-    net_quantity_value: float,
-    net_quantity_unit: str,
+    #: Currently unused by this evaluator: Rule 5 / Second Schedule membership is
+    #: not yet implemented (LMPC-2011-R5-STANDARD-PACK carries a null threshold in
+    #: rules.json), so the outcome is driven by category and the non-standard-pack
+    #: declaration alone. Kept in the signature because a real Second Schedule
+    #: check is a function of exactly this quantity, and Optional because it may
+    #: legitimately be unestablished when it arrives.
+    net_quantity_value: Optional[float],
+    net_quantity_unit: Optional[str],
     extractions: Mapping[str, RawExtraction],
 ) -> tuple[List[ExtractedFact], List[RuleFinding]]:
     """
@@ -1775,8 +1886,8 @@ def run_inspection(
     inspection_id: str,
     sale_type: str,
     product_category: str,
-    net_quantity_value: float,
-    net_quantity_unit: str,
+    net_quantity_value: Optional[float],
+    net_quantity_unit: Optional[str],
     mrp: Optional[float],
     extractions: Dict[str, RawExtraction],
     pdp_area_cm2: Optional[float] = None,
@@ -1804,8 +1915,18 @@ def run_inspection(
     if not 0.0 <= low_confidence_threshold <= 1.0:
         raise ValueError("low_confidence_threshold must be between 0 and 1")
 
-    if net_quantity_value is None or float(net_quantity_value) <= 0:
+    # A net quantity of None means "not established yet" and is legitimate: the
+    # net quantity is one of the declarations this engine READS from the package,
+    # so requiring it as an input forced an inspector to type the very value
+    # under inspection before any image had been analysed. An asserted zero or
+    # negative quantity is a different thing entirely — a broken value rather
+    # than an absent one — and is still rejected.
+    if net_quantity_value is not None and float(net_quantity_value) <= 0:
         raise ValueError("net_quantity_value must be greater than zero")
+
+    quantity_established = exemption_module.quantity_is_established(
+        net_quantity_value, net_quantity_unit
+    )
 
     captures = captures or []
     rules = load_rules()
@@ -1865,6 +1986,40 @@ def run_inspection(
             evidence_complete=bool(captures),
             review_required=False,
         )
+
+    # An undetermined exemption is not an exemption, but it is also not a clean
+    # "in scope". Rule 3's quantity exclusion and Rule 26(a)'s small-package
+    # relaxation both depend on the net quantity, so when that quantity was never
+    # established the applicability question is genuinely open. It is recorded as
+    # an UNCERTAIN scope fact and carried into `review_required` so the
+    # indeterminacy appears in the report instead of being silently resolved
+    # against the package. Declaration checks still run: the pack's own
+    # net-quantity declaration may well be readable, and this engine's absence
+    # handling already resolves unreadable declarations to UNCERTAIN.
+    quantity_scope_uncertain = (
+        not exemption.is_exempt
+        and exemption.exemption_type == QUANTITY_NOT_ESTABLISHED
+    )
+    if quantity_scope_uncertain:
+        scope_rule = _find_rule(rules, exemption.rule_id, "LMPC-2011-R3-SCOPE")
+        facts.append(_make_fact(
+            field="__scope__",
+            extraction=None,
+            status=FactStatus.UNCERTAIN,
+            rule=scope_rule,
+            reason=exemption.reason,
+            review_required=True,
+            confidence_override=0.0,
+        ))
+        if scope_rule:
+            findings.append(_finding(
+                rule=scope_rule,
+                status=FactStatus.UNCERTAIN,
+                reason=exemption.reason,
+                confidence=0.0,
+                review_required=True,
+                missing_evidence=["net_quantity"],
+            ))
 
     # ------------------------------------------------------------------
     # 2. Build contextual applicability facts & calibration inference.
@@ -2045,7 +2200,17 @@ def run_inspection(
             ))
 
     # ------------------------------------------------------------------
-    # 8. Final status and summary.
+    # 8. Canonical declarations & deduplicated summary.
+    # ------------------------------------------------------------------
+    declarations, decl_summary = _build_canonical_declarations(
+        facts=facts,
+        extractions=extractions,
+        context=context,
+        captures=captures,
+    )
+
+    # ------------------------------------------------------------------
+    # 9. Final status and summary.
     # ------------------------------------------------------------------
     overall = _aggregate_status(facts)
     summary_data = _summary(facts, findings, captures)
@@ -2059,6 +2224,8 @@ def run_inspection(
         geometry=geometry,
         captures=captures,
         facts=facts,
+        declarations=declarations,
+        declaration_summary=decl_summary,
         findings=findings,
         overall_status=overall,
         summary=summary_data,
@@ -2068,3 +2235,138 @@ def run_inspection(
             or overall == FactStatus.UNCERTAIN
         ),
     )
+
+
+def _build_canonical_declarations(
+    facts: List[ExtractedFact],
+    extractions: Mapping[str, RawExtraction],
+    context: Mapping[str, Any],
+    captures: Sequence[SurfaceObservation],
+) -> tuple[List[CanonicalDeclaration], Dict[str, int]]:
+    declarations: List[CanonicalDeclaration] = []
+
+    # Map facts by field name (taking primary non-auxiliary fact)
+    fact_map: Dict[str, ExtractedFact] = {}
+    for f in facts:
+        if f.field.startswith("__") or f.field in ("mrp_numeral_height", "declaration_placement"):
+            continue
+        if f.field not in fact_map or f.status == FactStatus.PASS:
+            fact_map[f.field] = f
+
+    for field_id, meta in CANONICAL_DECLARATION_DEFINITIONS.items():
+        canonical_name = meta["canonical_name"]
+        rule_id = meta["rule_id"]
+        rule_clause = meta["rule_clause"]
+
+        # Check applicability
+        is_applicable = True
+        if field_id == "best_before_use_by" and not context.get("best_before_applicable", False):
+            is_applicable = False
+        elif field_id == "country_of_origin" and not context.get("is_imported", False):
+            is_applicable = False
+
+        if not is_applicable:
+            declarations.append(CanonicalDeclaration(
+                field=field_id,
+                canonical_name=canonical_name,
+                value=None,
+                status=CanonicalStatus.NOT_APPLICABLE,
+                confidence=1.0,
+                validation=ValidationDetails(present=False, readable=None, correct_format=None, compliant=True),
+                reason="Declaration is outside statutory scope for this product category and origin.",
+                rule_id=rule_id,
+                rule_clause=rule_clause,
+            ))
+            continue
+
+        fact = fact_map.get(field_id)
+        ext = extractions.get(field_id)
+
+        extracted_val = fact.extracted_value if fact else (ext.value if ext else None)
+        raw_text = fact.raw_text if fact else (ext.raw_text if ext else None)
+        norm_val = fact.normalized_value if fact else (ext.normalized_value if ext else None)
+        confidence = fact.confidence if fact else (ext.confidence if ext else 0.0)
+
+        # Primary evidence reference
+        primary_evidence = None
+        if fact and fact.evidence:
+            ev = next((e for e in fact.evidence if e.is_attributed()), fact.evidence[0])
+            bbox_coords = [ev.bbox.x, ev.bbox.y, ev.bbox.width, ev.bbox.height] if ev.bbox else None
+            primary_evidence = DeclarationEvidence(
+                image_id=ev.image_id,
+                bbox=bbox_coords,
+                source="ocr",
+            )
+        elif ext and ext.bbox:
+            primary_evidence = DeclarationEvidence(
+                image_id=UNATTRIBUTED_IMAGE_ID,
+                bbox=list(ext.bbox) if isinstance(ext.bbox, (list, tuple)) else None,
+                source="ocr",
+            )
+
+        if fact and fact.status == FactStatus.PASS and extracted_val:
+            status = CanonicalStatus.VERIFIED
+            reason = fact.reason or f"'{canonical_name}' verified compliant."
+            validation = ValidationDetails(present=True, readable=True, correct_format=True, compliant=True)
+        elif fact and fact.status == FactStatus.FAIL:
+            status = CanonicalStatus.NON_COMPLIANT
+            reason = fact.reason or f"'{canonical_name}' violates statutory requirement."
+            validation = ValidationDetails(present=bool(extracted_val), readable=bool(extracted_val), correct_format=False, compliant=False)
+        elif extracted_val is not None:
+            status = CanonicalStatus.REVIEW_REQUIRED
+            # NOTE: `fact`/`ext` being truthy does not guarantee `.reason` is set
+            # (e.g. a fact with status UNCERTAIN carrying no explanatory text) --
+            # must fall back on an empty/None reason, not just a missing object.
+            reason = (
+                (fact.reason if fact else None)
+                or (ext.reason if ext else None)
+                or f"'{canonical_name}' detected but requires human review."
+            )
+            validation = ValidationDetails(present=True, readable=confidence >= 0.4, correct_format=None, compliant=None)
+        elif ext is not None and (getattr(ext, "label", None) or getattr(ext, "raw_text", None)):
+            status = CanonicalStatus.PARTIALLY_DETECTED
+            reason = getattr(ext, "reason", "") or f"Declaration label detected, but value was not reliably detected."
+            validation = ValidationDetails(present=False, readable=None, correct_format=False, compliant=None)
+        else:
+            if _evidence_sufficient_for_missing_field(captures):
+                status = CanonicalStatus.NON_COMPLIANT
+                reason = f"Required declaration '{canonical_name}' was confirmed absent after comprehensive package coverage."
+                validation = ValidationDetails(present=False, readable=None, correct_format=None, compliant=False)
+            else:
+                status = CanonicalStatus.NOT_DETECTED_IN_PROVIDED_IMAGES
+                reason = f"Declaration not observed in the provided view(s). Package evidence is insufficient to conclude absence."
+                validation = ValidationDetails(present=False, readable=None, correct_format=None, compliant=None)
+
+        declarations.append(CanonicalDeclaration(
+            field=field_id,
+            canonical_name=canonical_name,
+            label=getattr(ext, "label", None) if ext else None,
+            value=extracted_val,
+            normalized_value=norm_val,
+            raw_text=raw_text,
+            confidence=confidence,
+            status=status,
+            evidence=primary_evidence,
+            validation=validation,
+            reason=reason,
+            rule_id=rule_id,
+            rule_clause=rule_clause,
+        ))
+
+    # Assert that no duplicates exist in the canonical declarations list
+    assert len(declarations) == len(set(d.field for d in declarations)), "Duplicate canonical declaration IDs detected!"
+
+    summary = {
+        "applicable": sum(1 for d in declarations if d.status != CanonicalStatus.NOT_APPLICABLE),
+        "detected": sum(1 for d in declarations if d.validation.present),
+        "verified": sum(1 for d in declarations if d.status == CanonicalStatus.VERIFIED),
+        "review_required": sum(1 for d in declarations if d.status in (
+            CanonicalStatus.REVIEW_REQUIRED,
+            CanonicalStatus.PARTIALLY_DETECTED,
+            CanonicalStatus.INSUFFICIENT_EVIDENCE,
+            CanonicalStatus.NOT_DETECTED_IN_PROVIDED_IMAGES,
+        )),
+        "non_compliant": sum(1 for d in declarations if d.status == CanonicalStatus.NON_COMPLIANT),
+    }
+    return declarations, summary
+

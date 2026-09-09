@@ -205,3 +205,45 @@ def test_finalize_empty_session_is_rejected(api_client, admin_token):
 
     finalize_resp = api_client.post(f"/sessions/{session_id}/finalize", headers=headers)
     assert finalize_resp.status_code == 400
+
+
+def test_extract_preview_requires_auth(api_client):
+    resp = api_client.post("/extract-preview")
+    assert resp.status_code == 401
+
+
+def test_extract_preview_with_image(api_client, inspector_token):
+    if not DATASET_IMAGE.exists():
+        return
+    headers = {"Authorization": f"Bearer {inspector_token}"}
+    with DATASET_IMAGE.open("rb") as fh:
+        resp = api_client.post(
+            "/extract-preview",
+            files={"file": ("label.png", fh, "image/png")},
+            headers=headers,
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["status"] == "success"
+    assert "suggested_details" in data
+    assert "field_extractions" in data
+    assert "raw_ocr_fields" in data
+    # Product ID should be generated or suggested
+    assert data["suggested_details"]["product_id"]
+
+
+def test_scan_with_loosened_parameters(api_client, inspector_token):
+    if not DATASET_IMAGE.exists():
+        return
+    headers = {"Authorization": f"Bearer {inspector_token}"}
+    with DATASET_IMAGE.open("rb") as fh:
+        resp = api_client.post(
+            "/scan",
+            files={"file": ("label.png", fh, "image/png")},
+            headers=headers,
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "inspection" in body
+    assert body["inspection"]["overall_status"] in {"PASS", "FAIL", "UNCERTAIN", "EXEMPT"}
+

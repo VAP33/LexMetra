@@ -240,6 +240,60 @@ def _load(path: Path) -> types.ModuleType:
     return module
 
 
+def _collect_class_tests(module: types.ModuleType) -> List[Tuple[str, Any]]:
+    """
+    Collect `Test*` classes' `test_*` methods, the way pytest does.
+
+    WHY THIS MATTERS MORE THAN IT LOOKS. This runner previously collected only
+    module-level functions. A class-based test file was not reported as
+    skipped or unsupported — it contributed zero tests and the suite still
+    printed a green total. `test_declaration_pipeline.py` (8 tests across 4
+    classes) was invisible for that reason on top of its import error, so
+    "fixing" its import alone would still have run nothing.
+
+    A test runner that silently counts nothing as success is the same failure
+    mode this project keeps finding in its own code: a plausible-looking result
+    standing in for a missing one. Classes are instantiated per test, matching
+    pytest's isolation; a class with an `__init__` is skipped exactly as pytest
+    skips it, with a warning rather than in silence.
+    """
+    collected: List[Tuple[str, Any]] = []
+    for class_name in sorted(n for n in dir(module) if n.startswith("Test")):
+        cls = getattr(module, class_name)
+        if not inspect.isclass(cls):
+            continue
+        if cls.__init__ is not object.__init__:
+            print(
+                f"  WARNING: {class_name} defines __init__ and cannot be "
+                "collected (pytest refuses these too)."
+            )
+            continue
+        for method_name in sorted(n for n in dir(cls) if n.startswith("test_")):
+            method = getattr(cls, method_name)
+            if not callable(method):
+                continue
+            collected.append((
+                f"{class_name}::{method_name}",
+                _bind_method(cls, method_name),
+            ))
+    return collected
+
+
+def _bind_method(cls: Any, method_name: str) -> Any:
+    """Return a zero-arg-visible callable that instantiates `cls` per test."""
+    def run(**kwargs: Any) -> Any:
+        return getattr(cls(), method_name)(**kwargs)
+
+    # The fixture resolver inspects the signature to decide what to inject, so
+    # expose the method's parameters minus `self`.
+    original = inspect.signature(getattr(cls, method_name))
+    run.__signature__ = original.replace(  # type: ignore[attr-defined]
+        parameters=[p for n, p in original.parameters.items() if n != "self"]
+    )
+    run.__name__ = method_name
+    return run
+
+
 def _install_pydantic_if_missing() -> bool:
     """
     Install the strict pydantic stand-in ONLY if real pydantic is unavailable.
@@ -320,6 +374,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             for n in sorted(names)
             if callable(getattr(module, n))
         ]
+        tests.extend(_collect_class_tests(module))
         if not tests:
             continue
 

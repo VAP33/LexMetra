@@ -24,11 +24,38 @@ from typing import Any, Dict, Optional
 RULES_PATH = Path(__file__).resolve().parent.parent / "rules" / "rules.json"
 
 
+#: `exemption_type` used when the quantity-threshold rules could not be reached
+#: because the net quantity itself was never established. See
+#: `quantity_is_established` for why this is a THIRD outcome and not a False.
+QUANTITY_NOT_ESTABLISHED = "quantity_not_established"
+
+
+def quantity_is_established(value: Optional[float],
+                           unit: Optional[str]) -> bool:
+    """
+    Whether a net quantity is usable as the input to a threshold rule.
+
+    A zero or negative quantity counts as NOT established rather than as a small
+    package. It is an invalid assertion, not an observation, and letting it flow
+    into the Rule 26(a) small-pack comparison would grant an exemption on the
+    strength of a broken reading.
+    """
+    if value is None or unit is None or not str(unit).strip():
+        return False
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 @dataclass(frozen=True)
 class ExemptionInput:
     sale_type: str
-    net_quantity_value: float
-    net_quantity_unit: str
+    #: Optional because the net quantity is itself one of the declarations the
+    #: pipeline READS from the package. Requiring it up front forced an inspector
+    #: to type the very value under inspection before any image was analysed.
+    net_quantity_value: Optional[float]
+    net_quantity_unit: Optional[str]
     product_category: str
     is_export_only: bool = False
     retail_bundle_count: Optional[int] = None
@@ -94,10 +121,15 @@ def _normalise_unit(unit: str) -> str:
     return aliases.get(unit, unit)
 
 
-def _to_grams(value: float, unit: str) -> Optional[float]:
+def _to_grams(value: Optional[float], unit: Optional[str]) -> Optional[float]:
     """Convert MASS only. Volume is deliberately rejected."""
+    if value is None or unit is None:
+        return None
     unit = _normalise_unit(unit)
-    value = float(value)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
 
     if value < 0:
         return None
@@ -108,10 +140,15 @@ def _to_grams(value: float, unit: str) -> Optional[float]:
     return None
 
 
-def _to_millilitres(value: float, unit: str) -> Optional[float]:
+def _to_millilitres(value: Optional[float], unit: Optional[str]) -> Optional[float]:
     """Convert VOLUME only. Mass is deliberately rejected."""
+    if value is None or unit is None:
+        return None
     unit = _normalise_unit(unit)
-    value = float(value)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
 
     if value < 0:
         return None
@@ -301,6 +338,35 @@ def classify_exemption(inp: ExemptionInput) -> ExemptionResult:
     # That evaluation belongs in the main rule engine.
 
     # 4. Rule 3 quantity exclusion.
+    #
+    # Both remaining threshold rules (Rule 3's quantity exclusion and Rule 26(a)'s
+    # small-package relaxation) are functions of the net quantity. If the quantity
+    # was never established, neither can be evaluated, and the honest answer is
+    # neither "exempt" nor "confirmed not exempt" but "not determined".
+    #
+    # Previously this fell through to the final `is_exempt=False,
+    # review_required=False` result, which asserted that the package is NOT
+    # exempt on the strength of a quantity nobody had read. That is the worse
+    # direction of the two: a small pack lawfully entitled to the Rule 26(a)
+    # relaxation would have the full declaration set enforced against it, and
+    # nothing in the output told a reviewer the exemption question had gone
+    # unanswered. The helpers already distinguish "cannot evaluate" by returning
+    # None; only this function was discarding it.
+    if not quantity_is_established(inp.net_quantity_value, inp.net_quantity_unit):
+        return ExemptionResult(
+            is_exempt=False,
+            reason=(
+                "The net quantity was not established, so the Rule 3 quantity "
+                "exclusion and the Rule 26(a) small-package relaxation could "
+                "not be evaluated. This package is NOT being asserted to be "
+                "non-exempt; the question is undetermined and requires either a "
+                "readable net-quantity declaration or a reviewer's confirmation."
+            ),
+            rule_id=None,
+            exemption_type=QUANTITY_NOT_ESTABLISHED,
+            review_required=True,
+        )
+
     exceeds = _quantity_exceeds_rule3_limit(
         inp.net_quantity_value,
         inp.net_quantity_unit,

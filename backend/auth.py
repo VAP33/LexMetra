@@ -16,8 +16,14 @@ Roles (least to most privileged):
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
+
+_BACKEND_DIR = str(Path(__file__).resolve().parent)
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer

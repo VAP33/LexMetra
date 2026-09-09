@@ -355,3 +355,83 @@ def test_an_observation_with_no_region_still_records_its_source_image():
     assert ref.bbox is None
     assert ref.is_attributed()
     assert not ref.is_locatable(), "attributed but not locatable without a region"
+
+
+def test_merge_detects_conflicting_quantities_across_surfaces():
+    """
+    Cross-surface consistency (Rule 6 / Invariant 4):
+    If front declares 100 g and back declares 700 g, the merge must flag
+    the field as CONFLICTING and retain alternative_values for the rule engine.
+    """
+    front = {
+        "net_quantity": {
+            "value": "100 g",
+            "numeric_value": 100.0,
+            "numeric_unit": "g",
+            "confidence": 0.85,
+        }
+    }
+    back = {
+        "net_quantity": {
+            "value": "700 g",
+            "numeric_value": 700.0,
+            "numeric_unit": "g",
+            "confidence": 0.90,
+        }
+    }
+    merged = cs.merge_classified_fields(front, back)
+    qty = merged["net_quantity"]
+    assert qty["agreement"] == "CONFLICTING"
+    assert "100 g" in qty["alternative_values"]
+    assert "700 g" in qty["value"] or "700 g" in qty["alternative_values"]
+
+
+def test_merge_detects_sticker_price_vs_base_mrp_conflict():
+    """
+    Cross-surface consistency:
+    If a base package declares MRP Rs 45 and a sticker declares MRP Rs 50,
+    the merge flags the conflict so the engine requires human review.
+    """
+    base = {
+        "mrp": {
+            "value": "MRP Rs 45.00",
+            "numeric_value": 45.0,
+            "confidence": 0.80,
+        }
+    }
+    sticker = {
+        "mrp": {
+            "value": "MRP Rs 50.00",
+            "numeric_value": 50.0,
+            "confidence": 0.92,
+        }
+    }
+    merged = cs.merge_classified_fields(base, sticker)
+    mrp = merged["mrp"]
+    assert mrp["agreement"] == "CONFLICTING"
+    assert "MRP Rs 45.00" in mrp["alternative_values"]
+
+
+def test_merge_corroborates_matching_declarations():
+    """
+    If multiple surfaces declare the same quantity or MRP, agreement is CORROBORATED.
+    """
+    front = {
+        "net_quantity": {
+            "value": "100 g",
+            "numeric_value": 100.0,
+            "numeric_unit": "g",
+            "confidence": 0.80,
+        }
+    }
+    back = {
+        "net_quantity": {
+            "value": "100 g",
+            "numeric_value": 100.0,
+            "numeric_unit": "g",
+            "confidence": 0.88,
+        }
+    }
+    merged = cs.merge_classified_fields(front, back)
+    assert merged["net_quantity"]["agreement"] == "CORROBORATED"
+

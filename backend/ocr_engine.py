@@ -351,12 +351,24 @@ class RegionReading:
             "chosen_orientation_deg": int(self.chosen_orientation.value),
             "ocr_passes_run": int(self.passes_run),
             "observation_count": len(self.observations),
+            # NOTE: these keys must exist on preprocess.QualitySignals. Two of
+            # them previously did not -- `blur_variance` (the field is named
+            # `sharpness`) and an unguarded `estimated_text_height_px`, which is
+            # Optional and is None for any region where text height could not be
+            # estimated. Either one raised AttributeError/TypeError, and because
+            # every caller of the region-first read is wrapped in a broad
+            # `except Exception` (see ocr_extraction.run_ocr), the failure was
+            # silent: the region-level audit trail simply never materialized.
+            # Keep this dict in sync with QualitySignals by hand -- there is no
+            # test that would catch a renamed field here.
             "quality": {
-                "blur_variance": round(float(self.quality.blur_variance), 3),
+                "sharpness": round(float(self.quality.sharpness), 3),
                 "glare_fraction": round(float(self.quality.glare_fraction), 4),
                 "contrast": round(float(self.quality.contrast), 4),
-                "estimated_text_height_px": round(
-                    float(self.quality.estimated_text_height_px), 2
+                "estimated_text_height_px": (
+                    round(float(self.quality.estimated_text_height_px), 2)
+                    if self.quality.estimated_text_height_px is not None
+                    else None
                 ),
                 "polarity": self.quality.polarity.value,
             },

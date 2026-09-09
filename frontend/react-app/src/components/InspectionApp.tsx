@@ -7,6 +7,7 @@ import {
   Camera,
   CameraOff,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleHelp,
   ClipboardCheck,
@@ -54,6 +55,7 @@ import {
   checkHealth,
   clearSession,
   createSession,
+  extractPreview,
   finalizeSession,
   getInspectionDetail,
   getStoredToken,
@@ -64,6 +66,7 @@ import {
   reportPdfAvailable,
   reportPdfUrl,
   type AuthedUser,
+  type ExtractPreviewResponse,
   type SurfaceType,
 } from "@/lib/api-client";
 import { fromFinalizedInspection, fromInspectionRow } from "@/lib/adapters";
@@ -690,38 +693,193 @@ function ScanDetailsView({
   const [qtyValue, setQtyValue] = useState("");
   const [qtyUnit, setQtyUnit] = useState(UNIT_OPTIONS[0]);
   const [mrp, setMrp] = useState("");
-  const valid = productId.trim().length > 0 && Number(qtyValue) > 0;
+
+  const [extracting, setExtracting] = useState(true);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<ExtractPreviewResponse | null>(null);
+  const [showDetectedDeclarations, setShowDetectedDeclarations] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function runPreview() {
+      if (!images.length) {
+        setExtracting(false);
+        return;
+      }
+      try {
+        setExtracting(true);
+        setExtractError(null);
+        const blobs = images.map(dataUrlToBlob);
+        const res = await extractPreview(blobs);
+        if (cancelled) return;
+        setPreviewData(res);
+
+        if (res.suggested_details.product_id) {
+          setProductId(res.suggested_details.product_id);
+        }
+        if (res.suggested_details.sale_type) {
+          setSaleType(res.suggested_details.sale_type);
+        }
+        if (res.suggested_details.category && CATEGORY_OPTIONS.includes(res.suggested_details.category)) {
+          setCategory(res.suggested_details.category);
+        }
+        if (res.suggested_details.net_quantity_value != null) {
+          setQtyValue(String(res.suggested_details.net_quantity_value));
+        }
+        if (res.suggested_details.net_quantity_unit && UNIT_OPTIONS.includes(res.suggested_details.net_quantity_unit.toLowerCase())) {
+          setQtyUnit(res.suggested_details.net_quantity_unit.toLowerCase());
+        }
+        if (res.suggested_details.mrp != null) {
+          setMrp(String(res.suggested_details.mrp));
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setExtractError(err instanceof Error ? err.message : "OCR preview unavailable");
+      } finally {
+        if (!cancelled) setExtracting(false);
+      }
+    }
+    runPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [images]);
+
+  const effectiveProductId = productId.trim() || previewData?.suggested_details?.product_id || "";
+  const effectiveQty = Number(qtyValue) > 0 ? Number(qtyValue) : (previewData?.suggested_details?.net_quantity_value ?? 0);
+  const valid = effectiveProductId.length > 0 && effectiveQty > 0;
+
+  const detectedDeclarationsList = useMemo(() => {
+    if (!previewData?.field_extractions) return [];
+    return Object.entries(previewData.field_extractions)
+      .filter(([_, data]) => data && data.detected && data.value)
+      .map(([field, data]) => ({
+        field: field.replace(/_/g, " "),
+        value: data.value,
+        confidence: Math.round((data.confidence ?? 0) * 100),
+        source: data.source_image,
+      }));
+  }, [previewData]);
 
   return (
     <>
       <AppHeader title="Confirm details" />
       <main className="mx-auto max-w-2xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
-        <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Retake photos</button>
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" />Retake photos
+        </button>
 
         <section className="flex gap-3 overflow-x-auto rounded-2xl border border-border/70 bg-card p-4 hide-scrollbar">
           {images.map((img, i) => (
             <div key={i} className="relative h-24 w-20 shrink-0 overflow-hidden rounded-xl border border-border">
               <img src={img} alt={`Capture ${i + 1}`} className="h-full w-full object-cover" />
-              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">{i === 0 ? "Primary" : `#${i + 1}`}</span>
+              <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
+                {i === 0 ? "Primary" : `#${i + 1}`}
+              </span>
             </div>
           ))}
         </section>
 
+        {extracting ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-brand/25 bg-brand/5 p-4 text-xs text-brand">
+            <LoaderCircle className="h-5 w-5 animate-spin shrink-0 text-brand" />
+            <div>
+              <p className="font-semibold text-sm">Reading mandatory declarations from label...</p>
+              <p className="text-muted-foreground mt-0.5">Auto-extracting SKU, net quantity, MRP, and product category</p>
+            </div>
+          </div>
+        ) : previewData ? (
+          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-xs text-emerald-800 dark:text-emerald-300">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <div>
+                  <p className="font-semibold text-sm">Details auto-filled from package photo</p>
+                  <p className="text-muted-foreground mt-0.5">
+                    {previewData.total_lines} text lines analyzed • Review and confirm below
+                  </p>
+                </div>
+              </div>
+              {detectedDeclarationsList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowDetectedDeclarations((v) => !v)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline"
+                >
+                  {showDetectedDeclarations ? "Hide declarations" : `${detectedDeclarationsList.length} detected`}
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showDetectedDeclarations ? "rotate-180" : ""}`} />
+                </button>
+              )}
+            </div>
+
+            {showDetectedDeclarations && (
+              <div className="mt-4 pt-3 border-t border-emerald-500/15 space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Detected Declarations</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {detectedDeclarationsList.map((item) => (
+                    <div key={item.field} className="rounded-xl border border-border/70 bg-card p-2.5 text-foreground">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground capitalize truncate">{item.field}</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">{item.confidence}%</span>
+                      </div>
+                      <p className="text-xs font-medium mt-1 truncate" title={item.value ?? ""}>{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : extractError ? (
+          <div className="flex items-center gap-2.5 rounded-2xl border border-border/70 bg-muted/40 p-3.5 text-xs text-muted-foreground">
+            <Info className="h-4 w-4 shrink-0" />
+            <span>AI OCR preview unavailable ({extractError}). Please confirm details manually.</span>
+          </div>
+        ) : null}
+
         <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7">
           <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Before we run the checks</p>
-          <h2 className="mt-2 text-xl font-semibold tracking-[-.035em]">A few quick details</h2>
-          <p className="mt-1 text-sm text-muted-foreground">These help the rule engine pick the right exemptions and thresholds — most are quick to confirm.</p>
+          <h2 className="mt-2 text-xl font-semibold tracking-[-.035em]">Confirm details</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Pre-filled from OCR evidence. Adjust if needed or proceed directly.</p>
 
           <div className="mt-6 space-y-5">
             <div>
-              <label className="text-xs font-semibold text-muted-foreground">Product ID / SKU</label>
-              <input value={productId} onChange={(e) => setProductId(e.target.value)} placeholder="e.g. TRAYA-VITAMIN-30CAP" className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-muted-foreground">Product ID / SKU</label>
+                {previewData?.suggested_details?.product_id_source === "unidentified-placeholder" || previewData?.suggested_details?.needs_manual_entry ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="h-3 w-3" /> Placeholder SKU (no barcode detected)
+                  </span>
+                ) : previewData?.suggested_details?.product_id_source?.startsWith("barcode") ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <BadgeCheck className="h-3 w-3" /> Decoded Barcode ({previewData.suggested_details.barcode_info?.primary_symbology || "EAN-13"})
+                  </span>
+                ) : previewData?.suggested_details?.product_id ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <Sparkles className="h-3 w-3" /> Auto-suggested
+                  </span>
+                ) : null}
+              </div>
+              <input
+                value={productId}
+                onChange={(e) => setProductId(e.target.value)}
+                placeholder="e.g. PROD-DETERGENT-POWDER"
+                className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              />
+              {(previewData?.suggested_details?.product_id_source === "unidentified-placeholder" || previewData?.suggested_details?.needs_manual_entry) && (
+                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                  No barcode was detected on the package. You can manually enter the product GTIN / SKU above.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-muted-foreground">Sale type</label>
-                <select value={saleType} onChange={(e) => setSaleType(e.target.value as ScanDetails["saleType"])} className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15">
+                <select
+                  value={saleType}
+                  onChange={(e) => setSaleType(e.target.value as ScanDetails["saleType"])}
+                  className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                >
                   <option value="retail">Retail</option>
                   <option value="wholesale">Wholesale</option>
                   <option value="industrial">Industrial</option>
@@ -729,30 +887,90 @@ function ScanDetailsView({
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted-foreground">Category</label>
-                <select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15">
-                  {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-muted-foreground">Category</label>
+                  {previewData?.suggested_details?.category && (
+                    <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">Inferred</span>
+                  )}
+                </div>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                >
+                  {CATEGORY_OPTIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {c.replace(/_/g, " ")}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
             <div className="grid grid-cols-[1fr_auto] gap-3">
               <div>
-                <label className="text-xs font-semibold text-muted-foreground">Net quantity</label>
-                <input value={qtyValue} onChange={(e) => setQtyValue(e.target.value)} type="number" placeholder="30" className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-muted-foreground">Net quantity</label>
+                  {previewData?.suggested_details?.net_quantity_value != null ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <Sparkles className="h-3 w-3" /> Auto-detected
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400">Please confirm</span>
+                  )}
+                </div>
+                <input
+                  value={qtyValue}
+                  onChange={(e) => setQtyValue(e.target.value)}
+                  type="number"
+                  placeholder="30"
+                  className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground">Unit</label>
-                <select value={qtyUnit} onChange={(e) => setQtyUnit(e.target.value)} className="mt-1.5 h-11 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15">
-                  {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                <select
+                  value={qtyUnit}
+                  onChange={(e) => setQtyUnit(e.target.value)}
+                  className="mt-1.5 h-11 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                >
+                  {UNIT_OPTIONS.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-muted-foreground">MRP (₹) — optional, improves unit-price check</label>
-              <input value={mrp} onChange={(e) => setMrp(e.target.value)} type="number" placeholder="470" className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-muted-foreground">MRP (₹) — optional</label>
+                {previewData?.suggested_details?.mrp != null && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <Sparkles className="h-3 w-3" /> Auto-detected
+                  </span>
+                )}
+              </div>
+              <input
+                value={mrp}
+                onChange={(e) => setMrp(e.target.value)}
+                type="number"
+                placeholder="470"
+                className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              />
             </div>
+
+            {previewData?.suggested_details?.pdp_area_cm2 != null && (
+              <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3.5 py-2.5 text-xs">
+                <span className="font-medium text-muted-foreground flex items-center gap-1.5">
+                  <span className="text-sm">📐</span> Calculated Principal Display Panel (PDP) Area
+                </span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  {previewData.suggested_details.pdp_area_cm2} cm²
+                </span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -761,12 +979,13 @@ function ScanDetailsView({
           disabled={!valid}
           onClick={() =>
             onSubmit({
-              productId: productId.trim(),
+              productId: effectiveProductId,
               saleType,
               productCategory: category,
-              netQuantityValue: Number(qtyValue),
+              netQuantityValue: effectiveQty,
               netQuantityUnit: qtyUnit,
-              mrp: mrp ? Number(mrp) : undefined,
+              mrp: mrp ? Number(mrp) : (previewData?.suggested_details?.mrp ?? undefined),
+              pdpAreaCm2: previewData?.suggested_details?.pdp_area_cm2 ?? undefined,
             })
           }
         >
@@ -869,9 +1088,10 @@ function DeclarationRow({ declaration }: { declaration: Declaration }) {
     MISSING: { label: "Missing", className: "text-destructive", icon: XCircle },
     REVIEW: { label: "Review", className: "text-warning", icon: Info },
     EXEMPT: { label: "Exempt", className: "text-brand", icon: ShieldCheck },
+    UNOBSERVED: { label: "Not captured", className: "text-muted-foreground", icon: CircleHelp },
   };
   const [expanded, setExpanded] = useState(false);
-  const item = statusMap[declaration.status];
+  const item = statusMap[declaration.status] || statusMap.REVIEW;
   const Icon = item.icon;
   return (
     <div className="border-b border-border/70 py-4 last:border-0">
@@ -883,13 +1103,30 @@ function DeclarationRow({ declaration }: { declaration: Declaration }) {
         <p className="hidden truncate text-sm text-muted-foreground sm:block">{declaration.value}</p>
         <div className={`flex items-center gap-1.5 text-xs font-semibold ${item.className}`}>
           <Icon className="h-4 w-4" />{item.label}
-          <span className="hidden text-[10px] text-muted-foreground sm:inline">{declaration.confidence}%</span>
+          {declaration.confidence != null && declaration.status !== "UNOBSERVED" && declaration.status !== "MISSING" && declaration.status !== "EXEMPT" && (
+            <span className="hidden text-[10px] text-muted-foreground sm:inline">
+              {declaration.confidence}%
+              {declaration.ocrConfidence != null && declaration.ocrConfidence !== declaration.confidence && (
+                <span className="text-[9px] text-muted-foreground/70" title="OCR confidence"> (OCR {declaration.ocrConfidence}%)</span>
+              )}
+            </span>
+          )}
           <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
         </div>
       </button>
       {expanded && (
         <div className="mt-3 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">
           <p>{declaration.reason || "No further detail available for this field."}</p>
+          {declaration.validationIssues && declaration.validationIssues.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {declaration.validationIssues.map((issue, idx) => (
+                <p key={idx} className="font-medium text-warning">• {issue}</p>
+              ))}
+            </div>
+          )}
+          {declaration.provenance?.surfaceType && (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">Captured panel: <span className="font-semibold text-foreground">{declaration.provenance.surfaceType}</span></p>
+          )}
           {declaration.ruleId && (
             <p className="mt-2 inline-flex items-center gap-1.5 font-semibold text-foreground"><Link2 className="h-3 w-3" />{declaration.ruleId}{declaration.ruleVersion ? ` · ${declaration.ruleVersion}` : ""}</p>
           )}
@@ -932,9 +1169,9 @@ function AiSignalsSection({ inspection }: { inspection: Inspection }) {
           </div>
         ))}
         {inspection.similarMatches.map((m, i) => (
-          <div key={i} className="flex items-center justify-between rounded-xl bg-muted p-4 text-sm">
-            <span className="font-medium">Similar to {m.productId}</span>
-            <span className="text-xs font-semibold text-muted-foreground">{(m.score * 100).toFixed(0)}% match</span>
+          <div key={i} className="flex items-center justify-between rounded-xl bg-muted p-4 text-xs">
+            <span className="font-semibold">{m.productId}</span>
+            <span className="text-muted-foreground">similarity: {(m.score * 100).toFixed(0)}%</span>
           </div>
         ))}
       </div>
@@ -981,15 +1218,81 @@ function ResultView({
               <h2 className="mt-4 text-3xl font-semibold tracking-[-.05em]">{headline}</h2>
               <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{body}</p>
             </div>
-            <div className="flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-full bg-card">
-              <span className={`text-2xl font-semibold ${style.text}`}>{inspection.score}%</span>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Score</span>
+            <div className="flex shrink-0 items-center gap-3">
+              {/* A FRACTION, NOT A PERCENTAGE, AND DELIBERATELY SO.
+                  Two failure modes were rejected here. Showing verified-of-all
+                  as "11%" made a correct single-panel capture (1 field read, 8
+                  never visible in frame) look like a failing product. Showing
+                  verified-of-judgeable instead reported that same capture as
+                  "100%", which is worse -- it reads as "fully compliant" when
+                  8 checks never ran. A fraction carries its own denominator, so
+                  neither misreading is available. */}
+              <div className="flex h-24 w-24 flex-col items-center justify-center rounded-full bg-card shadow-sm border border-border/60">
+                <span className={`text-2xl font-semibold ${style.text}`}>
+                  {inspection.scoreBreakdown
+                    ? `${inspection.scoreBreakdown.verifiedCount}/${inspection.scoreBreakdown.applicableCount}`
+                    : `${inspection.verifiedScore ?? inspection.score}%`}
+                </span>
+                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Verified</span>
+              </div>
+              <div className="flex h-20 w-20 flex-col items-center justify-center rounded-full bg-card/60 border border-border/40">
+                <span className="text-xl font-semibold text-foreground">
+                  {inspection.scoreBreakdown
+                    ? `${inspection.scoreBreakdown.judgeableCount}/${inspection.scoreBreakdown.applicableCount}`
+                    : `${inspection.reviewedScore ?? inspection.score}%`}
+                </span>
+                <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Assessed</span>
+              </div>
             </div>
           </div>
+          {inspection.scoreBreakdown && inspection.scoreBreakdown.applicableCount > 0 && (
+            <div className="border-t border-current/10 px-5 py-3 sm:px-7">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  {inspection.scoreBreakdown.verifiedCount} verified
+                </span>
+                {inspection.scoreBreakdown.reviewCount > 0 && (
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    {inspection.scoreBreakdown.reviewCount} need a closer look
+                  </span>
+                )}
+                {inspection.scoreBreakdown.missingCount > 0 && (
+                  <span className="font-semibold text-red-600 dark:text-red-400">
+                    {inspection.scoreBreakdown.missingCount} absent
+                  </span>
+                )}
+                {inspection.scoreBreakdown.blockedCount > 0 && (
+                  <span className="font-semibold text-muted-foreground">
+                    {inspection.scoreBreakdown.blockedCount} not assessable from this photo
+                  </span>
+                )}
+                <span className="text-muted-foreground">
+                  of {inspection.scoreBreakdown.applicableCount} applicable
+                </span>
+              </div>
+              {/* When most checks could not be assessed, say so in words. The
+                  fraction alone still invites "1/9 = bad product" when the
+                  correct reading is "this frame did not show 8 of the panels". */}
+              {inspection.scoreBreakdown.blockedCount > 0 &&
+                inspection.scoreBreakdown.blockedCount >= inspection.scoreBreakdown.judgeableCount && (
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    Most declarations were not visible in the captured frame, so they were
+                    not assessed — this is not a finding against the product. Capture the
+                    remaining panels to complete the inspection.
+                  </p>
+                )}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4 border-t border-current/10 bg-card/50 p-5 sm:grid-cols-4">
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product</p><p className="mt-1 text-sm font-semibold">{inspection.product}</p></div>
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Inspection</p><p className="mt-1 text-sm font-semibold">#{inspection.id}</p></div>
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Checked</p><p className="mt-1 text-sm font-semibold">{verified} / {total}</p></div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Checked</p>
+              <p className="mt-1 text-sm font-semibold">
+                {inspection.declarationSummary ? `${inspection.declarationSummary.verified} / ${inspection.declarationSummary.applicable}` : `${verified} / ${total}`}
+                {inspection.pdpAreaCm2 ? ` · ${inspection.pdpAreaCm2} cm² PDP` : ""}
+              </p>
+            </div>
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Time</p><p className="mt-1 text-sm font-semibold">{inspection.dateLabel}</p></div>
           </div>
         </section>
@@ -1002,7 +1305,14 @@ function ResultView({
               <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Declarations</p>
               <h3 className="mt-2 text-xl font-semibold tracking-[-.035em]">Extracted information</h3>
             </div>
-            <span className="text-sm font-semibold text-muted-foreground">{verified}/{total} verified</span>
+            <div className="text-right">
+              <span className="text-sm font-semibold text-muted-foreground">
+                {inspection.declarationSummary ? `${inspection.declarationSummary.verified} / ${inspection.declarationSummary.applicable} verified` : `${verified}/${total} verified`}
+              </span>
+              {inspection.declarationSummary && inspection.declarationSummary.reviewRequired > 0 && (
+                <p className="text-xs font-medium text-warning">{inspection.declarationSummary.reviewRequired} need review</p>
+              )}
+            </div>
           </div>
           <div className="mt-4">{inspection.declarations.map((declaration) => <DeclarationRow key={declaration.field} declaration={declaration} />)}</div>
         </section>
@@ -1197,7 +1507,18 @@ function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: ()
           <div className="grid gap-5 border-b border-border py-7 sm:grid-cols-3">
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product</p><p className="mt-2 text-sm font-semibold">{inspection.product}</p><p className="mt-1 text-xs text-muted-foreground">{inspection.manufacturer}</p></div>
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Inspection ID</p><p className="mt-2 text-sm font-semibold">#{inspection.id}</p><p className="mt-1 text-xs text-muted-foreground">{formatDate(inspection.timestamp)}</p></div>
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Final score</p><p className="mt-2 text-sm font-semibold">{inspection.score}% · {inspection.declarations.filter((item) => item.status === "VERIFIED" || item.status === "EXEMPT").length}/{inspection.declarations.length} verified</p><p className="mt-1 text-xs text-muted-foreground">Legal Metrology (Packaged Commodities) Rules, 2011</p></div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Final scores</p>
+              <p className="mt-2 text-sm font-semibold">
+                {inspection.scoreBreakdown
+                  ? `Verified: ${inspection.scoreBreakdown.verifiedCount} of ${inspection.scoreBreakdown.applicableCount} applicable · Assessed: ${inspection.scoreBreakdown.judgeableCount} of ${inspection.scoreBreakdown.applicableCount}`
+                  : `Verified: ${inspection.verifiedScore ?? inspection.score}% · Reviewed: ${inspection.reviewedScore ?? inspection.score}%`}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {inspection.declarations.filter((item) => item.status === "VERIFIED" || item.status === "EXEMPT").length}/{inspection.declarations.length} verified
+                {inspection.pdpAreaCm2 ? ` · PDP: ${inspection.pdpAreaCm2} cm²` : ""}
+              </p>
+            </div>
           </div>
           <div className="py-7">
             <h3 className="text-base font-semibold">Extracted declarations</h3>
@@ -1274,12 +1595,32 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (user: AuthedUser) => void }) {
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" autoComplete="current-password" className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
           </div>
         </div>
+        <div className="mt-4 rounded-xl border border-border/60 bg-muted/40 p-3">
+          <p className="text-[11px] font-medium text-muted-foreground mb-2">Default demo credentials (click to fill):</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              id="fill-admin-btn"
+              onClick={() => { setUsername("admin"); setPassword("password123"); }}
+              className="flex-1 rounded-lg border border-border/80 bg-background py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+            >
+              Admin (password123)
+            </button>
+            <button
+              type="button"
+              id="fill-inspector-btn"
+              onClick={() => { setUsername("inspector"); setPassword("password123"); }}
+              className="flex-1 rounded-lg border border-border/80 bg-background py-1.5 text-xs font-medium hover:bg-muted transition-colors"
+            >
+              Inspector (password123)
+            </button>
+          </div>
+        </div>
         {error && <div className="mt-4 flex items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-destructive"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</div>}
-        <Button type="submit" className="mt-6 w-full" disabled={submitting || !username || !password}>
+        <Button type="submit" className="mt-4 w-full" disabled={submitting || !username || !password}>
           {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
           {submitting ? "Signing in…" : "Sign in"}
         </Button>
-        <p className="mt-4 text-center text-xs text-muted-foreground">No account yet? The first registration on a fresh database becomes admin — use your backend's <code>/auth/register</code> endpoint directly.</p>
       </form>
     </div>
   );

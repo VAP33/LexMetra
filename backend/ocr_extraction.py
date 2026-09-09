@@ -14,9 +14,16 @@ Design goals:
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+_BACKEND_DIR = str(Path(__file__).resolve().parent)
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
 
 import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -249,22 +256,27 @@ def run_ocr(image: Image.Image) -> List[OcrLine]:
     region-first path falls back to the legacy path rather than losing the
     inspection: fewer readings is a coverage problem, an exception is an outage.
     """
-    if not config.ENABLE_REGION_FIRST_OCR:
-        return _run_ocr_whole_image(image)
+    lines: List[OcrLine] = []
 
+    # 1. Whole-image multi-variant OCR (preserves sparse tables, 2-column prices, dates)
     try:
-        import numpy as np
-
-        import ocr_engine  # imported lazily to keep the module import graph acyclic
-
-        rgb = np.asarray(image.convert("RGB"))
-        bgr = rgb[:, :, ::-1].copy()  # ocr_engine works in OpenCV BGR order
-        return ocr_engine.read_image(bgr).lines
+        lines.extend(_run_ocr_whole_image(image))
     except Exception:
-        # The region-first path is the more complex of the two. If it raises, the
-        # inspection must still proceed on the legacy reader rather than 500.
-        # This is a degraded read, never a legal conclusion about the package.
-        return _run_ocr_whole_image(image)
+        pass
+
+    # 2. Region-first oriented OCR (handles rotated labels and dense sub-regions)
+    if config.ENABLE_REGION_FIRST_OCR:
+        try:
+            import numpy as np
+            import ocr_engine
+
+            rgb = np.asarray(image.convert("RGB"))
+            bgr = rgb[:, :, ::-1].copy()
+            lines.extend(ocr_engine.read_image(bgr).lines)
+        except Exception:
+            pass
+
+    return _dedupe_lines(lines)
 
 
 def _run_ocr_whole_image(image: Image.Image) -> List[OcrLine]:
@@ -400,18 +412,39 @@ _FIELDS_TAKE_FOLLOWING_LINES = {
 }
 
 _MONEY_RE = re.compile(
-    r"(?:₹|rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
-    r"|(?:^|[^\d.])([0-9][0-9,]*\.[0-9]{2})(?!\d)",
+    # 1. GENUINE currency marker (e.g. ₹420, Rs. 120, INR 50, £420).
+    #
+    #    This group, and only this group, is treated by `_extract_money` as
+    #    proof of price-hood strong enough to waive the measurement guard, so
+    #    membership is restricted to symbols that cannot be anything else.
+    #
+    #    `=`, `_`, `-`, `~` and `F` were once listed here as "common OCR
+    #    misreads of ₹". They are not safe in this position: a hyphen is also
+    #    the ordinary separator in "NET WT-500 g", "BATCH-1234" and "13-05-26",
+    #    so admitting it as a currency marker made those numbers currency-marked
+    #    and thereby EXEMPT from the `_NON_PRICE_UNIT_RE` guard below —
+    #    reintroducing precisely the "16.89 gMs" bug that guard exists to
+    #    prevent, and feeding a mass into the Rule 6(11) unit-price check.
+    #
+    #    Nothing is lost by removing them. The real observed cases ("=420/-",
+    #    "F420/-", "~420/-") all carry the Indian `/-` suffix and are matched by
+    #    branch 2, which stays subject to the measurement guard.
+    r"(?:₹|rs\.?|inr|£)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\s*/\s*[-–])?"
+    # 2. Amount followed explicitly by Indian /- notation (e.g. 420/-, 50/-).
+    #    Uses a digit lookbehind rather than \b so that a LETTER immediately
+    #    before the amount still matches — "F420/-" is an OCR misread of a
+    #    rupee marker and \b would refuse it, while the lookbehind still
+    #    prevents splitting "1420/-" into "420/-".
+    r"|(?<![0-9.])([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*/\s*[-–]"
+    # 3. Bare amount with exactly 2 decimal digits (e.g. 120.50, 420.00)
+    r"|(?:^|[^\d.])([0-9][0-9,]*\.[0-9]{2})(?!\d)"
+    # 4. Standard 2-5 digit amount when preceded by price context words
+    r"|(?:\b(?:price|mrp|amount|rate)\b[^\d]{1,6})([0-9]{2,5}(?:\.[0-9]{1,2})?)\b",
     re.I,
 )
 
 #: Units which, immediately following a number that carries NO currency marker,
 #: prove the number is a measurement rather than a price. See `_extract_money`.
-#:
-#: Anchored with `.match(text, pos)` at the end of the candidate, so only a unit
-#: DIRECTLY after the digits disqualifies it. This deliberately does not fire on
-#: the lawful unit-price form "45.00 per kg", where "per" intervenes and the
-#: number really is money.
 _NON_PRICE_UNIT_RE = re.compile(
     r"\s*(?:(?:"
     r"kgs?|gms?|grams?|gm|g|mg|"
@@ -438,16 +471,22 @@ _QTY_RE = re.compile(
 
 _DATE_RE = re.compile(
     r"\b(?:"
-    r"\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{2,4}"
+    # DD/MM/YYYY or DD/MM/YY (e.g. 13/05/26, 31/12/2027)
+    r"\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*(?:\d{4}|\d{2})"
+    # MM/YYYY (e.g. 05/2026, 12/2027)
     r"|\d{1,2}\s*[/.-]\s*\d{4}"
-    r"|\d{4}\s*[/.-]\s*\d{1,2}"
-    r"|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)"
-    r"(?:[a-z]*)\s*[/.-]\s*\d{2,4}"
-    r"|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)"
-    r"\s+\d{4}"
+    # MM/YY where month is 01-12 and year is 2 digits (e.g. 12/10, 05/26, 09/24)
+    r"|(?:0[1-9]|1[0-2]|[1-9])\s*[/.-]\s*\d{2}"
+    # YYYY/MM or YYYY/MM/DD (e.g. 2026/05/13, 2026-05)
+    r"|\d{4}\s*[/.-]\s*\d{1,2}(?:\s*[/.-]\s*\d{1,2})?"
+    # Month name with 2- or 4-digit year (e.g. OCT 26, DEC 2027, 12 OCT 2026)
+    r"|(?:\d{1,2}\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s*(?:[/.-]|\s+)?(?:\d{4}|\d{2})"
+    # Relative shelf life: e.g. "12 MONTHS FROM PACKAGING", "6 MONTHS FROM MFD"
+    r"|(?:\d{1,2})\s+(?:months?|days?|weeks?|years?)\s+(?:from|of)\s+(?:pkg|pkd|mfd|mfg|pack|manufacture|date)"
     r")\b",
     re.I,
 )
+
 
 _EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(
@@ -626,6 +665,86 @@ def _extract_date(text: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
+def normalize_date(text: Optional[str]) -> Optional[str]:
+    """
+    Public entry point for date normalization.
+
+    Exported so that the OCR -> rule-engine translation layer
+    (`capture_session.build_raw_extraction`) can normalize a date supplied as
+    free text by a structured caller, WITHOUT the system growing a second date
+    grammar. There is one date parser; this is its front door.
+
+    Returns None when the text cannot be parsed. None means "no date
+    established", which downstream is unresolved/UNCERTAIN — never a FAIL.
+
+    STRICTER THAN THE INTERNAL PARSER, DELIBERATELY. `_normalize_date` ends in
+    an unconditional `return t`: text it cannot parse comes back unchanged. That
+    is tolerable for its internal callers, which only reach it with a substring
+    `_extract_date` has already matched as date-shaped. It is NOT tolerable
+    here, because the rule engine reads "normalized value is not None" as "a
+    date was established" — so a free-text value of "see bottom of pack" would
+    arrive as a satisfied date declaration. Passing `strict=True` makes
+    unparseable text return None instead.
+    """
+    return _normalize_date(text, strict=True)
+
+
+def _normalize_date(text: Optional[str], *, strict: bool = False) -> Optional[str]:
+    if not text:
+        return None
+    t = text.strip()
+    # Check MM/YY (e.g. 12/10 or 05/26)
+    m = re.match(r"^(\d{1,2})\s*[/.-]\s*(\d{2})$", t)
+    if m:
+        mo, yr = int(m.group(1)), int(m.group(2))
+        if 1 <= mo <= 12:
+            full_yr = 2000 + yr if yr < 50 else 1900 + yr
+            return f"{full_yr:04d}-{mo:02d}"
+    # Check DD/MM/YY (e.g. 13/05/26)
+    m = re.match(r"^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2})$", t)
+    if m:
+        d, mo, yr = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            full_yr = 2000 + yr if yr < 50 else 1900 + yr
+            return f"{full_yr:04d}-{mo:02d}-{d:02d}"
+    # Check DD/MM/YYYY
+    m = re.match(r"^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{4})$", t)
+    if m:
+        d, mo, yr = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            return f"{yr:04d}-{mo:02d}-{d:02d}"
+    # Check MM/YYYY
+    m = re.match(r"^(\d{1,2})\s*[/.-]\s*(\d{4})$", t)
+    if m:
+        mo, yr = int(m.group(1)), int(m.group(2))
+        if 1 <= mo <= 12:
+            return f"{yr:04d}-{mo:02d}"
+    # Month name e.g. OCT 2026 or 12 OCT 2026
+    month_map = {
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+        "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12
+    }
+    m = re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s*(?:[/.-]|\s+)?(\d{2,4})\b", t, re.I)
+    if m:
+        mo_str, yr_str = m.group(1).lower(), m.group(2)
+        mo = month_map.get(mo_str, 1)
+        yr = int(yr_str)
+        if yr < 100:
+            yr = 2000 + yr if yr < 50 else 1900 + yr
+        return f"{yr:04d}-{mo:02d}"
+    # Return cleaned raw text if relative (e.g. "12 months from packaging"),
+    # which is a lawful way to express a best-before declaration.
+    if any(u in t.lower() for u in ("month", "day", "week", "year")):
+        return t.lower()
+    # Nothing matched. Under `strict` the honest answer is "no date
+    # established" — see `normalize_date`. The permissive passthrough is kept
+    # for internal callers, which only arrive here with text that
+    # `_extract_date` already matched as date-shaped.
+    if strict:
+        return None
+    return t
+
+
 def _extract_unit_price_unit(text: str) -> Optional[str]:
     """
     Extract a unit after 'per' from a declared unit-price line.
@@ -652,9 +771,10 @@ def _value_shape(field: str, text: str) -> bool:
         return _extract_date(text) is not None
 
     if field == "batch_no":
-        # Batch codes may contain letters, digits, slashes and hyphens.
-        # Require at least one alphanumeric token of reasonable length.
         return bool(re.search(r"\b[A-Z0-9][A-Z0-9./_-]{3,}\b", text, re.I))
+
+    if field == "net_quantity":
+        return _extract_qty(text) is not None
 
     return False
 
@@ -719,12 +839,12 @@ def _candidate_value_lines(
         x_gap = _x_gap(label_line, other)
 
         # A same-row/right-side value is strongest.
-        same_row = dy <= max(lh, oh) * 1.5
+        same_row = dy <= max(lh, oh) * 1.8
         right_side = ox >= lx + max(1, int(lw * 0.35))
 
-        # Reject distant paragraphs. Package labels often have several
-        # unrelated dates/numbers nearby.
-        max_dy = max(60.0, lh * 4.0)
+        # Reject distant paragraphs.
+        # Allow vertical gap to accommodate intervening sub-lines (e.g. "(INCL. OF ALL TAXES)")
+        max_dy = max(110.0, lh * 5.5)
         if dy > max_dy:
             continue
 
@@ -732,7 +852,7 @@ def _candidate_value_lines(
         if same_row:
             score -= 40.0
         if right_side:
-            score -= 20.0
+            score -= 25.0
         if x_gap > 0:
             score += min(80.0, x_gap / 10.0)
 
@@ -753,8 +873,8 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
     Important semantic distinction:
     - A field absent from this dictionary means "not observed by this
       extraction pass", not proof that the package legally lacks it.
-    - The rule engine / evidence-completeness layer should decide whether more
-      images or human review are required before declaring a legal FAIL.
+    - Declaration label without a valid value line is explicitly marked as
+      such (value=None, status=REVIEW_REQUIRED). It NEVER receives a false 100% verified.
     """
     found: Dict[str, dict] = {}
     used_line_idx: set[int] = set()
@@ -779,14 +899,10 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
 
     # Explicit-label fields.
     for field, (i, label_line) in label_hits.items():
-        entry = {
-            "value": _normalized_text(label_line.text),
-            "confidence": label_line.confidence,
-            "bbox": label_line.bbox,
-            "source": "ocr_label_line",
-        }
+        has_inline_value = _value_shape(field, label_line.text)
+        best_candidate: Optional[OcrLine] = None
 
-        if field in _COLUMN_VALUE_FIELDS and not _value_shape(field, label_line.text):
+        if field in _COLUMN_VALUE_FIELDS and not has_inline_value:
             candidates = _candidate_value_lines(
                 label_line,
                 ordered,
@@ -794,42 +910,141 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                 i,
                 used_line_idx,
             )
-
             if candidates:
-                _, j, best = candidates[0]
-                entry = {
-                    "value": _normalized_text(best.text),
-                    # The value is only as trustworthy as both OCR and the
-                    # association between label and value.
-                    "confidence": min(label_line.confidence, best.confidence) * 0.85,
-                    "bbox": best.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_associated_value_line",
-                }
+                _, j, best_candidate = candidates[0]
                 used_line_idx.add(j)
 
-        if field in {"mrp", "unit_sale_price"}:
-            money = _extract_money(entry["value"])
-            if money is not None:
-                entry["numeric_value"] = money
+        val_line = label_line if has_inline_value else best_candidate
 
-            # Prefer a unit from the value line, then the label line.
-            unit = _extract_unit_price_unit(entry["value"])
-            if unit is None:
-                unit = _extract_unit_price_unit(label_line.text)
-            if unit is not None:
-                entry["numeric_unit"] = unit
+        if field in {"mrp", "unit_sale_price"}:
+            money = _extract_money(val_line.text) if val_line else None
+            if money is not None:
+                unit = _extract_unit_price_unit(val_line.text) or _extract_unit_price_unit(label_line.text)
+                entry = {
+                    "field": field,
+                    "label": _normalized_text(label_line.text),
+                    "value": f"₹{money:g}",
+                    "numeric_value": money,
+                    "currency": "INR",
+                    "raw_text": f"{label_line.text} {val_line.text}" if val_line != label_line else label_line.text,
+                    "confidence": min(label_line.confidence, val_line.confidence) * (1.0 if has_inline_value else 0.88),
+                    "bbox": val_line.bbox if val_line else label_line.bbox,
+                    "label_bbox": label_line.bbox,
+                    "source": "ocr_label_inline" if has_inline_value else "ocr_associated_value_line",
+                    "status": "DETECTED",
+                }
+                if unit:
+                    entry["numeric_unit"] = unit
+            else:
+                # Label alone, or malformed OCR without price value:
+                # Do NOT treat "MRP&" or label text as an extracted monetary price!
+                entry = {
+                    "field": field,
+                    "label": _normalized_text(label_line.text),
+                    "value": None,
+                    "numeric_value": None,
+                    "raw_text": label_line.text,
+                    "confidence": min(0.35, label_line.confidence * 0.3),
+                    "bbox": label_line.bbox,
+                    "label_bbox": label_line.bbox,
+                    "source": "ocr_label_only",
+                    "status": "REVIEW_REQUIRED",
+                    "reason": f"Declaration label '{label_line.text}' was detected, but no valid monetary price could be established.",
+                }
 
         elif field in {"mfg_date", "expiry_date"}:
-            date_value = _extract_date(entry["value"])
-            if date_value is not None:
-                entry["date_value"] = date_value
+            date_val = _extract_date(val_line.text) if val_line else None
+            if date_val is not None:
+                norm_date = _normalize_date(date_val)
+                entry = {
+                    "field": field,
+                    "label": _normalized_text(label_line.text),
+                    "value": date_val,
+                    "normalized_value": norm_date,
+                    "date_value": date_val,
+                    "raw_text": f"{label_line.text} {val_line.text}" if val_line != label_line else label_line.text,
+                    "confidence": min(label_line.confidence, val_line.confidence) * (1.0 if has_inline_value else 0.88),
+                    "bbox": val_line.bbox if val_line else label_line.bbox,
+                    "label_bbox": label_line.bbox,
+                    "source": "ocr_label_inline" if has_inline_value else "ocr_associated_value_line",
+                    "status": "DETECTED",
+                }
+            else:
+                # Label alone (e.g. "USE BY") without a date:
+                # NEVER assign label text as the value or give 100% verified status!
+                entry = {
+                    "field": field,
+                    "label": _normalized_text(label_line.text),
+                    "value": None,
+                    "normalized_value": None,
+                    "date_value": None,
+                    "raw_text": label_line.text,
+                    "confidence": min(0.35, label_line.confidence * 0.3),
+                    "bbox": label_line.bbox,
+                    "label_bbox": label_line.bbox,
+                    "source": "ocr_label_only",
+                    "status": "REVIEW_REQUIRED",
+                    "reason": f"Declaration label '{label_line.text}' detected, but corresponding date value was not reliably detected.",
+                }
 
         elif field == "batch_no":
-            entry["batch_code"] = entry["value"]
+            code = val_line.text if val_line else None
+            entry = {
+                "field": field,
+                "label": _normalized_text(label_line.text),
+                "value": _normalized_text(code) if code else None,
+                "batch_code": _normalized_text(code) if code else None,
+                "raw_text": f"{label_line.text} {code}" if code and code != label_line.text else label_line.text,
+                "confidence": min(label_line.confidence, getattr(val_line, "confidence", label_line.confidence)),
+                "bbox": getattr(val_line, "bbox", label_line.bbox),
+                "label_bbox": label_line.bbox,
+                "source": "ocr_associated_value_line" if best_candidate else "ocr_label_line",
+                "status": "DETECTED" if code else "REVIEW_REQUIRED",
+            }
+
+        elif field == "net_quantity":
+            qty_res = _extract_qty(val_line.text) if val_line else None
+            if qty_res is not None:
+                qty_val, qty_unit = qty_res
+                entry = {
+                    "field": field,
+                    "label": _normalized_text(label_line.text),
+                    "value": f"{qty_val:g} {qty_unit}",
+                    "numeric_value": qty_val,
+                    "numeric_unit": qty_unit,
+                    "raw_text": f"{label_line.text} {val_line.text}" if val_line != label_line else label_line.text,
+                    "confidence": min(label_line.confidence, val_line.confidence),
+                    "bbox": val_line.bbox if val_line else label_line.bbox,
+                    "label_bbox": label_line.bbox,
+                    "source": "ocr_label_inline" if has_inline_value else "ocr_associated_value_line",
+                    "status": "DETECTED",
+                }
+            else:
+                entry = {
+                    "field": field,
+                    "label": _normalized_text(label_line.text),
+                    "value": None,
+                    "raw_text": label_line.text,
+                    "confidence": min(0.35, label_line.confidence * 0.3),
+                    "bbox": label_line.bbox,
+                    "label_bbox": label_line.bbox,
+                    "source": "ocr_label_only",
+                    "status": "REVIEW_REQUIRED",
+                    "reason": f"Declaration label '{label_line.text}' detected, but quantity amount was not detected.",
+                }
+        else:
+            entry = {
+                "field": field,
+                "label": _normalized_text(label_line.text),
+                "value": _normalized_text(val_line.text) if val_line else None,
+                "confidence": label_line.confidence,
+                "bbox": label_line.bbox,
+                "source": "ocr_label_line",
+            }
 
         found[field] = entry
         used_line_idx.add(i)
+
 
     # Manufacturer / packer / importer / marketer roles generally introduce
     # the actual company/address on the next line(s).

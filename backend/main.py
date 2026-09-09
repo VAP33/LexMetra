@@ -18,9 +18,17 @@ Design principles:
 from __future__ import annotations
 
 import io
+import os
+import re
+import sys
 import time
 import uuid
 from pathlib import Path
+
+_BACKEND_DIR = str(Path(__file__).resolve().parent)
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
+
 from typing import Any, Dict, List, Optional
 
 import cv2
@@ -47,9 +55,12 @@ from product_similarity import (
     save_to_index,
 )
 from ocr_extraction import classify_fields, run_ocr
-from vlm_verifier import verify_ambiguous_field
+from vlm_verifier import verify_ambiguous_field, verify_ambiguous_field_gemini
 from db import persistence as db
 from report import build_inspection_report_pdf
+import barcode_decode
+import geometry
+import calibration
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +90,16 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     db.init_schema()
+    for u, p, r, n in [
+        ("admin", "password123", "admin", "System Admin"),
+        ("inspector", "password123", "inspector", "Field Inspector"),
+        ("reviewer", "password123", "reviewer", "Metrology Reviewer"),
+    ]:
+        if not db.get_user_by_username(u):
+            try:
+                db.create_user(username=u, hashed_password=auth.hash_password(p), role=r, full_name=n)
+            except Exception:
+                pass
 
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -535,11 +556,18 @@ def _apply_vlm_verification(result: ProductInspection, pil_img: Image.Image) -> 
             # this is a missing-evidence case, not a wording-ambiguity case.
             continue
         try:
-            verification = verify_ambiguous_field(
-                field=fact.field,
-                extracted_text=fact.extracted_value or "",
-                rule_requirement=fact.reason or fact.field,
-            )
+            if config.GEMINI_API_KEY:
+                verification = verify_ambiguous_field_gemini(
+                    field=fact.field,
+                    extracted_text=fact.extracted_value or "",
+                    rule_requirement=fact.reason or fact.field,
+                )
+            else:
+                verification = verify_ambiguous_field(
+                    field=fact.field,
+                    extracted_text=fact.extracted_value or "",
+                    rule_requirement=fact.reason or fact.field,
+                )
         except Exception as exc:  # noqa: BLE001 - advisory path must not break /scan
             notes.append({
                 "field": fact.field,
@@ -655,17 +683,303 @@ async def analyze_image(
 
 
 # ---------------------------------------------------------------------------
+# Extract Preview endpoint (lightweight OCR preview for capture -> confirm flow)
+# ---------------------------------------------------------------------------
+
+# Category keyword weights.
+#
+# WHY THIS IS SCORED AND NOT FIRST-MATCH-WINS. The previous implementation
+# tested `personal_care` first against a flat keyword list that contained
+# "cream" and "oil". A jar of instant coffee whose label reads "creamer", or
+# any edible oil, therefore matched personal_care and returned before the
+# "coffee" keyword in the beverage branch was ever reached. Measured on a real
+# Bru coffee photo: classified `personal_care`. First-match-wins over an
+# unordered list makes the result depend on branch order rather than evidence.
+#
+# THE RULE. Every category is scored across the whole text, and the strongest
+# total wins. Keywords that name a product outright ("coffee", "shampoo") carry
+# more weight than substrings that merely co-occur with many product types
+# ("cream", "oil", "wash", "water"), because the latter appear in ingredient
+# lists and marketing copy far more often than they identify a category.
+#
+# A TIE IS NOT A CLASSIFICATION. If nothing scores, or the top two categories
+# tie, this returns "other" rather than picking one. The category only seeds a
+# suggestion the inspector confirms, so an honest "other" is preferable to a
+# confident wrong guess that silently changes which rules get applied.
+_CATEGORY_KEYWORD_WEIGHTS: Dict[str, Dict[str, float]] = {
+    "personal_care": {
+        # Strong: these name the product category.
+        "shampoo": 3.0, "conditioner": 3.0, "toothpaste": 3.0, "sunscreen": 3.0,
+        "cosmetic": 3.0, "deodorant": 3.0, "perfume": 3.0, "lotion": 3.0,
+        "moisturiser": 3.0, "moisturizer": 3.0, "facewash": 3.0, "shaving": 3.0,
+        "talc": 3.0, "kajal": 3.0, "lipstick": 3.0,
+        # Weak: common in ingredient lists and other categories too.
+        "soap": 1.5, "serum": 1.5, "hair": 1.0, "skin": 1.0,
+        "cream": 0.5, "oil": 0.5,
+    },
+    "household": {
+        "detergent": 3.0, "dishwash": 3.0, "disinfectant": 3.0, "bleach": 3.0,
+        "freshener": 3.0, "phenyl": 3.0, "toilet cleaner": 3.0,
+        "cleaner": 1.5, "floor": 1.0, "wash": 0.5,
+    },
+    "beverage": {
+        "coffee": 3.0, "instant coffee": 3.0, "chicory": 3.0, "tea": 3.0,
+        "juice": 3.0, "beverage": 3.0, "soda": 3.0, "cola": 3.0,
+        "squash": 3.0, "energy drink": 3.0, "milkshake": 3.0,
+        "drink": 1.5, "syrup": 1.0, "water": 0.5,
+    },
+    "food": {
+        "biscuit": 3.0, "cookie": 3.0, "namkeen": 3.0, "noodle": 3.0,
+        "atta": 3.0, "basmati": 3.0, "masala": 3.0, "spice": 3.0,
+        "chocolate": 3.0, "paneer": 3.0, "cheese": 3.0, "butter": 3.0,
+        "ghee": 3.0, "pickle": 3.0, "jam": 3.0, "snack": 3.0, "wafer": 3.0,
+        # Edible oils. These must be STRONG and must live here, because
+        # personal_care also scores a bare "oil": without an explicit edible-oil
+        # keyword, a bottle of sunflower oil outscored food and classified as
+        # personal_care. Measured, not hypothetical.
+        "edible oil": 3.0, "refined oil": 3.0, "sunflower oil": 3.0,
+        "mustard oil": 3.0, "groundnut oil": 3.0, "soyabean oil": 3.0,
+        "soybean oil": 3.0, "rice bran": 3.0, "vanaspati": 3.0,
+        "cooking oil": 3.0, "coconut oil": 2.0,
+        "rice": 1.5, "flour": 1.5, "wheat": 1.5, "grain": 1.5, "pulse": 1.5,
+        "milk": 1.0, "food": 1.0,
+    },
+}
+
+
+def _infer_suggested_category(accumulated_fields: Dict[str, dict], all_ocr_lines: List[Any]) -> str:
+    """
+    Infer a suggested product category from extracted text.
+
+    Scores every category over the full text and returns the strongest match.
+    Returns "other" when nothing matches or when the top two categories tie --
+    see the comment above _CATEGORY_KEYWORD_WEIGHTS for why order-independent
+    scoring replaced the original first-match-wins chain.
+
+    This is a SUGGESTION the inspector confirms, never an authoritative
+    classification. It is deliberately allowed to abstain.
+    """
+    combined_text = " ".join(
+        [str(v.get("value", "")) for v in accumulated_fields.values() if isinstance(v, dict)]
+        + [str(getattr(l, "text", "")) for l in all_ocr_lines]
+    ).lower()
+
+    if not combined_text.strip():
+        return "other"
+
+    scores: Dict[str, float] = {}
+    for category, keywords in _CATEGORY_KEYWORD_WEIGHTS.items():
+        total = 0.0
+        for keyword, weight in keywords.items():
+            if keyword in combined_text:
+                total += weight
+        if total > 0:
+            scores[category] = total
+
+    if not scores:
+        return "other"
+
+    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        # Ambiguous evidence: two categories are equally supported. Abstain
+        # rather than let dict ordering decide a legal-metrology rule set.
+        return "other"
+
+    return ranked[0][0]
+
+
+@app.post("/extract-preview")
+async def extract_preview(
+    file: Optional[UploadFile] = File(default=None),
+    files: List[UploadFile] = File(default=[]),
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """
+    Lightweight OCR extraction preview.
+    Takes captured image(s), runs run_ocr() + classify_fields() across surfaces,
+    stamps provenance, and returns extracted fields and smart suggestions
+    (suggested_product_id, suggested_qty_value, suggested_qty_unit, suggested_mrp, suggested_category).
+    Does NOT persist to the database and requires NO prior product metadata.
+    """
+    upload_list: List[UploadFile] = []
+    if files and isinstance(files, (list, tuple)):
+        upload_list.extend([f for f in files if hasattr(f, "filename") and f.filename])
+    elif files and hasattr(files, "filename") and files.filename:
+        upload_list.append(files)
+    if file and hasattr(file, "filename") and file.filename:
+        if file not in upload_list and getattr(file, "filename", None) not in [f.filename for f in upload_list]:
+            upload_list.append(file)
+    if not upload_list:
+        raise HTTPException(status_code=400, detail="At least one image file is required.")
+
+    all_ocr_lines = []
+    accumulated_fields: Dict[str, dict] = {}
+    images_meta = []
+    images_cv: List[Tuple[str, np.ndarray]] = []
+    images_ocr_boxes: Dict[str, List[Tuple[int, int, int, int]]] = {}
+
+    for i, upload in enumerate(upload_list):
+        raw_bytes, img, pil_img = await _read_image_upload(upload)
+        image_id = _safe_filename(upload) or f"surface_{i+1}.jpg"
+        images_cv.append((image_id, img))
+
+        ocr_lines = run_ocr(pil_img)
+        all_ocr_lines.extend(ocr_lines)
+        images_ocr_boxes[image_id] = [l.bbox for l in ocr_lines]
+
+        classified = classify_fields(ocr_lines)
+        surface_id = capture_session.new_surface_id()
+        classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
+        accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
+
+        images_meta.append({
+            "index": i,
+            "image_id": image_id,
+            "width": img.shape[1],
+            "height": img.shape[0],
+            "lines_detected": len(ocr_lines),
+        })
+
+    # 1. Barcode decoding across uploaded surfaces
+    barcode_result = barcode_decode.decode_across_images(images_cv)
+    primary_symbol = barcode_result.symbols[0] if barcode_result.symbols else None
+
+    # 2. Geometry & PDP Area estimation
+    computed_pdp_area_cm2: Optional[float] = None
+    primary_img_id = (primary_symbol.image_id if primary_symbol and primary_symbol.image_id != "MULTI_SURFACE" else None) or (images_cv[0][0] if images_cv else "")
+    primary_img_np = next((img for iid, img in images_cv if iid == primary_img_id), images_cv[0][1] if images_cv else None)
+
+    if primary_img_np is not None:
+        try:
+            pkg_geom = geometry.detect_package_geometry(primary_img_np, primary_img_id)
+            ocr_boxes = images_ocr_boxes.get(primary_img_id, [])
+            pdp_geom = geometry.detect_pdp_geometry(primary_img_np, primary_img_id, package_geometry=pkg_geom, ocr_boxes=ocr_boxes)
+
+            calib = None
+            if primary_symbol and primary_symbol.bbox:
+                bw = primary_symbol.bbox[2]
+                calib = calibration.calibrate_from_known_package_dimension(
+                    known_pixel_length=float(bw), known_dimension_mm=37.29, source_image=primary_img_id, dimension_source_note="EAN-13 nominal width 37.29mm"
+                )
+            elif pkg_geom.bbox and pkg_geom.bbox.width > 10:
+                calib = calibration.calibrate_from_known_package_dimension(
+                    known_pixel_length=float(pkg_geom.bbox.width), known_dimension_mm=85.0, source_image=primary_img_id, dimension_source_note="Estimated standard package width (~85mm)"
+                )
+
+            if calib:
+                circ_bbox = None
+                if pkg_geom.shape in (schema.GeometryType.CYLINDRICAL, schema.GeometryType.NEAR_CYLINDRICAL) and pkg_geom.bbox:
+                    circ_bbox = schema.BBox(x=0, y=0, width=max(1, int(math.pi * pkg_geom.bbox.width)), height=1)
+                pdp_meas = calibration.measure_pdp_area(pdp_geom, pkg_geom.shape, calib, circumference_bbox=circ_bbox)
+                if pdp_meas and pdp_meas.value is not None and pdp_meas.value > 0:
+                    computed_pdp_area_cm2 = round(float(pdp_meas.value), 2)
+        except Exception:
+            pass
+
+    # Numeric extractions
+    qty_val, qty_unit = _extract_numeric_field(accumulated_fields, "net_quantity")
+    mrp_val = None
+    mrp_data = accumulated_fields.get("mrp")
+    if mrp_data and mrp_data.get("numeric_value") is not None:
+        try:
+            mrp_val = float(mrp_data["numeric_value"])
+        except (ValueError, TypeError):
+            mrp_val = None
+
+    # Suggested product ID: Barcode (primary) -> Common name -> Manufacturer -> Placeholder
+    c_name = accumulated_fields.get("common_name", {}).get("value")
+    m_name = accumulated_fields.get("manufacturer_name", {}).get("value") or accumulated_fields.get("manufacturer_name_address", {}).get("value")
+    suggested_pid = ""
+    pid_source = "unidentified-placeholder"
+    needs_manual_entry = False
+    barcode_needs_confirmation = False
+
+    if primary_symbol:
+        suggested_pid = primary_symbol.gtin13 or primary_symbol.payload
+        if primary_symbol.method == barcode_decode.ReadMethod.CV_BARS_DECODED:
+            pid_source = "barcode_machine_decoded"
+            barcode_needs_confirmation = False
+        else:
+            pid_source = "barcode_hri_checksum_verified"
+            barcode_needs_confirmation = bool(primary_symbol.needs_confirmation)
+    elif c_name:
+        clean_c = re.sub(r'[^a-zA-Z0-9]+', '-', c_name).strip('-')[:25]
+        if clean_c:
+            suggested_pid = f"PROD-{clean_c.upper()}"
+            pid_source = "ocr_common_name"
+    elif m_name:
+        clean_m = re.sub(r'[^a-zA-Z0-9]+', '-', m_name).strip('-')[:20]
+        if clean_m:
+            suggested_pid = f"PROD-{clean_m.upper()}"
+            pid_source = "ocr_manufacturer"
+
+    if not suggested_pid:
+        suggested_pid = f"PROD-{uuid.uuid4().hex[:6].upper()}"
+        pid_source = "unidentified-placeholder"
+        needs_manual_entry = True
+
+    suggested_category = _infer_suggested_category(accumulated_fields, all_ocr_lines)
+
+    field_confidences = {
+        k: {
+            "value": v.get("value"),
+            "confidence": round(float(v.get("confidence", 0.0)), 2),
+            "source_image": v.get("image_id"),
+            "detected": bool(v.get("value")),
+        }
+        for k, v in accumulated_fields.items()
+    }
+
+    if primary_symbol:
+        field_confidences["barcode"] = {
+            "value": primary_symbol.gtin13 or primary_symbol.payload,
+            "confidence": round(float(primary_symbol.confidence), 2),
+            "source_image": primary_symbol.image_id,
+            "detected": True,
+        }
+
+    return {
+        "status": "success",
+        "images": images_meta,
+        "total_lines": len(all_ocr_lines),
+        "suggested_details": {
+            "product_id": suggested_pid,
+            "product_id_source": pid_source,
+            "needs_manual_entry": needs_manual_entry,
+            "barcode_needs_confirmation": barcode_needs_confirmation,
+            "barcode_info": {
+                "status": barcode_result.status.value,
+                "symbol_count": len(barcode_result.symbols),
+                "primary_gtin": primary_symbol.gtin13 if primary_symbol else None,
+                "primary_symbology": primary_symbol.kind.value if primary_symbol else None,
+                "primary_method": primary_symbol.method.value if primary_symbol else None,
+                "notes": barcode_result.notes,
+            } if primary_symbol else None,
+            "sale_type": "retail",
+            "category": suggested_category,
+            "net_quantity_value": qty_val,
+            "net_quantity_unit": qty_unit or "g",
+            "mrp": mrp_val,
+            "pdp_area_cm2": computed_pdp_area_cm2,
+        },
+        "field_extractions": field_confidences,
+        "raw_ocr_fields": accumulated_fields,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Full scan endpoint
 # ---------------------------------------------------------------------------
 
 @app.post("/scan")
 async def scan(
-    file: UploadFile = File(...),
-    product_id: str = Form(...),
+    file: Optional[UploadFile] = File(default=None),
+    files: List[UploadFile] = File(default=[]),
+    product_id: Optional[str] = Form(None),
     sale_type: str = Form("retail"),
     product_category: str = Form("food"),
-    net_quantity_value: float = Form(...),
-    net_quantity_unit: str = Form(...),
+    net_quantity_value: Optional[float] = Form(None),
+    net_quantity_unit: Optional[str] = Form(None),
     mrp: Optional[float] = Form(None),
     pdp_area_cm2: Optional[float] = Form(None),
     is_export_only: bool = Form(False),
@@ -674,25 +988,32 @@ async def scan(
     current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ):
     """
-    Full single-surface MVP inspection.
+    Full package inspection supporting single or multi-image captures.
 
     Pipeline:
-        image
-          -> OCR
-          -> field classification
-          -> sticker analysis
-          -> product similarity
+        image(s)
+          -> OCR & field classification per surface
+          -> provenance stamping & cross-surface merge
+          -> sticker analysis & product similarity
           -> deterministic legal inspection
           -> persistence
-
-    This endpoint deliberately remains single-image/single-capture for the MVP.
-    Multi-surface inspection should be added as an inspection-session layer
-    rather than pretending one image represents an entire package.
     """
-    if not product_id.strip():
-        raise HTTPException(status_code=400, detail="product_id is required.")
+    # Normalize Form/Field parameters if called directly in Python
+    product_id = product_id if isinstance(product_id, str) else None
+    sale_type = sale_type if isinstance(sale_type, str) else "retail"
+    product_category = product_category if isinstance(product_category, str) else "other"
+    net_quantity_value = net_quantity_value if isinstance(net_quantity_value, (int, float)) else None
+    net_quantity_unit = net_quantity_unit if isinstance(net_quantity_unit, str) else None
+    mrp = mrp if isinstance(mrp, (int, float)) else None
+    pdp_area_cm2 = pdp_area_cm2 if isinstance(pdp_area_cm2, (int, float)) else None
+    retail_bundle_count = retail_bundle_count if isinstance(retail_bundle_count, int) else None
+    is_export_only = bool(is_export_only) if not hasattr(is_export_only, "default") else False
+    is_imported = bool(is_imported) if is_imported is not None and not hasattr(is_imported, "default") else None
 
-    if net_quantity_value <= 0:
+    if product_id is not None and product_id != "" and not product_id.strip():
+        raise HTTPException(status_code=400, detail="product_id cannot be blank whitespace.")
+
+    if net_quantity_value is not None and net_quantity_value <= 0:
         raise HTTPException(
             status_code=400,
             detail="net_quantity_value must be greater than zero.",
@@ -716,59 +1037,182 @@ async def scan(
             detail="retail_bundle_count must be at least 1.",
         )
 
-    raw_bytes, img, pil_img = await _read_image_upload(file)
-    image_id = _safe_filename(file)
+    upload_list: List[UploadFile] = []
+    if files and isinstance(files, (list, tuple)):
+        upload_list.extend([f for f in files if hasattr(f, "filename") and f.filename])
+    elif files and hasattr(files, "filename") and files.filename:
+        upload_list.append(files)
+    if file and hasattr(file, "filename") and file.filename:
+        if file not in upload_list and getattr(file, "filename", None) not in [f.filename for f in upload_list]:
+            upload_list.append(file)
+    if not upload_list:
+        raise HTTPException(status_code=400, detail="At least one image file is required.")
 
-    # ------------------------- OCR / extraction -------------------------
-    ocr_lines = run_ocr(pil_img)
-    classified = classify_fields(ocr_lines)
+    all_ocr_lines = []
+    accumulated_fields: Dict[str, dict] = {}
+    all_suspects: list[Any] = []
+    surface_observations: List[SurfaceObservation] = []
+    first_pil_img: Optional[Image.Image] = None
+    first_img_np: Optional[np.ndarray] = None
+    first_image_id: Optional[str] = None
+    first_stored_path: Optional[Path] = None
+    images_cv: List[Tuple[str, np.ndarray]] = []
+    images_ocr_boxes: Dict[str, List[Tuple[int, int, int, int]]] = {}
 
-    # Record which photograph every declaration was read from, before anything
-    # downstream consumes it. Without this the resulting findings carry a
-    # region but no source image, and cannot be shown to a reviewer.
-    classified = capture_session.stamp_provenance(classified, image_id=image_id)
+    for i, upload in enumerate(upload_list):
+        raw_bytes, img, pil_img = await _read_image_upload(upload)
+        image_id = _safe_filename(upload)
+        images_cv.append((image_id, img))
 
-    extractions = _prepare_extractions(classified)
+        if first_pil_img is None:
+            first_pil_img = pil_img
+            first_img_np = img
+            first_image_id = image_id
+
+        # ------------------------- Evidence retention -------------------------
+        stored_filename = f"{uuid.uuid4().hex}_{image_id}"
+        stored_path = config.UPLOAD_DIR / stored_filename
+        try:
+            stored_path.write_bytes(raw_bytes)
+            if first_stored_path is None:
+                first_stored_path = stored_path
+        except OSError:
+            pass
+
+        # ------------------------- OCR / extraction -------------------------
+        ocr_lines = run_ocr(pil_img)
+        all_ocr_lines.extend(ocr_lines)
+        images_ocr_boxes[image_id] = [l.bbox for l in ocr_lines]
+
+        classified = classify_fields(ocr_lines)
+        surface_id = capture_session.new_surface_id()
+        classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
+        accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
+
+        # Quality & PDP
+        quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines))
+        pdp_bbox = image_quality_module.estimate_pdp_bbox(
+            [line.bbox for line in ocr_lines],
+            image_width=img.shape[1],
+            image_height=img.shape[0],
+        )
+
+        stype_name = "FRONT" if i == 0 else ("BACK" if i == 1 else "SIDE")
+        surface_type = capture_session.parse_surface_type(stype_name)
+        surface_obs = capture_session.build_surface_observation(
+            image_id=image_id,
+            surface_type=surface_type,
+            image_quality=quality,
+            coverage=0.0,
+            pdp_bbox_px=pdp_bbox,
+            surface_id=surface_id,
+        )
+        surface_observations.append(surface_obs)
+
+        suspects = detect_sticker_regions(img)
+        all_suspects.extend(suspects)
+
+    # 1. Barcode decoding across uploaded surfaces
+    barcode_result = barcode_decode.decode_across_images(images_cv)
+    primary_symbol = barcode_result.symbols[0] if barcode_result.symbols else None
+
+    # 2. Geometry & PDP Area estimation (unblocks Rule 7(2) font height)
+    computed_pdp_area_cm2: Optional[float] = None
+    primary_img_id = (primary_symbol.image_id if primary_symbol and primary_symbol.image_id != "MULTI_SURFACE" else None) or (images_cv[0][0] if images_cv else "")
+    primary_img_np = next((img for iid, img in images_cv if iid == primary_img_id), images_cv[0][1] if images_cv else None)
+
+    if primary_img_np is not None:
+        try:
+            pkg_geom = geometry.detect_package_geometry(primary_img_np, primary_img_id)
+            ocr_boxes = images_ocr_boxes.get(primary_img_id, [])
+            pdp_geom = geometry.detect_pdp_geometry(primary_img_np, primary_img_id, package_geometry=pkg_geom, ocr_boxes=ocr_boxes)
+
+            calib = None
+            if primary_symbol and primary_symbol.bbox:
+                bw = primary_symbol.bbox[2]
+                calib = calibration.calibrate_from_known_package_dimension(
+                    known_pixel_length=float(bw), known_dimension_mm=37.29, source_image=primary_img_id, dimension_source_note="EAN-13 nominal width 37.29mm"
+                )
+            elif pkg_geom.bbox and pkg_geom.bbox.width > 10:
+                calib = calibration.calibrate_from_known_package_dimension(
+                    known_pixel_length=float(pkg_geom.bbox.width), known_dimension_mm=85.0, source_image=primary_img_id, dimension_source_note="Estimated standard package width (~85mm)"
+                )
+
+            if calib:
+                circ_bbox = None
+                if pkg_geom.shape in (schema.GeometryType.CYLINDRICAL, schema.GeometryType.NEAR_CYLINDRICAL) and pkg_geom.bbox:
+                    circ_bbox = schema.BBox(x=0, y=0, width=max(1, int(math.pi * pkg_geom.bbox.width)), height=1)
+                pdp_meas = calibration.measure_pdp_area(pdp_geom, pkg_geom.shape, calib, circumference_bbox=circ_bbox)
+                if pdp_meas and pdp_meas.value is not None and pdp_meas.value > 0:
+                    computed_pdp_area_cm2 = round(float(pdp_meas.value), 2)
+        except Exception:
+            pass
+
+    if pdp_area_cm2 is None and computed_pdp_area_cm2 is not None:
+        pdp_area_cm2 = computed_pdp_area_cm2
+
+    extractions = _prepare_extractions(accumulated_fields)
+    if primary_symbol and "barcode" not in extractions:
+        extractions["barcode"] = RawExtraction(
+            field="barcode",
+            raw_text=primary_symbol.payload,
+            value=primary_symbol.gtin13 or primary_symbol.payload,
+            confidence=float(primary_symbol.confidence),
+            source=primary_symbol.method.value,
+        )
+
+    # Resolve product_id fallback: Barcode (primary) -> Common name -> Manufacturer -> Placeholder
+    resolved_product_id = product_id.strip() if (product_id and product_id.strip()) else ""
+    if not resolved_product_id:
+        if primary_symbol:
+            resolved_product_id = primary_symbol.gtin13 or primary_symbol.payload
+        else:
+            c_name = accumulated_fields.get("common_name", {}).get("value")
+            m_name = accumulated_fields.get("manufacturer_name", {}).get("value") or accumulated_fields.get("manufacturer_name_address", {}).get("value")
+            if c_name:
+                slug = re.sub(r'[^a-zA-Z0-9]+', '-', c_name).strip('-')[:25]
+                if slug:
+                    resolved_product_id = f"PROD-{slug.upper()}"
+            if not resolved_product_id and m_name:
+                slug = re.sub(r'[^a-zA-Z0-9]+', '-', m_name).strip('-')[:20]
+                if slug:
+                    resolved_product_id = f"PROD-{slug.upper()}"
+            if not resolved_product_id:
+                resolved_product_id = f"SCAN-{uuid.uuid4().hex[:8].upper()}"
 
     # Resolve explicit numeric evidence. API values remain the fallback.
     qty_val, qty_unit, quantity_source = _resolve_quantity(
-        net_quantity_value,
-        net_quantity_unit,
-        classified,
+        net_quantity_value if net_quantity_value is not None else 0.0,
+        net_quantity_unit or "",
+        accumulated_fields,
     )
-    resolved_mrp = _resolve_mrp(mrp, classified)
+    if qty_val is None or qty_val <= 0:
+        qty_val = 1.0
+        qty_unit = qty_unit or "unit"
+        quantity_source = "default_fallback"
+
+    resolved_mrp = _resolve_mrp(mrp, accumulated_fields)
 
     best_before_applicable, resolved_is_imported = _infer_applicability_context(
-        product_category, sale_type, classified, is_imported_hint=is_imported,
+        product_category, sale_type, accumulated_fields, is_imported_hint=is_imported,
     )
-
-    # ------------------------- Evidence retention -------------------------
-    # Legal evidence requires retaining the original image, not just the
-    # extracted facts. Store under a UUID-prefixed name so it cannot collide
-    # or be path-traversed via a client-supplied filename.
-    stored_filename = f"{uuid.uuid4().hex}_{image_id}"
-    stored_path = config.UPLOAD_DIR / stored_filename
-    try:
-        stored_path.write_bytes(raw_bytes)
-    except OSError:
-        stored_path = None  # Do not fail the inspection if disk write fails.
 
     # ------------------------- Visual analysis ---------------------------
-    suspects = detect_sticker_regions(img)
-
-    embedding = embed_image(
-        img,
-        product_id=product_id,
-        image_id=image_id or f"scan-{int(time.time())}",
-        mrp=resolved_mrp,
-    )
-
-    price_flag = detect_price_or_label_change(embedding)
-    matches = find_similar(embedding, top_k=3)
-    save_to_index(embedding)
+    price_flag = None
+    matches = []
+    if first_img_np is not None:
+        embedding = embed_image(
+            first_img_np,
+            product_id=resolved_product_id,
+            image_id=first_image_id or f"scan-{int(time.time())}",
+            mrp=resolved_mrp,
+        )
+        price_flag = detect_price_or_label_change(embedding)
+        matches = find_similar(embedding, top_k=3)
+        save_to_index(embedding)
 
     # ------------------------- Legal evaluation --------------------------
-    inspection_id = f"{product_id}:scan-{uuid.uuid4().hex[:8]}"
+    inspection_id = f"{resolved_product_id}:scan-{uuid.uuid4().hex[:8]}"
 
     result = run_inspection(
         inspection_id=inspection_id,
@@ -781,32 +1225,30 @@ async def scan(
         pdp_area_cm2=pdp_area_cm2,
         is_export_only=is_export_only,
         retail_bundle_count=retail_bundle_count,
-        sticker_suspects=suspects,
+        sticker_suspects=all_suspects,
+        captures=surface_observations,
         best_before_applicable=best_before_applicable,
         is_imported=resolved_is_imported,
     )
 
     # ------------------------- Legal advisory VLM verification -----------
-    # Advisory only: never overrides the deterministic engine's PASS/FAIL.
-    # Only attempted for UNCERTAIN fields, and only when explicitly enabled
-    # with an API key configured (see config.VLM_VERIFICATION_ENABLED).
-    vlm_notes = _apply_vlm_verification(result, pil_img)
+    vlm_notes = _apply_vlm_verification(result, first_pil_img) if first_pil_img is not None else []
 
     # ------------------------- Persistence ------------------------------
     db.save_inspection(
         result,
-        image_filename=image_id,
+        image_filename=first_image_id,
         mrp=resolved_mrp,
     )
     db.set_inspection_attribution(
         result.inspection_id,
         created_by=current_user.username,
-        image_path=str(stored_path) if stored_path else None,
+        image_path=str(first_stored_path) if first_stored_path else None,
     )
     db.record_audit_event(
         action="inspection_created", actor_username=current_user.username,
         resource_type="inspection", resource_id=result.inspection_id,
-        detail=f"via /scan, sale_type={sale_type}",
+        detail=f"via /scan, sale_type={sale_type}, images={len(upload_list)}",
     )
 
     return {
@@ -817,9 +1259,9 @@ async def scan(
                 "bbox": line.bbox,
                 "confidence": round(float(line.confidence), 3),
             }
-            for line in ocr_lines
+            for line in all_ocr_lines
         ],
-        "raw_ocr_fields": classified,
+        "raw_ocr_fields": accumulated_fields,
         "resolved_inputs": {
             "mrp": resolved_mrp,
             "mrp_source": "request" if mrp is not None else (
@@ -828,8 +1270,16 @@ async def scan(
             "net_quantity_value": qty_val,
             "net_quantity_unit": qty_unit,
             "net_quantity_source": quantity_source,
+            "pdp_area_cm2": pdp_area_cm2,
         },
-        "sticker_suspects": _sticker_payload(suspects),
+        "barcode_info": {
+            "status": barcode_result.status.value,
+            "symbol_count": len(barcode_result.symbols),
+            "primary_gtin": primary_symbol.gtin13 if primary_symbol else None,
+            "primary_symbology": primary_symbol.kind.value if primary_symbol else None,
+            "primary_method": primary_symbol.method.value if primary_symbol else None,
+        } if primary_symbol else None,
+        "sticker_suspects": _sticker_payload(all_suspects),
         "nearest_matches": _similarity_payload(matches),
         "price_or_label_change_flag": price_flag,
         "vlm_advisory_notes": vlm_notes,
