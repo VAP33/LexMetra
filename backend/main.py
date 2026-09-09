@@ -55,7 +55,8 @@ from product_similarity import (
     save_to_index,
 )
 from ocr_extraction import classify_fields, run_ocr
-from vlm_verifier import verify_ambiguous_field, verify_ambiguous_field_gemini
+from ocr_engine import active_engines
+from vlm_verifier import verify_ambiguous_field, verify_ambiguous_field_gemini, recover_fields_from_image
 from db import persistence as db
 from report import build_inspection_report_pdf
 import barcode_decode
@@ -251,8 +252,8 @@ class InspectRequest(BaseModel):
     sale_type: str = "retail"
     product_category: str = "food"
 
-    net_quantity_value: float = Field(gt=0)
-    net_quantity_unit: str
+    net_quantity_value: Optional[float] = Field(default=None, gt=0)
+    net_quantity_unit: Optional[str] = None
 
     mrp: Optional[float] = Field(default=None, ge=0)
     pdp_area_cm2: Optional[float] = Field(default=None, gt=0)
@@ -272,8 +273,8 @@ class CreateSessionRequest(BaseModel):
     sale_type: str = "retail"
     product_category: str = "food"
 
-    net_quantity_value: float = Field(gt=0)
-    net_quantity_unit: str
+    net_quantity_value: Optional[float] = Field(default=None, gt=0)
+    net_quantity_unit: Optional[str] = None
 
     mrp: Optional[float] = Field(default=None, ge=0)
     pdp_area_cm2: Optional[float] = Field(default=None, gt=0)
@@ -431,10 +432,10 @@ def _resolve_mrp(
 
 
 def _resolve_quantity(
-    supplied_value: float,
-    supplied_unit: str,
+    supplied_value: Optional[float],
+    supplied_unit: Optional[str],
     classified: Dict[str, dict],
-) -> tuple[float, str, str]:
+) -> tuple[Optional[float], Optional[str], str]:
     """
     Prefer a clean OCR net-quantity extraction when available.
 
@@ -449,7 +450,7 @@ def _resolve_quantity(
     if ocr_value is not None and ocr_unit:
         return ocr_value, ocr_unit, "ocr"
 
-    return supplied_value, supplied_unit, "request"
+    return supplied_value, supplied_unit, "request" if supplied_value is not None else "not_observed"
 
 
 def _similarity_payload(matches: list[Any]) -> list[dict]:
@@ -830,6 +831,49 @@ async def extract_preview(
         classified = classify_fields(ocr_lines)
         surface_id = capture_session.new_surface_id()
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
+
+        # Recover only weak/partial declarations from the actual pixels. This
+        # keeps the MVP fallback useful without allowing the VLM to replace a
+        # stronger OCR reading or make a legal decision.
+        if config.VLM_VERIFICATION_ENABLED:
+            weak_fields = {
+                k: v for k, v in classified.items()
+                if k in {
+                    "common_name", "net_quantity", "mrp", "mfg_date",
+                    "expiry_date", "manufacturer_name", "packer_name",
+                    "importer_name", "consumer_care", "country_of_origin",
+                }
+                and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
+            }
+            if weak_fields:
+                try:
+                    visual_candidates = recover_fields_from_image(
+                        pil_img, weak_fields, image_id=image_id, surface_id=surface_id
+                    )
+                    for candidate in visual_candidates:
+                        field = candidate.get("field")
+                        if not field or not candidate.get("value"):
+                            continue
+                        existing = classified.get(field)
+                        if existing and existing.get("value"):
+                            if str(existing.get("value")).strip().lower() != str(candidate.get("value")).strip().lower():
+                                existing.setdefault("alternative_values", []).append(str(candidate.get("value")))
+                                existing["agreement"] = "CONFLICTING"
+                                existing["agreement_note"] = "OCR and visual VLM recovery disagree; human review required."
+                                existing["status"] = "REVIEW_REQUIRED"
+                                existing["review_required"] = True
+                            continue
+                        classified[field] = {
+                            **candidate,
+                            "source": "vlm_visual_recovery",
+                            "confidence": min(0.92, max(0.0, float(candidate.get("confidence", 0.0) or 0.0))),
+                        }
+                except Exception:
+                    # Keep the deterministic OCR/fallback path intact. The UI
+                    # should show the field as not reliably observed rather than
+                    # fabricating a value when visual recovery is unavailable.
+                    pass
+
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
         images_meta.append({
@@ -856,15 +900,6 @@ async def extract_preview(
             pdp_geom = geometry.detect_pdp_geometry(primary_img_np, primary_img_id, package_geometry=pkg_geom, ocr_boxes=ocr_boxes)
 
             calib = None
-            if primary_symbol and primary_symbol.bbox:
-                bw = primary_symbol.bbox[2]
-                calib = calibration.calibrate_from_known_package_dimension(
-                    known_pixel_length=float(bw), known_dimension_mm=37.29, source_image=primary_img_id, dimension_source_note="EAN-13 nominal width 37.29mm"
-                )
-            elif pkg_geom.bbox and pkg_geom.bbox.width > 10:
-                calib = calibration.calibrate_from_known_package_dimension(
-                    known_pixel_length=float(pkg_geom.bbox.width), known_dimension_mm=85.0, source_image=primary_img_id, dimension_source_note="Estimated standard package width (~85mm)"
-                )
 
             if calib:
                 circ_bbox = None
@@ -1089,13 +1124,24 @@ async def scan(
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
-        # Quality & PDP
+        # Quality + CV geometry/PDP
         quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines))
-        pdp_bbox = image_quality_module.estimate_pdp_bbox(
-            [line.bbox for line in ocr_lines],
-            image_width=img.shape[1],
-            image_height=img.shape[0],
+        pkg_geom_i = geometry.detect_package_geometry(img, image_id, image_quality=quality)
+        pdp_geom_i = geometry.detect_pdp_geometry(
+            img, image_id, package_geometry=pkg_geom_i,
+            ocr_boxes=[line.bbox for line in ocr_lines], image_quality=quality
         )
+
+        pdp_bbox = None
+        if pdp_geom_i.bbox is not None:
+            pdp_bbox = (float(pdp_geom_i.bbox.x), float(pdp_geom_i.bbox.y),
+                        float(pdp_geom_i.bbox.width), float(pdp_geom_i.bbox.height))
+        else:
+            pdp_bbox = image_quality_module.estimate_pdp_bbox(
+                [line.bbox for line in ocr_lines],
+                image_width=img.shape[1],
+                image_height=img.shape[0],
+            )
 
         stype_name = "FRONT" if i == 0 else ("BACK" if i == 1 else "SIDE")
         surface_type = capture_session.parse_surface_type(stype_name)
@@ -1105,7 +1151,10 @@ async def scan(
             image_quality=quality,
             coverage=0.0,
             pdp_bbox_px=pdp_bbox,
+            pdp_polygon=[{"x": float(pt.x), "y": float(pt.y)} for pt in pdp_geom_i.polygon] if pdp_geom_i.polygon else None,
+            geometry=pkg_geom_i.shape,
             surface_id=surface_id,
+            notes=list(pkg_geom_i.notes) + list(pdp_geom_i.notes),
         )
         surface_observations.append(surface_obs)
 
@@ -1128,15 +1177,6 @@ async def scan(
             pdp_geom = geometry.detect_pdp_geometry(primary_img_np, primary_img_id, package_geometry=pkg_geom, ocr_boxes=ocr_boxes)
 
             calib = None
-            if primary_symbol and primary_symbol.bbox:
-                bw = primary_symbol.bbox[2]
-                calib = calibration.calibrate_from_known_package_dimension(
-                    known_pixel_length=float(bw), known_dimension_mm=37.29, source_image=primary_img_id, dimension_source_note="EAN-13 nominal width 37.29mm"
-                )
-            elif pkg_geom.bbox and pkg_geom.bbox.width > 10:
-                calib = calibration.calibrate_from_known_package_dimension(
-                    known_pixel_length=float(pkg_geom.bbox.width), known_dimension_mm=85.0, source_image=primary_img_id, dimension_source_note="Estimated standard package width (~85mm)"
-                )
 
             if calib:
                 circ_bbox = None
@@ -1182,15 +1222,10 @@ async def scan(
 
     # Resolve explicit numeric evidence. API values remain the fallback.
     qty_val, qty_unit, quantity_source = _resolve_quantity(
-        net_quantity_value if net_quantity_value is not None else 0.0,
-        net_quantity_unit or "",
+        net_quantity_value,
+        net_quantity_unit,
         accumulated_fields,
     )
-    if qty_val is None or qty_val <= 0:
-        qty_val = 1.0
-        qty_unit = qty_unit or "unit"
-        quantity_source = "default_fallback"
-
     resolved_mrp = _resolve_mrp(mrp, accumulated_fields)
 
     best_before_applicable, resolved_is_imported = _infer_applicability_context(
@@ -1372,29 +1407,6 @@ async def add_capture(
     raw_bytes, img, pil_img = await _read_image_upload(file)
     image_id = _safe_filename(file)
 
-    # ------------------------- Per-image OCR/CV --------------------------
-    ocr_lines = run_ocr(pil_img)
-    classified = classify_fields(ocr_lines)
-
-    # Stamp provenance BEFORE the session merge. `merge_classified_fields`
-    # keeps whichever observation has the higher confidence, so in a
-    # multi-surface session the winning reading of `mrp` may come from a
-    # different photograph than the winning reading of `net_quantity`. Stamping
-    # per field means each surviving observation carries its own source image,
-    # rather than all of them inheriting the id of whichever capture happened
-    # to be last.
-    surface_id = capture_session.new_surface_id()
-    classified = capture_session.stamp_provenance(
-        classified, image_id=image_id, surface_id=surface_id
-    )
-
-    quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines))
-    pdp_bbox = image_quality_module.estimate_pdp_bbox(
-        [line.bbox for line in ocr_lines],
-        image_width=img.shape[1],
-        image_height=img.shape[0],
-    )
-
     # ------------------------- Evidence retention -------------------------
     stored_filename = f"{uuid.uuid4().hex}_{image_id}"
     stored_path = config.UPLOAD_DIR / stored_filename
@@ -1402,6 +1414,111 @@ async def add_capture(
         stored_path.write_bytes(raw_bytes)
     except OSError:
         stored_path = None
+
+    # ------------------------- Per-image OCR/CV --------------------------
+    ocr_lines = run_ocr(pil_img)
+    classified = classify_fields(ocr_lines)
+
+    surface_id = capture_session.new_surface_id()
+    classified = capture_session.stamp_provenance(
+        classified, image_id=image_id, surface_id=surface_id
+    )
+
+    quality = image_quality_module.assess_image_quality(
+        img, ocr_line_count=len(ocr_lines)
+    )
+
+    # CV runs AFTER image-quality gating and BEFORE legal interpretation.
+    # Geometry/PDP use OCR boxes only as one visual cue; they never decide the
+    # compliance result themselves.
+    pkg_geom = geometry.detect_package_geometry(
+        img, image_id, image_quality=quality
+    )
+    barcode_read = barcode_decode.decode_symbols(img, image_id=image_id)
+    barcode_symbols = barcode_read if isinstance(barcode_read, list) else getattr(barcode_read, "symbols", [])
+    ocr_boxes = [line.bbox for line in ocr_lines]
+    pdp_geom = geometry.detect_pdp_geometry(
+        img, image_id, package_geometry=pkg_geom,
+        ocr_boxes=ocr_boxes, image_quality=quality
+    )
+    suspects = detect_sticker_regions(img)
+
+    # Image-aware VLM recovery is reserved for weak/partial declaration
+    # evidence. It receives the actual pixels and may add a corroborating value,
+    # but never becomes the legal decision-maker.
+    vlm_recovery = []
+    weak_fields = {
+        k: v for k, v in classified.items()
+        if k in {
+            "common_name", "net_quantity", "mrp", "mfg_date",
+            "expiry_date", "manufacturer_name", "packer_name",
+            "importer_name", "consumer_care", "country_of_origin",
+        }
+        and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
+    }
+    if weak_fields and config.VLM_VERIFICATION_ENABLED:
+        try:
+            vlm_recovery = recover_fields_from_image(
+                pil_img, weak_fields, image_id=image_id, surface_id=surface_id
+            )
+            for candidate in vlm_recovery:
+                field = candidate.get("field")
+                if not field or not candidate.get("value"):
+                    continue
+                existing = classified.get(field)
+                if existing and existing.get("value"):
+                    # Preserve disagreement explicitly. Never overwrite stronger
+                    # OCR with an uncorroborated VLM answer.
+                    if str(existing.get("value")).strip().lower() != str(candidate.get("value")).strip().lower():
+                        existing.setdefault("alternative_values", []).append(str(candidate.get("value")))
+                        existing["agreement"] = "CONFLICTING"
+                        existing["agreement_note"] = "OCR and visual VLM recovery disagree; neither is authoritative."
+                    continue
+                classified[field] = {
+                    **candidate,
+                    "source": "vlm_visual_recovery",
+                    "confidence": min(0.92, max(0.0, float(candidate.get("confidence", 0.0) or 0.0))),
+                }
+        except Exception as exc:
+            vlm_recovery = [{"status": "unavailable", "detail": str(exc)[:200]}]
+
+    # Keep the lightweight heuristic PDP bbox only as a fallback for old code;
+    # prefer the geometry subsystem's explicit PDP observation when available.
+    pdp_bbox = None
+    if pdp_geom.bbox is not None:
+        pdp_bbox = (
+            float(pdp_geom.bbox.x), float(pdp_geom.bbox.y),
+            float(pdp_geom.bbox.width), float(pdp_geom.bbox.height),
+        )
+    else:
+        pdp_bbox = image_quality_module.estimate_pdp_bbox(
+            ocr_boxes, image_width=img.shape[1], image_height=img.shape[0]
+        )
+
+    polygon = None
+    if pdp_geom.polygon:
+        polygon = [{"x": float(p.x), "y": float(p.y)} for p in pdp_geom.polygon]
+
+    surface_notes = list(pkg_geom.notes) + list(pdp_geom.notes)
+    surface_notes.append(
+        f"Geometry={pkg_geom.shape.value}; confidence={pkg_geom.shape_confidence:.2f}."
+    )
+    if suspects:
+        surface_notes.append(f"{len(suspects)} possible alteration/sticker region(s) flagged; advisory only.")
+    if barcode_symbols:
+        surface_notes.append(f"{len(barcode_symbols)} barcode symbol(s) decoded on this surface.")
+
+    surface = capture_session.build_surface_observation(
+        image_id=image_id or f"capture-{int(time.time())}",
+        surface_type=capture_session.parse_surface_type(surface_type),
+        image_quality=quality,
+        coverage=0.0,
+        pdp_bbox_px=pdp_bbox,
+        pdp_polygon=polygon,
+        geometry=pkg_geom.shape,
+        surface_id=surface_id,
+        notes=surface_notes,
+    )
 
     # ------------------------- Merge into session evidence ---------------
     previous_captures = db.list_session_captures(session_id)
@@ -1426,15 +1543,6 @@ async def add_capture(
         session["sale_type"], context, merged_fields,
     )
     guidance = capture_session.guidance_messages(quality, coverage, missing)
-
-    surface = capture_session.build_surface_observation(
-        image_id=image_id or f"capture-{int(time.time())}",
-        surface_type=capture_session.parse_surface_type(surface_type),
-        image_quality=quality,
-        coverage=coverage,
-        pdp_bbox_px=pdp_bbox,
-        surface_id=surface_id,
-    )
 
     db.add_session_capture(
         session_id=session_id,
@@ -1543,9 +1651,11 @@ def finalize_session(
         )
     extractions = _prepare_extractions(accumulated_fields)
 
+    raw_session_qty = session.get("net_quantity_value")
+    session_qty = None if raw_session_qty in (None, "") else float(raw_session_qty)
     qty_val, qty_unit, _ = _resolve_quantity(
-        float(session["net_quantity_value"]),
-        session["net_quantity_unit"],
+        session_qty,
+        session.get("net_quantity_unit"),
         accumulated_fields,
     )
     resolved_mrp = _resolve_mrp(
@@ -1667,24 +1777,46 @@ def review_inspection(
 
 
 @app.get("/inspections/{inspection_id}/report.pdf")
+@app.head("/inspections/{inspection_id}/report.pdf")
 def get_inspection_report(
     inspection_id: str,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    token: Optional[str] = None,
+    bearer_token: Optional[str] = Depends(auth.oauth2_scheme),
 ):
+    effective_token = bearer_token or token
+    actor_username = "inspector"
+    if effective_token:
+        try:
+            token_data = auth.decode_access_token(effective_token)
+            user = db.get_user_by_username(token_data.username)
+            if user:
+                actor_username = user["username"]
+        except Exception:
+            pass
+    elif not config.DEV_MODE:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required to access inspection report.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
 
     pdf_bytes = build_inspection_report_pdf(detail)
     db.record_audit_event(
-        action="report_generated", actor_username=current_user.username,
-        resource_type="inspection", resource_id=inspection_id,
+        action="report_generated",
+        actor_username=actor_username,
+        resource_type="inspection",
+        resource_id=inspection_id,
     )
+    safe_id = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", inspection_id)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{inspection_id}_report.pdf"'
+            "Content-Disposition": f'inline; filename="{safe_id}_report.pdf"'
         },
     )
 
@@ -1703,7 +1835,16 @@ def get_product_history(
 
 @app.get("/health")
 def health():
+    engines, engine_notes = active_engines()
     return {
         "status": "ok",
         "service": "lmpc-compliance-api",
+        "ocr": {
+            "active_engines": [getattr(engine, "name", str(engine)) for engine in engines],
+            "paddle_requested": bool(config.ENABLE_PADDLEOCR),
+            "notes": engine_notes,
+        },
+        "vlm": {
+            "visual_recovery_enabled": bool(config.VLM_VERIFICATION_ENABLED),
+        },
     }

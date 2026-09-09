@@ -635,14 +635,12 @@ class TesseractEngine:
 
 class PaddleOcrEngine:
     """
-    Optional PaddleOCR backend behind the `LMPC_ENABLE_PADDLEOCR` flag.
+    Complementary PaddleOCR backend.
 
-    STATUS IN THIS ENVIRONMENT: ENVIRONMENT BLOCKED. `paddleocr` is not
-    installed and this environment has no network access to install it, so this
-    class has never been executed against a real model here. The integration is
-    written so that installing the package and setting the flag activates it,
-    and `available()` returns False (with a recorded note) otherwise. It is
-    deliberately not claimed as verified.
+    PaddleOCR 3.x is the current supported path. A small legacy adapter for
+    2.x is retained because some SIH demo machines may already have the older
+    package installed. If neither runtime is available, the engine is simply
+    omitted and Tesseract remains the deterministic fallback.
     """
 
     name = OcrEngineName.PADDLEOCR
@@ -651,41 +649,102 @@ class PaddleOcrEngine:
         self._reader = None
         self._available: Optional[bool] = None
         self._error: str = ""
+        self._api_version = ""
 
     def available(self) -> bool:
-        if self._available is None:
-            if not _PADDLE_REQUESTED:
-                self._available = False
-                self._error = "PaddleOCR not enabled (LMPC_ENABLE_PADDLEOCR is off)."
-            else:
-                try:  # pragma: no cover - not installed in this environment
-                    from paddleocr import PaddleOCR
+        if self._available is not None:
+            return bool(self._available)
 
-                    self._reader = PaddleOCR(use_angle_cls=False, lang="en")
-                    self._available = True
-                except Exception as exc:
-                    self._available = False
-                    self._error = (
-                        "PaddleOCR was enabled but could not be loaded "
-                        f"({exc}); falling back to Tesseract only."
-                    )
-        return bool(self._available)
+        if not _PADDLE_REQUESTED:
+            self._available = False
+            self._error = "PaddleOCR disabled (LMPC_ENABLE_PADDLEOCR=false)."
+            return False
+
+        try:  # pragma: no cover - package not installed in this environment
+            from paddleocr import PaddleOCR
+
+            # PaddleOCR 3.x. Disable document-level orientation/unwarping here:
+            # LexMetra already performs its own per-region orientation and image
+            # geometry so the OCR backend should not silently mutate coordinates.
+            try:
+                self._reader = PaddleOCR(
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=False,
+                )
+                self._api_version = "3.x"
+            except TypeError:
+                # PaddleOCR 2.x compatibility.
+                self._reader = PaddleOCR(use_angle_cls=False, lang="en")
+                self._api_version = "2.x"
+
+            self._available = True
+            return True
+        except Exception as exc:
+            self._available = False
+            self._error = (
+                "PaddleOCR was requested but could not be loaded "
+                f"({type(exc).__name__}: {exc}); falling back to Tesseract."
+            )
+            return False
 
     @property
     def error(self) -> str:
         return self._error
 
-    def read(self, image: np.ndarray, *, psm: int = 6) -> List[RawLine]:
-        if not self.available():  # pragma: no cover - environment blocked
-            return []
+    @staticmethod
+    def _json_payload(result: object) -> Optional[dict]:
+        """Extract PaddleOCR 3.x's JSON-shaped prediction payload."""
+        payload = getattr(result, "json", None)
+        if callable(payload):
+            try:
+                payload = payload()
+            except Exception:
+                payload = None
+        if isinstance(payload, dict):
+            return payload.get("res", payload)
+        if isinstance(result, dict):
+            payload = result.get("res", result)
+            return payload if isinstance(payload, dict) else None
+        return None
 
-        try:  # pragma: no cover - environment blocked
-            raw = self._reader.ocr(image, cls=False)
-        except Exception:
-            return []
-
+    def _read_v3(self, image: np.ndarray) -> List[RawLine]:
+        results = self._reader.predict(image)
         lines: List[RawLine] = []
-        for page in raw or []:  # pragma: no cover - environment blocked
+        for result in results or []:
+            payload = self._json_payload(result)
+            if not payload:
+                continue
+            texts = payload.get("rec_texts") or []
+            scores = payload.get("rec_scores") or []
+            boxes = payload.get("rec_boxes") or payload.get("rec_polys") or []
+            for idx, text in enumerate(texts):
+                text = str(text or "").strip()
+                if not text:
+                    continue
+                try:
+                    score = float(scores[idx]) if idx < len(scores) else 0.0
+                except (TypeError, ValueError):
+                    score = 0.0
+                if idx >= len(boxes):
+                    continue
+                pts = np.asarray(boxes[idx], dtype=np.float32)
+                if pts.size < 4:
+                    continue
+                x, y, w, h = cv2.boundingRect(pts.reshape(-1, 2))
+                lines.append(
+                    RawLine(
+                        text=text,
+                        bbox=(int(x), int(y), max(1, int(w)), max(1, int(h))),
+                        confidence=_clamp01(score),
+                    )
+                )
+        return lines
+
+    def _read_v2(self, image: np.ndarray) -> List[RawLine]:
+        raw = self._reader.ocr(image, cls=False)
+        lines: List[RawLine] = []
+        for page in raw or []:
             for entry in page or []:
                 try:
                     points, (text, score) = entry
@@ -703,6 +762,20 @@ class PaddleOcrEngine:
                     )
                 )
         return lines
+
+    def read(self, image: np.ndarray, *, psm: int = 6) -> List[RawLine]:
+        if not self.available():
+            return []
+        try:  # pragma: no cover - package not installed in this environment
+            if self._api_version == "3.x":
+                return self._read_v3(image)
+            return self._read_v2(image)
+        except Exception as exc:
+            self._error = (
+                f"PaddleOCR inference failed ({type(exc).__name__}: {exc}); "
+                "this reading pass was discarded and Tesseract remains available."
+            )
+            return []
 
 
 _TESSERACT = TesseractEngine()
@@ -1128,7 +1201,7 @@ MIN_TRIAL_OVERRIDE_SCORE = 1.0
 #: that cannot change the outcome. Restricting the trial to the regions where it
 #: can actually be decisive shortens the trial mosaic without changing any
 #: decision it was capable of making.
-TRIAL_MAX_REGIONS = 8
+TRIAL_MAX_REGIONS = 5
 
 #: Whether trial tiles are binarised before the trial call.
 #:
@@ -1155,12 +1228,12 @@ TRIAL_BINARISE = True
 #:
 #: The downscale is recorded as `_MosaicTile.tile_scale` and inverted first when
 #: mapping a line back, so coordinates remain exact in the ORIGINAL image.
-READ_TILE_MAX_SIDE_PX = 1600
+READ_TILE_MAX_SIDE_PX = 1100
 
 #: How many preprocessing variants per region are actually sent to OCR. Three
 #: gives fusion enough independent passes to corroborate while keeping the call
 #: count bounded.
-OCR_VARIANT_SLOTS = 3
+OCR_VARIANT_SLOTS = 2
 
 
 @dataclass

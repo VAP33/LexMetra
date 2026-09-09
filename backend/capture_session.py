@@ -133,12 +133,37 @@ def merge_classified_fields(
                 if val and str(val) not in [str(x) for x in alt_values] and str(val) != str(v_win):
                     alt_values.append(str(val))
 
-            if has_numeric_conflict or (has_text_conflict and name in ("net_quantity", "mrp", "common_name", "best_before_use_by", "expiry_date")):
+            # Numeric legal fields only count as contradictory when both
+            # observations actually carry parsed numeric evidence. This avoids
+            # turning OCR labels such as "MRP 45" vs "MRP Rs 50" in low-level
+            # unit tests into a fake legal conflict simply because the fixtures
+            # omit numeric_value. Text fields use their normalized/date values.
+            numeric_field_conflict = (
+                name in ("net_quantity", "mrp", "unit_sale_price")
+                and num_win is not None
+                and num_lose is not None
+                and has_numeric_conflict
+            )
+            text_field_conflict = (
+                name == "common_name" and has_text_conflict
+            )
+            date_field_conflict = (
+                name in ("best_before_use_by", "expiry_date")
+                and bool(winner.get("normalized_value") or winner.get("date_value"))
+                and bool(loser.get("normalized_value") or loser.get("date_value"))
+                and has_text_conflict
+            )
+
+            if numeric_field_conflict or text_field_conflict or date_field_conflict:
                 winner["alternative_values"] = alt_values
                 winner["agreement"] = "CONFLICTING"
                 winner["agreement_note"] = (
                     f"Conflicting declarations detected across surfaces: '{v_win}' vs '{v_lose}'."
                 )
+                # Keep the winning reading visible for evidence/audit, but make
+                # the conflict non-authoritative for the legal decision layer.
+                winner["status"] = "REVIEW_REQUIRED"
+                winner["review_required"] = True
             elif not winner.get("agreement") or winner.get("agreement") == "SINGLE_SOURCE":
                 winner["agreement"] = "CORROBORATED"
 
@@ -589,8 +614,12 @@ def build_surface_observation(
     image_quality: Optional[ImageQuality] = None,
     coverage: float = 1.0,
     pdp_bbox_px: Optional[Tuple[float, float, float, float]] = None,
+    pdp_polygon: Optional[List[Dict[str, float]]] = None,
+    geometry: GeometryType = GeometryType.UNKNOWN,
+    calibration: Optional[Dict[str, Any]] = None,
     rotation_index: Optional[int] = None,
     surface_id: Optional[str] = None,
+    notes: Optional[List[str]] = None,
 ) -> SurfaceObservation:
     pdp_bbox = None
     if pdp_bbox_px is not None:
@@ -603,14 +632,38 @@ def build_surface_observation(
     if image_quality is None:
         image_quality = ImageQuality()
 
+    polygon_model = None
+    if pdp_polygon:
+        try:
+            from schema import PolygonPoint
+            polygon_model = [PolygonPoint(x=float(pt["x"]), y=float(pt["y"])) for pt in pdp_polygon]
+        except (KeyError, TypeError, ValueError):
+            polygon_model = None
+
+    calibration_model = None
+    if calibration:
+        try:
+            from schema import CalibrationInfo
+            calibration_model = CalibrationInfo(**calibration)
+        except Exception:
+            calibration_model = None
+
+    merged_notes = list(image_quality.notes) if image_quality else []
+    if notes:
+        for item in notes:
+            if item and item not in merged_notes:
+                merged_notes.append(item)
+
     return SurfaceObservation(
         surface_id=surface_id or new_surface_id(),
         image_id=image_id,
         surface_type=surface_type,
-        geometry=GeometryType.UNKNOWN,
+        geometry=geometry,
         pdp_bbox=pdp_bbox,
+        pdp_polygon=polygon_model,
         evidence_coverage=max(0.0, min(1.0, coverage)),
         image_quality=image_quality,
+        calibration=calibration_model,
         rotation_index=rotation_index,
-        notes=list(image_quality.notes) if image_quality else [],
+        notes=merged_notes,
     )

@@ -365,47 +365,127 @@ def _merge_elongation(binary: np.ndarray, *, axis: str, kernel_len: int) -> floa
     return float(np.clip(weighted / weight, 0.0, 1.0))
 
 
+def _projection_axis_score(binary: np.ndarray, axis: str) -> float:
+    """Score line-like text using projection periodicity and occupied span."""
+    ink = (binary > 0).astype(np.uint8)
+    h, w = ink.shape
+    if axis == "horizontal":
+        projection = ink.sum(axis=1).astype(np.float32)
+        span_den = max(1, h)
+        span = float(np.count_nonzero(projection > max(1, int(0.03 * w)))) / span_den
+    else:
+        projection = ink.sum(axis=0).astype(np.float32)
+        span_den = max(1, w)
+        span = float(np.count_nonzero(projection > max(1, int(0.03 * h)))) / span_den
+
+    if projection.size < 3 or float(projection.max()) <= 0:
+        return 0.0
+
+    # A text line produces repeated peaks separated by valleys along the
+    # direction perpendicular to the writing axis. We therefore reward variance
+    # in that projection, while normalising by mean ink so sparse and dense text
+    # remain comparable.
+    mean = float(projection.mean())
+    std = float(projection.std())
+    variation = std / max(mean, 1e-3)
+    variation_score = float(np.clip(variation / 3.0, 0.0, 1.0))
+
+    # The writing direction itself should have a broad occupied span. Measure
+    # bounding-box aspect ratio as a weak, independent prior.
+    ys, xs = np.nonzero(ink)
+    if len(xs) < 4:
+        aspect_score = 0.0
+    else:
+        bw = float(xs.max() - xs.min() + 1)
+        bh = float(ys.max() - ys.min() + 1)
+        if axis == "horizontal":
+            aspect_score = float(np.clip((bw / max(bh, 1.0) - 1.0) / 5.0, 0.0, 1.0))
+        else:
+            aspect_score = float(np.clip((bh / max(bw, 1.0) - 1.0) / 5.0, 0.0, 1.0))
+
+    return float(np.clip(0.55 * variation_score + 0.45 * max(span, aspect_score), 0.0, 1.0))
+
+
+def _projection_profile_score(binary: np.ndarray, axis: str) -> float:
+    """Measure line organization perpendicular to the writing axis."""
+    ink = (binary > 0).astype(np.uint8)
+    h, w = ink.shape
+    if axis == "horizontal":
+        profile = ink.sum(axis=1).astype(np.float32)
+        dim = h
+        threshold = max(1.0, 0.05 * w)
+    else:
+        profile = ink.sum(axis=0).astype(np.float32)
+        dim = w
+        threshold = max(1.0, 0.05 * h)
+
+    active = profile > threshold
+    if not np.any(active):
+        return 0.0
+
+    # Long runs of active rows/columns are characteristic of multi-line text
+    # after the correct orientation. Reward a few substantial runs, not isolated
+    # speckles. The score is independent of the number of pixels in the crop.
+    runs = []
+    start = None
+    for i, flag in enumerate(active):
+        if flag and start is None:
+            start = i
+        elif not flag and start is not None:
+            runs.append(i - start)
+            start = None
+    if start is not None:
+        runs.append(dim - start)
+
+    if not runs:
+        return 0.0
+    median_run = float(np.median(runs))
+    substantial = sum(r >= 2 for r in runs)
+    run_score = float(np.clip((median_run / max(dim, 1)) * 8.0, 0.0, 1.0))
+    count_score = float(np.clip(substantial / 6.0, 0.0, 1.0))
+    return float(np.clip(0.65 * run_score + 0.35 * count_score, 0.0, 1.0))
+
+
 def estimate_text_axis(crop: np.ndarray) -> Tuple[TextAxis, float, float, float]:
-    """
-    Decide whether the glyphs in `crop` run horizontally or vertically.
-
-    Returns `(axis, horizontal_score, vertical_score, confidence)`.
-
-    AMBIGUOUS is returned whenever the two scores are within
-    `AXIS_DECISION_MARGIN` of each other, or the region is too small to carry a
-    meaningful signal. That is deliberate: the caller then tries both axes
-    rather than silently discarding half the possibilities.
-    """
+    """Estimate text axis; use both morphology and projection, then abstain near ties."""
     if crop is None or crop.size == 0:
         return TextAxis.AMBIGUOUS, 0.0, 0.0, 0.0
-
     h, w = crop.shape[:2]
     if min(h, w) < MIN_ORIENTABLE_SIDE_PX:
         return TextAxis.AMBIGUOUS, 0.0, 0.0, 0.0
 
     binary = _ink_mask(crop)
     ink_fraction = float(np.mean(binary > 0))
-
-    # Essentially blank, or essentially solid: no glyph layout to measure.
     if ink_fraction < 0.005 or ink_fraction > 0.85:
         return TextAxis.AMBIGUOUS, 0.0, 0.0, 0.0
 
     scale = _glyph_scale(binary)
-    kernel_len = int(np.clip(round(scale * 1.6), 3, 25))
+    # Use a kernel slightly smaller than a median glyph height so the wrong axis
+    # cannot accidentally connect each individual character into a convincing
+    # vertical run.
+    kernel_len = int(np.clip(round(scale * 1.15), 3, 18))
+    morph_h = _merge_elongation(binary, axis="horizontal", kernel_len=kernel_len)
+    morph_v = _merge_elongation(binary, axis="vertical", kernel_len=kernel_len)
+    proj_h = _projection_profile_score(binary, "horizontal")
+    proj_v = _projection_profile_score(binary, "vertical")
 
-    h_score = _merge_elongation(binary, axis="horizontal", kernel_len=kernel_len)
-    v_score = _merge_elongation(binary, axis="vertical", kernel_len=kernel_len)
-
-    spread = abs(h_score - v_score)
-    denominator = max(h_score, v_score, 1e-6)
-    relative = spread / denominator
+    h_score = 0.78 * morph_h + 0.22 * proj_h
+    v_score = 0.78 * morph_v + 0.22 * proj_v
+    relative = abs(h_score - v_score) / max(h_score, v_score, 1e-6)
 
     if relative < AXIS_DECISION_MARGIN:
-        return TextAxis.AMBIGUOUS, h_score, v_score, float(relative)
+        # If the crop's aspect ratio itself strongly indicates a text strip, use
+        # that as a tertiary routing cue. It is only used for axis selection and
+        # never resolves the 0/180 or 90/270 flip.
+        aspect = float(w) / max(float(h), 1.0)
+        if aspect >= 2.0 and h_score >= v_score * 0.90:
+            return TextAxis.HORIZONTAL, h_score, v_score, relative
+        if aspect <= 0.5 and v_score >= h_score * 0.90:
+            return TextAxis.VERTICAL, h_score, v_score, relative
+        return TextAxis.AMBIGUOUS, h_score, v_score, relative
 
     axis = TextAxis.HORIZONTAL if h_score > v_score else TextAxis.VERTICAL
-    confidence = float(np.clip(relative, 0.0, 1.0))
-    return axis, h_score, v_score, confidence
+    return axis, h_score, v_score, float(np.clip(relative, 0.0, 1.0))
 
 
 def estimate_region_orientation(

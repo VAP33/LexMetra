@@ -46,7 +46,9 @@ function bboxFromEvidence(
 }
 
 function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declaration[] {
-  return canonicals.map((c) => {
+  return (canonicals || [])
+    .filter((c) => c && typeof c === "object" && c.canonical_name)
+    .map((c) => {
     // Read the DECLARED Pydantic fields. `extracted_value`, `label_present`,
     // `canonical_field`, `statutory_rule`, `rule_description` and `provenance`
     // are @property accessors on the backend model and are absent from the JSON
@@ -336,8 +338,9 @@ export function fromScanResponse(
 /** Build an Inspection from a stored /inspections or /inspections/{id} row. */
 export function fromInspectionRow(row: RawInspectionRow): Inspection {
   const facts = row.facts || [];
-  const declarations = (row.declarations && row.declarations.length > 0)
-    ? canonicalToDeclarations(row.declarations)
+  const rawCanonicals = (row.declarations || []).filter((c) => c && typeof c === "object" && c.canonical_name);
+  const declarations = rawCanonicals.length > 0
+    ? canonicalToDeclarations(rawCanonicals)
     : factsToDeclarations(facts);
   const { verifiedScore, reviewedScore, ...scoreCounts } = computeScores(declarations);
 
@@ -369,7 +372,7 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
       reviewRequired: row.declaration_summary.review_required,
       nonCompliant: row.declaration_summary.non_compliant,
     } : undefined,
-    evidence: evidenceFromDeclarationsOrFacts(row.declarations, facts),
+    evidence: evidenceFromDeclarationsOrFacts(rawCanonicals, facts),
     image: undefined,
     saved: row.reviewed,
     reviewed: row.reviewed,
@@ -390,8 +393,9 @@ export function fromFinalizedInspection(
   details: { productId: string; productLabel?: string; manufacturerLabel?: string },
   primaryImageDataUrl?: string,
 ): Inspection {
-  const declarations = (inspection.declarations && inspection.declarations.length > 0)
-    ? canonicalToDeclarations(inspection.declarations)
+  const rawCanonicals = (inspection.declarations || []).filter((c) => c && typeof c === "object" && c.canonical_name);
+  const declarations = rawCanonicals.length > 0
+    ? canonicalToDeclarations(rawCanonicals)
     : factsToDeclarations(inspection.facts);
   const { verifiedScore, reviewedScore, ...scoreCounts } = computeScores(declarations);
 

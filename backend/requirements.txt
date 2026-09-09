@@ -38,11 +38,10 @@ reportlab>=4.0,<5.0
 # extraction will not function without it.
 pytesseract>=0.3.10,<1.0
 
-# PaddleOCR is intentionally optional for the first lightweight MVP install.
-# The current OCR module has a fallback path, so the backend can start without
-# a heavyweight OCR model/runtime. Install a tested PaddleOCR version when
-# enabling the production OCR pipeline.
-# paddleocr>=2.7,<3.0
+# OCR ensemble: Tesseract is the baseline; PaddleOCR is the complementary
+# scene-text engine used by the demo when its runtime is available.
+paddleocr>=3.1,<4.0
+paddlepaddle>=3.0,<4.0
 
 # Test suite
 pytest>=8.0,<9.0

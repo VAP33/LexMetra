@@ -62,7 +62,10 @@ CREATE TABLE IF NOT EXISTS inspections (
 
     -- Aggregate review state for the frontend/review queue.
     -- Kept separate from individual fact review_required flags.
-    review_required     BOOLEAN NOT NULL DEFAULT FALSE
+    review_required     BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- Canonical, evidence-backed declarations used by the current UI/history.
+    declarations_json   JSONB
 );
 
 CREATE INDEX IF NOT EXISTS idx_inspections_product
@@ -328,8 +331,8 @@ CREATE TABLE IF NOT EXISTS inspection_sessions (
     sale_type                 TEXT NOT NULL DEFAULT 'retail',
     product_category          TEXT NOT NULL DEFAULT 'food',
 
-    net_quantity_value         NUMERIC NOT NULL,
-    net_quantity_unit          TEXT NOT NULL,
+    net_quantity_value         NUMERIC,
+    net_quantity_unit          TEXT,
     mrp                        NUMERIC,
     pdp_area_cm2               NUMERIC,
     is_export_only             BOOLEAN NOT NULL DEFAULT FALSE,
@@ -371,3 +374,5 @@ CREATE TABLE IF NOT EXISTS session_captures (
 
 CREATE INDEX IF NOT EXISTS idx_session_captures_session
     ON session_captures(session_id);
+
+ALTER TABLE inspections ADD COLUMN IF NOT EXISTS declarations_json JSONB;
