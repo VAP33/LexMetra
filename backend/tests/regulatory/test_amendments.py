@@ -2,8 +2,8 @@ from datetime import datetime
 
 import pytest
 
-from regulatory.amendments import calculate_impact, transition_amendment
-from regulatory.models import AmendmentChange, AmendmentDraft, ApprovalState
+from backend.amendments import calculate_impact, transition_amendment
+from backend.regulatory.models import AmendmentChange, AmendmentDraft, ApprovalState
 
 
 def draft():
@@ -29,13 +29,17 @@ def test_amendment_transition_is_explicit():
 
 
 def test_impact_report_is_deterministic():
-    impact = calculate_impact([
-        AmendmentChange(
-            rule_id="R6(11)", change_type="MODIFIED",
-            changed_fields=["unit_sale_price"],
-            threshold_changes=[{"value": "25", "unit": "kg"}],
-        )
-    ], "lmpc")
+    impact = calculate_impact(
+        [
+            AmendmentChange(
+                rule_id="R6(11)",
+                change_type="MODIFIED",
+                changed_fields=["unit_sale_price"],
+                threshold_changes=[{"value": "25", "unit": "kg"}],
+            )
+        ],
+        "lmpc",
+    )
     assert impact.affected_rules == ("R6(11)",)
     assert impact.affected_fields == ("unit_sale_price",)
     assert impact.affected_modules == ("lmpc",)
