@@ -57,6 +57,7 @@ from product_similarity import (
 from ocr_extraction import classify_fields, run_ocr
 from ocr_engine import active_engines
 from vlm_verifier import verify_ambiguous_field, verify_ambiguous_field_gemini, recover_fields_from_image
+from visual_recovery import merge_visual_candidates
 from db import persistence as db
 from report import build_inspection_report_pdf
 import barcode_decode
@@ -1122,6 +1123,30 @@ async def scan(
         classified = classify_fields(ocr_lines)
         surface_id = capture_session.new_surface_id()
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
+
+        # Recover weak/absent visual declarations before legal evaluation.
+        # VLM output is evidence only: strong OCR is retained and conflicts
+        # remain explicit for the deterministic rule engine/human reviewer.
+        if config.VLM_VERIFICATION_ENABLED:
+            weak_fields = {
+                k: v for k, v in classified.items()
+                if k in {
+                    "common_name", "net_quantity", "mrp", "mfg_date",
+                    "expiry_date", "manufacturer_name", "packer_name",
+                    "importer_name", "consumer_care", "country_of_origin",
+                }
+                and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
+            }
+            if weak_fields:
+                try:
+                    visual_candidates = recover_fields_from_image(
+                        pil_img, weak_fields, image_id=image_id, surface_id=surface_id
+                    )
+                    classified = merge_visual_candidates(classified, visual_candidates)
+                except Exception:
+                    # Provider failure must not break deterministic inspection.
+                    pass
+
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
         # Quality + CV geometry/PDP
