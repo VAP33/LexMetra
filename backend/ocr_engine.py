@@ -42,12 +42,19 @@ LEGAL SAFETY (these hold everywhere in this file)
 7. This module makes NO legal determination of any kind.
 """
 
-from __future__ import annotations
-
+import atexit
+import base64
+import importlib.util
+import json
 import os
+import queue
 import re
+import subprocess
+import sys
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -58,6 +65,7 @@ import preprocess
 import region_detection
 from orientation import Orientation, OrientationEstimate, TextAxis
 from region_detection import DetectedRegion, DetectionResult, RegionType
+from runtime_hardening import EngineStatus
 
 try:  # pragma: no cover - config is always importable in the app
     import config
@@ -633,64 +641,153 @@ class TesseractEngine:
         return lines
 
 
+def _readline_with_timeout(stream, timeout_sec: float = 15.0) -> Optional[bytes]:
+    """Read a line from a stream with a bounded timeout to prevent hanging."""
+    q: queue.Queue[bytes] = queue.Queue()
+
+    def _reader() -> None:
+        try:
+            line = stream.readline()
+            q.put(line)
+        except Exception:
+            q.put(b"")
+
+    t = threading.Thread(target=_reader, daemon=True)
+    t.start()
+    try:
+        return q.get(timeout=timeout_sec)
+    except queue.Empty:
+        return None
+
+
 class PaddleOcrEngine:
     """
-    Complementary PaddleOCR backend.
+    Complementary PaddleOCR backend with native process isolation.
 
-    PaddleOCR 3.x is the current supported path. A small legacy adapter for
-    2.x is retained because some SIH demo machines may already have the older
-    package installed. If neither runtime is available, the engine is simply
-    omitted and Tesseract remains the deterministic fallback.
+    PaddleOCR and its native Torch/PaddleX/ModelScope dependencies run in a
+    dedicated child worker process. If native initialization or inference
+    encounters a Windows native access violation or DLL failure, the worker
+    terminates cleanly, LexMetra marks this engine as DEGRADED, and Tesseract
+    continues as the deterministic fallback.
     """
 
     name = OcrEngineName.PADDLEOCR
 
     def __init__(self) -> None:
-        self._reader = None
-        self._available: Optional[bool] = None
         self._error: str = ""
-        self._api_version = ""
+        self._api_version: str = ""
+        self.status: EngineStatus = (
+            EngineStatus.CONFIGURED if _PADDLE_REQUESTED else EngineStatus.UNAVAILABLE
+        )
+        self._worker: Optional[subprocess.Popen] = None
+        self._worker_lock = threading.RLock()
+        self._package_checked: Optional[bool] = None
+
+    def _check_package(self) -> bool:
+        """Check if paddleocr is installed without importing native libraries."""
+        if self._package_checked is None:
+            try:
+                spec = importlib.util.find_spec("paddleocr")
+                self._package_checked = spec is not None
+            except Exception:
+                self._package_checked = False
+        return bool(self._package_checked)
 
     def available(self) -> bool:
-        if self._available is not None:
-            return bool(self._available)
+        """
+        Return whether PaddleOCR is configured, usable, and not degraded.
 
+        Engine discovery is intentionally safe: it checks configuration and
+        package availability without eagerly loading native Torch/Paddle DLLs.
+        """
         if not _PADDLE_REQUESTED:
-            self._available = False
+            self.status = EngineStatus.UNAVAILABLE
             self._error = "PaddleOCR disabled (LMPC_ENABLE_PADDLEOCR=false)."
             return False
 
-        try:  # pragma: no cover - package not installed in this environment
-            from paddleocr import PaddleOCR
+        if self.status in {EngineStatus.DEGRADED, EngineStatus.UNAVAILABLE}:
+            return False
 
-            # PaddleOCR 3.x. Disable document-level orientation/unwarping here:
-            # LexMetra already performs its own per-region orientation and image
-            # geometry so the OCR backend should not silently mutate coordinates.
-            try:
-                self._reader = PaddleOCR(
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_textline_orientation=False,
-                )
-                self._api_version = "3.x"
-            except TypeError:
-                # PaddleOCR 2.x compatibility.
-                self._reader = PaddleOCR(use_angle_cls=False, lang="en")
-                self._api_version = "2.x"
-
-            self._available = True
-            return True
-        except Exception as exc:
-            self._available = False
+        if not self._check_package():
+            self.status = EngineStatus.UNAVAILABLE
             self._error = (
-                "PaddleOCR was requested but could not be loaded "
-                f"({type(exc).__name__}: {exc}); falling back to Tesseract."
+                "PaddleOCR requested but package is not installed in environment; "
+                "falling back to Tesseract."
             )
             return False
+
+        return True
 
     @property
     def error(self) -> str:
         return self._error
+
+    def _start_worker(self) -> bool:
+        with self._worker_lock:
+            if self._worker is not None:
+                poll = self._worker.poll()
+                if poll is None:
+                    return True
+                self.status = EngineStatus.DEGRADED
+                self._error = (
+                    f"PaddleOCR native worker terminated unexpectedly (exit code {poll}); "
+                    "degraded to Tesseract."
+                )
+                return False
+
+            self.status = EngineStatus.INITIALIZING
+            try:
+                backend_dir = Path(__file__).resolve().parent
+                worker_script = backend_dir / "paddle_worker.py"
+                env = os.environ.copy()
+                env["PYTHONUNBUFFERED"] = "1"
+                existing_pythonpath = env.get("PYTHONPATH", "")
+                pythonpath_parts = [str(backend_dir)]
+                if existing_pythonpath:
+                    pythonpath_parts.append(existing_pythonpath)
+                env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+
+                self._worker = subprocess.Popen(
+                    [sys.executable, str(worker_script)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                    bufsize=0,
+                )
+                self.status = EngineStatus.AVAILABLE
+                return True
+            except Exception as exc:
+                self.status = EngineStatus.DEGRADED
+                self._error = (
+                    f"Failed to spawn PaddleOCR worker process ({type(exc).__name__}: {exc}); "
+                    "falling back to Tesseract."
+                )
+                self._worker = None
+                return False
+
+    def close(self) -> None:
+        """Terminate the worker subprocess if running."""
+        with self._worker_lock:
+            if self._worker is not None:
+                try:
+                    if self._worker.poll() is None:
+                        req = json.dumps({"cmd": "shutdown"}) + "\n"
+                        if self._worker.stdin:
+                            try:
+                                self._worker.stdin.write(req.encode("utf-8"))
+                                self._worker.stdin.flush()
+                            except Exception:
+                                pass
+                        self._worker.terminate()
+                        self._worker.wait(timeout=2)
+                except Exception:
+                    try:
+                        self._worker.kill()
+                    except Exception:
+                        pass
+                finally:
+                    self._worker = None
 
     @staticmethod
     def _json_payload(result: object) -> Optional[dict]:
@@ -709,7 +806,11 @@ class PaddleOcrEngine:
         return None
 
     def _read_v3(self, image: np.ndarray) -> List[RawLine]:
-        results = self._reader.predict(image)
+        """Fallback in-process reader if reader is already initialized or mocked."""
+        reader = getattr(self, "_reader", None)
+        if reader is None:
+            return []
+        results = reader.predict(image)
         lines: List[RawLine] = []
         for result in results or []:
             payload = self._json_payload(result)
@@ -742,7 +843,11 @@ class PaddleOcrEngine:
         return lines
 
     def _read_v2(self, image: np.ndarray) -> List[RawLine]:
-        raw = self._reader.ocr(image, cls=False)
+        """Fallback in-process reader for PaddleOCR 2.x if reader is initialized."""
+        reader = getattr(self, "_reader", None)
+        if reader is None:
+            return []
+        raw = reader.ocr(image, cls=False)
         lines: List[RawLine] = []
         for page in raw or []:
             for entry in page or []:
@@ -766,20 +871,103 @@ class PaddleOcrEngine:
     def read(self, image: np.ndarray, *, psm: int = 6) -> List[RawLine]:
         if not self.available():
             return []
-        try:  # pragma: no cover - package not installed in this environment
-            if self._api_version == "3.x":
+
+        # If an in-process mock reader is attached (e.g. in synthetic unit tests), use it directly
+        if getattr(self, "_reader", None) is not None:
+            try:
+                if getattr(self, "_api_version", "") == "2.x":
+                    return self._read_v2(image)
                 return self._read_v3(image)
-            return self._read_v2(image)
-        except Exception as exc:
-            self._error = (
-                f"PaddleOCR inference failed ({type(exc).__name__}: {exc}); "
-                "this reading pass was discarded and Tesseract remains available."
-            )
-            return []
+            except Exception as exc:
+                self._error = (
+                    f"PaddleOCR in-process inference failed ({type(exc).__name__}: {exc}); "
+                    "this reading pass was discarded and Tesseract remains available."
+                )
+                return []
+
+        with self._worker_lock:
+            if not self._start_worker():
+                return []
+
+            try:
+                success, encoded = cv2.imencode(".png", image)
+                if not success:
+                    self._error = "PaddleOCR failed to encode image buffer."
+                    return []
+                img_b64 = base64.b64encode(encoded).decode("ascii")
+                req_payload = json.dumps({"cmd": "read", "image": img_b64, "psm": psm}) + "\n"
+
+                if not self._worker or not self._worker.stdin or not self._worker.stdout:
+                    raise RuntimeError("Worker process pipe is closed")
+
+                self._worker.stdin.write(req_payload.encode("utf-8"))
+                self._worker.stdin.flush()
+
+                resp_line = _readline_with_timeout(self._worker.stdout, timeout_sec=15.0)
+                if resp_line is None:
+                    self.close()
+                    self.status = EngineStatus.DEGRADED
+                    self._error = "PaddleOCR worker read timed out; degraded to Tesseract."
+                    return []
+                if not resp_line:
+                    exit_code = self._worker.poll()
+                    self.status = EngineStatus.DEGRADED
+                    self._error = (
+                        f"PaddleOCR native worker terminated unexpectedly (exit code {exit_code}); "
+                        "degraded to Tesseract."
+                    )
+                    self._worker = None
+                    return []
+
+                resp = json.loads(resp_line.decode("utf-8"))
+                if resp.get("status") != "ok":
+                    err_msg = resp.get("error", "unknown error")
+                    self.status = EngineStatus.DEGRADED
+                    self._error = (
+                        f"PaddleOCR worker reported error: {err_msg}; "
+                        "degraded to Tesseract."
+                    )
+                    return []
+
+                self.status = EngineStatus.AVAILABLE
+                raw_lines = resp.get("lines") or []
+                lines: List[RawLine] = []
+                for item in raw_lines:
+                    text = str(item.get("text", "")).strip()
+                    if not text:
+                        continue
+                    bbox_raw = item.get("bbox", [0, 0, 1, 1])
+                    bbox = (
+                        int(bbox_raw[0]),
+                        int(bbox_raw[1]),
+                        max(1, int(bbox_raw[2])),
+                        max(1, int(bbox_raw[3])),
+                    )
+                    conf = float(item.get("confidence", 0.0))
+                    lines.append(
+                        RawLine(
+                            text=text,
+                            bbox=bbox,
+                            confidence=_clamp01(conf),
+                            psm=psm,
+                        )
+                    )
+                return lines
+
+            except Exception as exc:
+                exit_code = self._worker.poll() if self._worker else "unknown"
+                self.status = EngineStatus.DEGRADED
+                self._error = (
+                    f"PaddleOCR worker communication failed ({type(exc).__name__}: {exc}, exit_code={exit_code}); "
+                    "degraded to Tesseract."
+                )
+                self.close()
+                return []
 
 
 _TESSERACT = TesseractEngine()
 _PADDLE = PaddleOcrEngine()
+atexit.register(_PADDLE.close)
 
 
 def active_engines() -> Tuple[List[object], List[str]]:
@@ -1690,7 +1878,10 @@ def _read_plans(
     for key in sorted(groups):
         for mosaic, tiles in build_mosaic(groups[key]):
             for engine in engines:
-                lines = engine.read(mosaic, psm=6)
+                try:
+                    lines = engine.read(mosaic, psm=6)
+                except Exception:
+                    lines = []
                 calls += 1
                 assigned = _assign_lines_to_tiles(lines, tiles)
                 for plan_index, pairs in assigned.items():
