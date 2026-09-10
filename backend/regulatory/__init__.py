@@ -11,10 +11,17 @@ from .models import (
     RAGResponse, RAGSource, RegulatoryContext, RegulatoryFinding,
     RegulatoryModuleMetadata, RegulatoryStatus, RuleVersion,
 )
+from .versions import (
+    RuleVersionSelectionError,
+    select_rule_version,
+    validate_rule_version_intervals,
+)
 
 __all__ = [
     "AmendmentChange", "AmendmentDraft", "ApplicabilityStatus", "ApprovalState",
     "EvidenceRequirement", "EvidenceState", "KnowledgeChunk", "RAGGroundingStatus",
     "RAGResponse", "RAGSource", "RegulatoryContext", "RegulatoryFinding",
     "RegulatoryModuleMetadata", "RegulatoryStatus", "RuleVersion",
+    "RuleVersionSelectionError", "select_rule_version",
+    "validate_rule_version_intervals",
 ]

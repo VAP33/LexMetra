@@ -45,15 +45,38 @@ def transition_amendment(draft: AmendmentDraft, target: ApprovalState) -> Amendm
     return draft.model_copy(update={"approval_state": target})
 
 
-def calculate_impact(changes: Iterable[AmendmentChange], module: str) -> AmendmentImpact:
+def calculate_impact(
+    changes: Iterable[AmendmentChange],
+    module: str,
+    *,
+    rag_chunks: Iterable = (),
+) -> AmendmentImpact:
     changes = list(changes)
     rules = sorted({c.rule_id for c in changes})
     fields = sorted({field for c in changes for field in c.changed_fields})
     thresholds = sorted({k for c in changes for item in c.threshold_changes for k in item.keys()})
+    rag_chunks = list(rag_chunks)
+    affected_rag_chunks = sorted({
+        chunk.id
+        for change in changes
+        for chunk in rag_chunks
+        if chunk.module == module
+        and chunk.rule_id == change.rule_id
+        and (
+            change.effective_from is None
+            or (
+                chunk.effective_from <= change.effective_from
+                and (
+                    chunk.effective_to is None
+                    or change.effective_from < chunk.effective_to
+                )
+            )
+        )
+    })
     return AmendmentImpact(
         affected_rules=tuple(rules),
         affected_fields=tuple(fields),
         affected_thresholds=tuple(thresholds),
         affected_modules=(module,),
-        affected_rag_chunks=(),
+        affected_rag_chunks=tuple(affected_rag_chunks),
     )
