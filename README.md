@@ -119,6 +119,7 @@ Two real products you photographed were run through the full pipeline:
 - **Frontend polish** — the dashboard is functional, not designed. No mobile
   layout, no bounding-box overlays on the photo, no bulk actions.
 
+
 ## About the "50 labelled images" dataset
 
 `dataset/annotations/annotations.json` describes 50 **synthetically generated**
