@@ -2,7 +2,9 @@ from datetime import date, datetime
 
 import pytest
 
+from backend.amendments import activate_amendment
 from backend.rag.amendment_pipeline import (
+    activation_eligibility,
     activate_due_rule_versions,
     build_publication_plan,
     schedule_approved_amendment,
@@ -107,21 +109,28 @@ def test_schedule_requires_human_approved_state_and_schedules_versions():
     assert scheduled.proposed_rule_versions[0].approval_state is ApprovalState.SCHEDULED
 
 
-def test_due_activation_is_date_mechanics_not_future_learning():
+def test_effective_date_only_creates_activation_eligibility():
     rows = [
         version("R6", "2026.1", date(2026, 1, 1), date(2026, 10, 1), ApprovalState.ACTIVE),
         version("R6", "2026.2", date(2026, 10, 1), None, ApprovalState.SCHEDULED),
     ]
-    activated = activate_due_rule_versions(rows, as_of=date(2026, 10, 1))
-    states = {v.id: v.approval_state for v in activated}
-    assert states["2026.1"] is ApprovalState.SUPERSEDED
-    assert states["2026.2"] is ApprovalState.ACTIVE
+    eligible = activation_eligibility(rows, as_of=date(2026, 10, 1))
+    assert [v.id for v in eligible] == ["2026.2"]
+    assert rows[0].approval_state is ApprovalState.ACTIVE
+    assert rows[1].approval_state is ApprovalState.SCHEDULED
+
+
+def test_automatic_activation_entry_point_fails_closed():
+    rows = [version("R6", "2026.2", date(2026, 10, 1), None, ApprovalState.SCHEDULED)]
+    with pytest.raises(RAGPublicationError, match="Automatic rule activation is prohibited"):
+        activate_due_rule_versions(rows, as_of=date(2026, 10, 1))
 
 
 def test_future_scheduled_version_remains_scheduled():
     rows = [version("R6", "2026.2", date(2026, 10, 1), None, ApprovalState.SCHEDULED)]
-    result = activate_due_rule_versions(rows, as_of=date(2026, 9, 30))
-    assert result[0].approval_state is ApprovalState.SCHEDULED
+    result = activation_eligibility(rows, as_of=date(2026, 9, 30))
+    assert result == ()
+    assert rows[0].approval_state is ApprovalState.SCHEDULED
 
 
 def test_inmemory_store_never_rewrites_existing_legal_chunk():

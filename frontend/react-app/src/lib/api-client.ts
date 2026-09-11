@@ -288,8 +288,8 @@ export async function scanPackage(file: Blob, details: ScanDetails): Promise<Raw
   form.append("product_id", details.productId);
   form.append("sale_type", details.saleType);
   form.append("product_category", details.productCategory);
-  if (details.netQuantityValue !== undefined) form.append("net_quantity_value", String(details.netQuantityValue));
-  if (details.netQuantityUnit) form.append("net_quantity_unit", details.netQuantityUnit);
+  form.append("net_quantity_value", String(details.netQuantityValue));
+  form.append("net_quantity_unit", details.netQuantityUnit);
   if (details.mrp !== undefined) form.append("mrp", String(details.mrp));
   if (details.pdpAreaCm2 !== undefined) form.append("pdp_area_cm2", String(details.pdpAreaCm2));
   if (details.isExportOnly) form.append("is_export_only", "true");
@@ -377,8 +377,8 @@ export interface CreateSessionRequest {
   productId: string;
   saleType: string;
   productCategory: string;
-  netQuantityValue?: number;
-  netQuantityUnit?: string;
+  netQuantityValue: number;
+  netQuantityUnit: string;
   mrp?: number;
   pdpAreaCm2?: number;
   isExportOnly?: boolean;
@@ -402,8 +402,8 @@ export async function createSession(req: CreateSessionRequest): Promise<CreateSe
       product_id: req.productId,
       sale_type: req.saleType,
       product_category: req.productCategory,
-      ...(req.netQuantityValue !== undefined ? { net_quantity_value: req.netQuantityValue } : {}),
-      ...(req.netQuantityUnit ? { net_quantity_unit: req.netQuantityUnit } : {}),
+      net_quantity_value: req.netQuantityValue,
+      net_quantity_unit: req.netQuantityUnit,
       mrp: req.mrp,
       pdp_area_cm2: req.pdpAreaCm2,
       is_export_only: req.isExportOnly ?? false,
@@ -498,34 +498,16 @@ export async function checkHealth(): Promise<{ status: string } | null> {
   }
 }
 
-export interface AuditLogEntry {
-  id: number;
-  occurred_at: string;
-  actor_username: string;
-  action: string;
-  resource_type?: string | null;
-  resource_id?: string | null;
-  detail?: string | null;
-  ip_address?: string | null;
-}
-
-export async function getAuditLog(limit = 100): Promise<AuditLogEntry[]> {
-  return request<AuditLogEntry[]>(`/audit-log?limit=${limit}`);
-}
-
 /**
- * PDF report download. Checks availability with auth headers,
- * supports direct URL generation with query token, and provides
- * direct blob download.
+ * PDF report download. The generation endpoint may not exist yet depending
+ * on which backend workstream has landed — this checks availability with a
+ * HEAD request first rather than opening a tab to a 404, so the UI can show
+ * a clear "not available yet" state instead of a broken download.
  */
 export async function reportPdfAvailable(id: string): Promise<boolean> {
   try {
-    const token = getStoredToken();
-    const headers = new Headers();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
     const res = await fetch(`${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf`, {
       method: "HEAD",
-      headers,
     });
     return res.ok;
   } catch {
@@ -534,32 +516,5 @@ export async function reportPdfAvailable(id: string): Promise<boolean> {
 }
 
 export function reportPdfUrl(id: string): string {
-  const token = getStoredToken();
-  const query = token ? `?token=${encodeURIComponent(token)}` : "";
-  return `${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf${query}`;
-}
-
-export async function downloadReportPdf(id: string): Promise<void> {
-  const token = getStoredToken();
-  const headers = new Headers();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf`, {
-    method: "GET",
-    headers,
-  });
-  if (!res.ok) {
-    throw new ApiError(`Failed to download report (${res.status})`, res.status);
-  }
-  const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  const safeName = id.replace(/[:\/\\?#]/g, "_");
-  a.download = `inspection_${safeName}_report.pdf`;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    window.URL.revokeObjectURL(url);
-    a.remove();
-  }, 1000);
+  return `${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf`;
 }

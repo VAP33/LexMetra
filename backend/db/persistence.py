@@ -112,14 +112,14 @@ def _json_default(value: Any) -> Any:
     This is only for evidence/metadata persistence. Legal decisions remain
     represented by their explicit relational fields.
     """
+    if hasattr(value, "value"):
+        return value.value
+
     if hasattr(value, "model_dump"):
-        return value.model_dump(mode="json")
+        return value.model_dump()
 
     if hasattr(value, "dict"):
         return value.dict()
-
-    if isinstance(value, Enum) or (hasattr(value, "value") and hasattr(type(value), "__members__")):
-        return value.value
 
     return str(value)
 
@@ -564,16 +564,6 @@ def save_inspection(
                     (review_required, inspection_id),
                 )
 
-            if "declarations_json" in inspection_columns:
-                cur.execute(
-                    """
-                    UPDATE inspections
-                    SET declarations_json = %s
-                    WHERE inspection_id = %s
-                    """,
-                    (_json_or_none(getattr(inspection, "declarations", []) or []), inspection_id),
-                )
-
             # ---------------- Findings ----------------
             #
             # The legal verdicts. Previously not persisted at all, so a reloaded
@@ -702,13 +692,6 @@ def get_inspection_detail(inspection_id: str) -> Optional[dict]:
             # evidence rather than a JSON string. psycopg2 auto-decodes JSONB
             # columns to native Python objects, so handle both a raw string
             # and an already-decoded list/dict defensively.
-            if "declarations_json" in inspection:
-                decoded_declarations = decode_json_column(inspection.get("declarations_json"))
-                if decoded_declarations is not None:
-                    inspection["declarations"] = decoded_declarations
-                else:
-                    inspection["declarations"] = []
-
             for fact in inspection["facts"]:
                 raw_evidence = fact.get("evidence_json")
                 decoded = decode_json_column(raw_evidence)
@@ -974,8 +957,8 @@ def create_session(
     product_id: str,
     sale_type: str,
     product_category: str,
-    net_quantity_value: Optional[float] = None,
-    net_quantity_unit: Optional[str] = None,
+    net_quantity_value: float,
+    net_quantity_unit: str,
     mrp: Optional[float] = None,
     pdp_area_cm2: Optional[float] = None,
     is_export_only: bool = False,

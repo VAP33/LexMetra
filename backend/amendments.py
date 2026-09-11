@@ -7,18 +7,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, List
+from typing import Iterable
 
-from .models import AmendmentChange, AmendmentDraft, ApprovalState, RuleVersion
+try:
+    from .models import AmendmentChange, AmendmentDraft, ApprovalState
+except ImportError:
+    from models import AmendmentChange, AmendmentDraft, ApprovalState
 
 
 _ALLOWED_TRANSITIONS = {
     ApprovalState.DRAFT: {ApprovalState.EXTRACTED, ApprovalState.REJECTED},
-    ApprovalState.EXTRACTED: {ApprovalState.AI_PARSED, ApprovalState.PENDING_REVIEW, ApprovalState.REJECTED},
+    ApprovalState.EXTRACTED: {
+        ApprovalState.AI_PARSED, ApprovalState.PENDING_REVIEW, ApprovalState.REJECTED
+    },
     ApprovalState.AI_PARSED: {ApprovalState.PENDING_REVIEW, ApprovalState.REJECTED},
     ApprovalState.PENDING_REVIEW: {ApprovalState.APPROVED, ApprovalState.REJECTED},
-    ApprovalState.APPROVED: {ApprovalState.SCHEDULED, ApprovalState.ACTIVE, ApprovalState.REJECTED},
-    ApprovalState.SCHEDULED: {ApprovalState.ACTIVE, ApprovalState.REJECTED},
+    # ACTIVE is deliberately absent. Effective dates never grant legal activation.
+    ApprovalState.APPROVED: {ApprovalState.SCHEDULED, ApprovalState.REJECTED},
+    ApprovalState.SCHEDULED: {ApprovalState.REJECTED},
     ApprovalState.ACTIVE: {ApprovalState.SUPERSEDED},
     ApprovalState.SUPERSEDED: set(),
     ApprovalState.REJECTED: set(),
@@ -35,14 +41,55 @@ class AmendmentImpact:
 
 
 def transition_amendment(draft: AmendmentDraft, target: ApprovalState) -> AmendmentDraft:
+    """Perform a non-activation lifecycle transition.
+
+    ACTIVE cannot be reached through the generic transition function. This
+    prevents scheduled jobs, date checks, or stale integrations from silently
+    changing legal state.
+    """
+    if target is ApprovalState.ACTIVE:
+        raise ValueError(
+            "Legal activation requires explicit human authorization; "
+            "use activate_amendment()."
+        )
     if target not in _ALLOWED_TRANSITIONS[draft.approval_state]:
         raise ValueError(
             f"Illegal amendment transition {draft.approval_state.value} -> {target.value}."
         )
-    if target in {ApprovalState.APPROVED, ApprovalState.SCHEDULED, ApprovalState.ACTIVE}:
-        if draft.approval_state not in {ApprovalState.PENDING_REVIEW, ApprovalState.APPROVED, ApprovalState.SCHEDULED}:
-            raise ValueError("Legal activation requires a human-review state first.")
+    if target in {ApprovalState.APPROVED, ApprovalState.SCHEDULED}:
+        if draft.approval_state not in {
+            ApprovalState.PENDING_REVIEW,
+            ApprovalState.APPROVED,
+        }:
+            raise ValueError("Legal scheduling requires a human-review state first.")
     return draft.model_copy(update={"approval_state": target})
+
+
+def activate_amendment(
+    draft: AmendmentDraft,
+    *,
+    authorized_by: str,
+    activated_at: datetime | None = None,
+) -> AmendmentDraft:
+    """Explicit human-authorized activation of an already scheduled amendment."""
+    if not authorized_by or not authorized_by.strip():
+        raise ValueError("Activation requires a non-empty human authorization identity.")
+    if draft.approval_state is not ApprovalState.SCHEDULED:
+        raise ValueError(
+            f"Only SCHEDULED amendments may be explicitly activated; "
+            f"got {draft.approval_state.value}."
+        )
+
+    # Preserve the authorization event as immutable metadata when the model
+    # supports it. Otherwise the state transition remains explicit and auditable
+    # at the caller boundary.
+    updates = {"approval_state": ApprovalState.ACTIVE}
+    if "activated_by" in getattr(draft, "model_fields", {}):
+        updates["activated_by"] = authorized_by.strip()
+    if "activated_at" in getattr(draft, "model_fields", {}):
+        updates["activated_at"] = activated_at or datetime.utcnow()
+
+    return draft.model_copy(update=updates)
 
 
 def calculate_impact(
@@ -54,7 +101,9 @@ def calculate_impact(
     changes = list(changes)
     rules = sorted({c.rule_id for c in changes})
     fields = sorted({field for c in changes for field in c.changed_fields})
-    thresholds = sorted({k for c in changes for item in c.threshold_changes for k in item.keys()})
+    thresholds = sorted(
+        {k for c in changes for item in c.threshold_changes for k in item.keys()}
+    )
     rag_chunks = list(rag_chunks)
     affected_rag_chunks = sorted({
         chunk.id

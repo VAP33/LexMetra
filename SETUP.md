@@ -1,66 +1,67 @@
 # Running the full stack locally
 
-## 1. Postgres
+## 1. Environment
+
+Copy `backend/.env.example` to `backend/.env` and provide real local values.
+Never commit `.env` or API credentials. The default development JWT secret is
+not suitable for deployment.
+
+## 2. Docker Compose
+
+The preferred local stack is PostgreSQL + Redis + backend:
 
 ```bash
-sudo apt-get install postgresql
-sudo service postgresql start
-sudo -u postgres psql -c "CREATE USER lmpc_app WITH PASSWORD 'lmpc_dev_pw';"
-sudo -u postgres psql -c "CREATE DATABASE lmpc OWNER lmpc_app;"
+docker compose up --build
 ```
 
-Set `DATABASE_URL` if you want a different connection (default in `db/persistence.py`
-is `postgresql://lmpc_app:lmpc_dev_pw@localhost:5432/lmpc` — change the password
-before this goes anywhere near a real deployment, this is a dev default only).
+The backend expects `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET_KEY`, and related
+settings from the Compose environment. Redis is operational cache only. It is
+never the source of legal truth.
 
-## 2. Backend
+## 3. Backend without Docker
 
 ```bash
 cd backend
 pip install -r requirements.txt
-# Tesseract OCR engine (not a Python package):
+# Tesseract OCR engine is a system dependency, not a Python package.
 sudo apt-get install tesseract-ocr
 uvicorn main:app --reload --port 8000
 ```
 
-The schema (`db/schema.sql`) is created automatically on startup — no manual
-migration step needed for this prototype.
+The PostgreSQL schema is in `backend/db/schema.sql`. Use a PostgreSQL database
+for persistent inspection/audit data.
 
-## 3. Frontend
+## 4. Frontend
 
-`frontend/dashboard.html` is a static file with no build step — just open it in
-a browser. It talks to `http://localhost:8000` (hardcoded at the top of the
-`<script>` block — change `API` there if your backend runs elsewhere). Because
-it's a plain `file://` page making cross-origin requests, the backend has CORS
-enabled for all origins (`main.py`'s `CORSMiddleware`) — tighten that before any
-real deployment.
+`frontend/dashboard.html` is a static browser dashboard. `frontend/capture.html`
+is the calibrated capture tool. The React application under
+`frontend/react-app/` is the richer application surface and uses the package
+manifest/lockfile in that directory.
 
-`frontend/capture.html` is the separate calibrated-capture tool (reference-card
-measurement for numeral height / PDP area) — also a standalone static file.
+## 5. Regulatory safety model
 
-## What each dashboard tab does
+The pipeline is intentionally split into separate authorities:
 
-- **Scan** — upload a photo, fill in the few fields OCR can't reliably read
-  (sale type, category, quantity as a fallback, MRP), get a verdict with the
-  full fact table and the raw OCR text next to each field so you can sanity-check
-  extraction before trusting a FAIL.
-- **Inspections** — every scan ever run, from Postgres, clickable for full detail.
-- **Review Queue** — filters to inspections where at least one fact has
-  `review_required = true` (low OCR confidence, sticker suspicion, exemption
-  edge cases) — this is the human-in-the-loop screen your plan's section 7
-  calls for. Marking an item reviewed writes a note back to Postgres.
+1. AI/OCR extracts evidence.
+2. Regulatory RAG retrieves dated, source-linked knowledge.
+3. Applicability determines whether a requirement is in scope.
+4. The deterministic rule engine determines compliance.
+5. A human resolves material uncertainty and authorizes legal activation.
 
-## Known limitations to be upfront about in your demo
+Effective dates do not automatically activate scheduled legal amendments.
+Runtime rule selection uses only explicitly `ACTIVE` versions. Historical rule
+versions remain immutable and are selected by the inspection date.
 
-- OCR field extraction (`ocr_extraction.py`) is regex/heuristic classification
-  on top of Tesseract, not a trained layout model — it can mis-pair nearby
-  numeric fields in cramped label columns (confirmed: MRP and unit-sale-price
-  got swapped on a real box during testing). The dashboard always shows the raw
-  extracted text next to the verdict specifically so a human catches this before
-  it's trusted.
-- Sticker detection is a classical-CV heuristic (no trained model, no training
-  data available) — expect false positives on ordinary photo edges (hands,
-  frame borders), which is why it can only ever push a result to UNCERTAIN,
-  never FAIL, by design in `rule_engine.py`.
-- The Postgres schema has no auth/users table yet — every endpoint is open.
-  Fine for a hackathon demo on localhost, not for anything beyond that.
+## 6. Optional providers
+
+PaddleOCR is isolated in a child process because native ML runtimes can fail at
+process level. Tesseract remains the fallback. Anthropic and Gemini are optional
+VLM providers for ambiguity review only. A VLM failure must never create a legal
+PASS or FAIL.
+
+## 7. Important demo/legal limitation
+
+`rules/rules.json` contains records whose `verification_status` is still
+`needs_official_verification`. Those thresholds must be checked against primary
+government sources before being presented as legally verified. This repository
+must not silently convert commentary-derived values into authoritative law.

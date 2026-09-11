@@ -15,12 +15,8 @@ try:
     from ..amendments import transition_amendment, calculate_impact
     from ..regulatory.models import AmendmentDraft, ApprovalState, KnowledgeChunk, RuleVersion
 except ImportError:  # backend/ on PYTHONPATH
-    try:
-        from backend.amendments import transition_amendment, calculate_impact
-        from backend.regulatory.models import AmendmentDraft, ApprovalState, KnowledgeChunk, RuleVersion
-    except ImportError:
-        from amendments import transition_amendment, calculate_impact
-        from regulatory.models import AmendmentDraft, ApprovalState, KnowledgeChunk, RuleVersion
+    from amendments import transition_amendment, calculate_impact
+    from regulatory.models import AmendmentDraft, ApprovalState, KnowledgeChunk, RuleVersion
 
 from .publication import (
     RAGPublicationError,
@@ -157,46 +153,46 @@ def schedule_approved_amendment(draft: AmendmentDraft) -> AmendmentDraft:
     return scheduled.model_copy(update={"proposed_rule_versions": versions})
 
 
+def activation_eligibility(
+    versions: Iterable[RuleVersion],
+    *,
+    as_of: date,
+) -> Tuple[RuleVersion, ...]:
+    """Return versions eligible for explicit human-authorized activation.
+
+    Effective dates may establish eligibility, but they MUST NOT mutate legal
+    state automatically. This function is intentionally side-effect free.
+    """
+    rows = list(versions)
+    validate_rule_version_intervals(rows)
+
+    eligible = [
+        v for v in rows
+        if v.approval_state is ApprovalState.SCHEDULED
+        and v.effective_from <= as_of
+    ]
+    return tuple(sorted(
+        eligible,
+        key=lambda v: (v.module, v.rule_id, v.effective_from, v.version, v.id),
+    ))
+
+
 def activate_due_rule_versions(
     versions: Iterable[RuleVersion],
     *,
     as_of: date,
 ) -> Tuple[RuleVersion, ...]:
-    """Activate already-approved scheduled versions whose effective date has arrived.
-
-    This is date mechanics, not legal judgment. Future versions remain scheduled;
-    historical versions are never rewritten. The returned tuple is a new value set.
-    """
-    rows = list(versions)
-    validate_rule_version_intervals(rows)
-    due = [
-        v for v in rows
-        if v.approval_state in {ApprovalState.SCHEDULED, ApprovalState.ACTIVE}
-        and v.effective_from <= as_of
-    ]
-    by_rule = {}
-    for v in due:
-        by_rule.setdefault((v.module, v.rule_id), []).append(v)
-
-    result = []
-    for version in rows:
-        candidates = by_rule.get((version.module, version.rule_id), [])
-        if not candidates:
-            result.append(version)
-            continue
-        selected = max(candidates, key=lambda v: (v.effective_from, v.version, v.id))
-        if version.approval_state is ApprovalState.SCHEDULED and version.id == selected.id:
-            result.append(version.model_copy(update={"approval_state": ApprovalState.ACTIVE}))
-        elif version.approval_state is ApprovalState.ACTIVE and version.id != selected.id:
-            result.append(version.model_copy(update={"approval_state": ApprovalState.SUPERSEDED}))
-        else:
-            result.append(version)
-    return tuple(result)
+    """Fail safely: automatic legal activation is prohibited."""
+    raise RAGPublicationError(
+        "Automatic rule activation is prohibited. Use activation_eligibility() "
+        "and an explicit human-authorized activation workflow."
+    )
 
 
 __all__ = [
     "AmendmentPublicationPlan",
     "build_publication_plan",
     "schedule_approved_amendment",
+    "activation_eligibility",
     "activate_due_rule_versions",
 ]

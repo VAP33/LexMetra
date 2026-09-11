@@ -63,9 +63,6 @@ import {
   listInspections,
   login,
   markReviewed,
-  getAuditLog,
-  type AuditLogEntry,
-  downloadReportPdf,
   reportPdfAvailable,
   reportPdfUrl,
   type AuthedUser,
@@ -78,7 +75,6 @@ import { dataUrlToBlob } from "@/lib/data-url";
 type View =
   | "home"
   | "history"
-  | "auditLog"
   | "register"
   | "reviewQueue"
   | "profile"
@@ -93,7 +89,6 @@ type View =
 const navItems: Array<{ label: string; view: View; icon: LucideIcon }> = [
   { label: "Home", view: "home", icon: LayoutDashboard },
   { label: "History", view: "history", icon: HistoryIcon },
-  { label: "Audit Log", view: "auditLog", icon: FileCheck2 },
   { label: "Register", view: "register", icon: ClipboardCheck },
   { label: "Review", view: "reviewQueue", icon: ShieldAlert },
   { label: "Profile", view: "profile", icon: UserRound },
@@ -512,195 +507,6 @@ function ListView({
   );
 }
 
-function AuditLogView({
-  user,
-  onNavigate,
-}: {
-  user: AuthedUser | null;
-  onNavigate: (view: View) => void;
-}) {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | undefined>(undefined);
-  const [search, setSearch] = useState("");
-  const [actionFilter, setActionFilter] = useState("ALL");
-
-  async function loadLogs() {
-    setLoading(true);
-    setError(undefined);
-    try {
-      const items = await getAuditLog(150);
-      setLogs(items);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 403) {
-        setError("Administrator privileges are required to view the statutory audit trail under LMPC RBAC rules. Please sign in with an Administrator account.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to load audit records.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadLogs();
-  }, []);
-
-  const filtered = useMemo(() => {
-    return logs.filter((entry) => {
-      const matchesSearch =
-        search === "" ||
-        `${entry.action} ${entry.actor_username} ${entry.resource_id ?? ""} ${entry.resource_type ?? ""} ${entry.detail ?? ""}`
-          .toLowerCase()
-          .includes(search.toLowerCase());
-
-      if (!matchesSearch) return false;
-      if (actionFilter === "ALL") return true;
-      if (actionFilter === "SESSION") return entry.action.startsWith("session");
-      if (actionFilter === "REPORT") return entry.action.includes("report");
-      if (actionFilter === "AUTH") return entry.action.includes("login");
-      return true;
-    });
-  }, [logs, search, actionFilter]);
-
-  function formatTime(iso: string) {
-    try {
-      const d = new Date(iso);
-      return new Intl.DateTimeFormat("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }).format(d);
-    } catch {
-      return iso;
-    }
-  }
-
-  function actionBadgeStyle(action: string) {
-    if (action.includes("finalized") || action.includes("success")) {
-      return "bg-success-soft text-success border-success/30";
-    }
-    if (action.includes("report")) {
-      return "bg-brand-soft text-brand border-brand/30";
-    }
-    if (action.includes("capture")) {
-      return "bg-muted text-foreground border-border";
-    }
-    if (action.includes("failed")) {
-      return "bg-danger-soft text-destructive border-destructive/30";
-    }
-    return "bg-muted text-muted-foreground border-border";
-  }
-
-  return (
-    <>
-      <AppHeader title="System audit trail" online={!error} />
-      <main className="mx-auto max-w-6xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-          <div>
-            <p className="text-sm font-semibold text-brand">Legal Metrology statutory records · {user?.role ? `Active: ${user.username} (${user.role})` : "System audit"}</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-[-.05em]">Audit Trail &amp; Events</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Tamper-evident system log tracking scan captures, session finalizations, report downloads, and user authentications.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={loadLogs} disabled={loading}>
-              <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <div className="rounded-xl bg-muted px-4 py-3 text-sm">
-              <span className="text-muted-foreground">Logged: </span>
-              <strong>{logs.length}</strong>
-              <span className="text-muted-foreground"> events</span>
-            </div>
-          </div>
-        </div>
-
-        {error && <ErrorBanner message={error} onRetry={loadLogs} />}
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search by action, actor, resource ID, or detail…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-11 w-full rounded-xl border border-border/80 bg-card pl-10 pr-4 text-sm outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/15"
-            />
-          </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {["ALL", "SESSION", "REPORT", "AUTH"].map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setActionFilter(cat)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  actionFilter === cat
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {cat === "ALL" ? "All events" : cat === "SESSION" ? "Sessions" : cat === "REPORT" ? "Reports" : "Auth"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-16 animate-pulse rounded-xl bg-muted" />
-            ))}
-          </div>
-        ) : filtered.length ? (
-          <div className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
-            <div className="divide-y divide-border/60">
-              {filtered.map((entry) => (
-                <div key={entry.id} className="flex flex-col gap-2 p-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold uppercase tracking-wider ${actionBadgeStyle(entry.action)}`}>
-                        {entry.action.replace(/_/g, " ")}
-                      </span>
-                      <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
-                        by {entry.actor_username}
-                      </span>
-                      {entry.resource_type && (
-                        <span className="text-xs text-muted-foreground">
-                          · {entry.resource_type}: <code className="font-mono text-xs">{entry.resource_id}</code>
-                        </span>
-                      )}
-                    </div>
-                    {entry.detail && (
-                      <p className="text-xs text-muted-foreground">{entry.detail}</p>
-                    )}
-                  </div>
-                  <div className="shrink-0 text-right text-xs text-muted-foreground">
-                    <p className="font-medium text-foreground">{formatTime(entry.occurred_at)}</p>
-                    <p className="text-[10px] text-muted-foreground">ID #{entry.id}{entry.ip_address ? ` · ${entry.ip_address}` : ""}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <EmptyState
-            title="No audit events found"
-            description={search || actionFilter !== "ALL" ? "Try adjusting your search query or filter." : "No events have been recorded yet."}
-            onAction={() => (search || actionFilter !== "ALL" ? loadLogs() : onNavigate("home"))}
-            actionLabel={search || actionFilter !== "ALL" ? "Refresh log" : "Back to Home"}
-          />
-        )}
-      </main>
-    </>
-  );
-}
-
 function ReviewQueueView({
   inspections,
   loading,
@@ -940,9 +746,8 @@ function ScanDetailsView({
   }, [images]);
 
   const effectiveProductId = productId.trim() || previewData?.suggested_details?.product_id || "";
-  const effectiveQty = Number(qtyValue) > 0 ? Number(qtyValue) : (previewData?.suggested_details?.net_quantity_value ?? undefined);
-  const effectiveQtyUnit = qtyUnit || previewData?.suggested_details?.net_quantity_unit || undefined;
-  const valid = effectiveProductId.length > 0;
+  const effectiveQty = Number(qtyValue) > 0 ? Number(qtyValue) : (previewData?.suggested_details?.net_quantity_value ?? 0);
+  const valid = effectiveProductId.length > 0 && effectiveQty > 0;
 
   const detectedDeclarationsList = useMemo(() => {
     if (!previewData?.field_extractions) return [];
@@ -1111,7 +916,7 @@ function ScanDetailsView({
                       <Sparkles className="h-3 w-3" /> Auto-detected
                     </span>
                   ) : (
-                    <span className="text-[11px] text-amber-600 dark:text-amber-400">Not reliably observed yet</span>
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400">Please confirm</span>
                   )}
                 </div>
                 <input
@@ -1177,8 +982,8 @@ function ScanDetailsView({
               productId: effectiveProductId,
               saleType,
               productCategory: category,
-              ...(effectiveQty !== undefined ? { netQuantityValue: effectiveQty } : {}),
-              ...(effectiveQtyUnit ? { netQuantityUnit: effectiveQtyUnit } : {}),
+              netQuantityValue: effectiveQty,
+              netQuantityUnit: qtyUnit,
               mrp: mrp ? Number(mrp) : (previewData?.suggested_details?.mrp ?? undefined),
               pdpAreaCm2: previewData?.suggested_details?.pdp_area_cm2 ?? undefined,
             })
@@ -1667,19 +1472,12 @@ function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: ()
 
   async function handleDownload() {
     setPdfState("checking");
-    try {
-      await downloadReportPdf(inspection.id);
+    const available = await reportPdfAvailable(inspection.id);
+    if (available) {
+      window.open(reportPdfUrl(inspection.id), "_blank");
       setPdfState("available");
-      setTimeout(() => setPdfState("idle"), 3000);
-    } catch {
-      const available = await reportPdfAvailable(inspection.id);
-      if (available) {
-        window.open(reportPdfUrl(inspection.id), "_blank");
-        setPdfState("available");
-        setTimeout(() => setPdfState("idle"), 3000);
-      } else {
-        setPdfState("unavailable");
-      }
+    } else {
+      setPdfState("unavailable");
     }
   }
 
@@ -1832,15 +1630,7 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (user: AuthedUser) => void }) {
 // Profile — real backend health
 // ---------------------------------------------------------------------------
 
-function ProfileView({
-  user,
-  onLogout,
-  onNavigate,
-}: {
-  user: AuthedUser | null;
-  onLogout: () => void;
-  onNavigate?: (view: View) => void;
-}) {
+function ProfileView({ user, onLogout }: { user: AuthedUser | null; onLogout: () => void }) {
   const [health, setHealth] = useState<"checking" | "ok" | "down">("checking");
   useEffect(() => {
     let cancelled = false;
@@ -1880,24 +1670,6 @@ function ProfileView({
                 <span className={`h-2 w-2 rounded-full ${state === "ok" ? "bg-success" : state === "checking" ? "bg-warning" : "bg-destructive"}`} />
               </div>
             ))}
-          </div>
-        </section>
-        <section className="rounded-2xl border border-border/70 bg-card p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand">
-                <FileCheck2 className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Statutory Audit Trail</p>
-                <p className="text-xs text-muted-foreground">Access system events, scan actions &amp; report generation log</p>
-              </div>
-            </div>
-            {onNavigate && (
-              <Button variant="secondary" onClick={() => onNavigate("auditLog")}>
-                View Audit Trail
-              </Button>
-            )}
           </div>
         </section>
         <section className="rounded-2xl border border-border/70 bg-card">
@@ -2061,14 +1833,12 @@ export function InspectionApp() {
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onNavigate={go} onOpen={handleOpen} />
     ) : view === "history" ? (
       <ListView kind="history" inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onOpen={handleOpen} onNavigate={go} />
-    ) : view === "auditLog" ? (
-      <AuditLogView user={user} onNavigate={go} />
     ) : view === "register" ? (
       <ListView kind="register" inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onOpen={handleOpen} onNavigate={go} />
     ) : view === "reviewQueue" ? (
       <ReviewQueueView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onOpen={handleOpen} onNavigate={go} />
     ) : view === "profile" ? (
-      <ProfileView user={user} onLogout={handleLogout} onNavigate={go} />
+      <ProfileView user={user} onLogout={handleLogout} />
     ) : view === "scan" ? (
       <ScanView onCaptured={onCaptured} onBack={() => go("home")} />
     ) : view === "scanDetails" ? (

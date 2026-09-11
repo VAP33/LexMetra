@@ -1,4 +1,5 @@
 from .amendment_pipeline import (
+    activation_eligibility,
     AmendmentPublicationPlan,
     activate_due_rule_versions,
     build_publication_plan,
@@ -17,6 +18,7 @@ __all__ = [
     "KnowledgeStore",
     "PostgresKnowledgeStore",
     "RetrievalHit",
+    "activation_eligibility",
     "activate_due_rule_versions",
     "build_publication_plan",
     "classify_query",

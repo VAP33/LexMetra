@@ -62,10 +62,7 @@ CREATE TABLE IF NOT EXISTS inspections (
 
     -- Aggregate review state for the frontend/review queue.
     -- Kept separate from individual fact review_required flags.
-    review_required     BOOLEAN NOT NULL DEFAULT FALSE,
-
-    -- Canonical, evidence-backed declarations used by the current UI/history.
-    declarations_json   JSONB
+    review_required     BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_inspections_product
@@ -319,6 +316,23 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_log_occurred
     ON audit_log(occurred_at DESC);
 
+-- Database-level enforcement: application code must never be able to rewrite
+-- or delete audit history, even if a future endpoint is accidentally added.
+CREATE OR REPLACE FUNCTION prevent_audit_log_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log is append-only; UPDATE/DELETE is prohibited';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS audit_log_append_only ON audit_log;
+CREATE TRIGGER audit_log_append_only
+BEFORE UPDATE OR DELETE ON audit_log
+FOR EACH ROW
+EXECUTE FUNCTION prevent_audit_log_mutation();
+
 -- ---------------------------------------------------------------------------
 -- Multi-surface inspection sessions
 -- ---------------------------------------------------------------------------
@@ -331,8 +345,8 @@ CREATE TABLE IF NOT EXISTS inspection_sessions (
     sale_type                 TEXT NOT NULL DEFAULT 'retail',
     product_category          TEXT NOT NULL DEFAULT 'food',
 
-    net_quantity_value         NUMERIC,
-    net_quantity_unit          TEXT,
+    net_quantity_value         NUMERIC NOT NULL,
+    net_quantity_unit          TEXT NOT NULL,
     mrp                        NUMERIC,
     pdp_area_cm2               NUMERIC,
     is_export_only             BOOLEAN NOT NULL DEFAULT FALSE,
@@ -374,5 +388,3 @@ CREATE TABLE IF NOT EXISTS session_captures (
 
 CREATE INDEX IF NOT EXISTS idx_session_captures_session
     ON session_captures(session_id);
-
-ALTER TABLE inspections ADD COLUMN IF NOT EXISTS declarations_json JSONB;

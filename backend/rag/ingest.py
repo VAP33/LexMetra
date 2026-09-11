@@ -5,7 +5,7 @@ import hashlib
 import re
 from datetime import date
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import List, Optional
 
 from regulatory.models import KnowledgeChunk
 
@@ -16,10 +16,9 @@ def _chunk_id(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:24]
 
 
-def _split_legal_text(text: str, max_chars: int = 1800) -> list[tuple[str, Optional[str], Optional[str]]]:
-    """Prefer rule/sub-rule boundaries, then cap long prose without losing text."""
+def _split_legal_text(text: str, max_chars: int = 1800):
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    chunks: list[tuple[str, Optional[str], Optional[str]]] = []
+    chunks = []
     for para in paragraphs:
         rule_match = RULE_RE.search(para)
         rule_id = None
@@ -31,9 +30,7 @@ def _split_legal_text(text: str, max_chars: int = 1800) -> list[tuple[str, Optio
         if len(para) <= max_chars:
             chunks.append((para, rule_id, clause))
             continue
-        words = para.split()
-        buf: list[str] = []
-        size = 0
+        words, buf, size = para.split(), [], 0
         for word in words:
             if size + len(word) + 1 > max_chars and buf:
                 chunks.append((" ".join(buf), rule_id, clause))
@@ -45,11 +42,10 @@ def _split_legal_text(text: str, max_chars: int = 1800) -> list[tuple[str, Optio
     return chunks
 
 
-def extract_pdf_pages(path: Path) -> list[tuple[int, str]]:
+def extract_pdf_pages(path: Path):
     from pypdf import PdfReader
-
     reader = PdfReader(str(path))
-    pages: list[tuple[int, str]] = []
+    pages = []
     for index, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
         if text.strip():
@@ -70,7 +66,7 @@ def ingest_pdf(
     source_url: Optional[str] = None,
     language: str = "en",
 ) -> List[KnowledgeChunk]:
-    chunks: list[KnowledgeChunk] = []
+    chunks = []
     for page_no, text in extract_pdf_pages(path):
         for ordinal, (chunk_text, rule_id, clause) in enumerate(_split_legal_text(text)):
             cid = _chunk_id(document_id, document_version, str(page_no), str(ordinal), chunk_text)

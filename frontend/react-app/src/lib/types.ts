@@ -201,8 +201,8 @@ export interface ScanDetails {
   productId: string;
   saleType: "retail" | "wholesale" | "industrial" | "institutional";
   productCategory: string;
-  netQuantityValue?: number;
-  netQuantityUnit?: string;
+  netQuantityValue: number;
+  netQuantityUnit: string;
   mrp?: number;
   pdpAreaCm2?: number;
   isExportOnly?: boolean;

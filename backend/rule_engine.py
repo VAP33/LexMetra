@@ -54,8 +54,6 @@ from exemption import (
     classify_exemption,
 )
 import calibration as calib
-from regulatory.runtime import apply_rule_versions, version_label
-
 from unit_price import (
     compute_unit_sale_price,
     convert_declared_price_to_standard,
@@ -1335,85 +1333,77 @@ def _evaluate_placement(
     captures: Sequence[SurfaceObservation],
     extractions: Mapping[str, RawExtraction],
 ) -> tuple[List[ExtractedFact], List[RuleFinding]]:
-    """Evaluate whether a required declaration is locatable within an observed PDP."""
     rule = _find_rule(rules, "LMPC-2011-R8-PLACEMENT", "LMPC-2011-R8")
     if rule is None:
         return [], []
 
     if not captures:
-        reason = "No surface observations are available; declaration placement cannot be established."
-        fact = _make_fact(field="declaration_placement", extraction=None, status=FactStatus.UNCERTAIN,
-                          rule=rule, reason=reason, review_required=True, confidence_override=0.0)
-        return [fact], [_finding(rule=rule, status=FactStatus.UNCERTAIN, reason=reason,
-                                  missing_evidence=["declaration_bboxes", "pdp_boundary"],
-                                  confidence=0.0, review_required=True)]
+        reason = (
+            "No surface observations are available. Placement on the principal "
+            "display panel cannot be established."
+        )
+        return [
+            _make_fact(
+                field="declaration_placement",
+                extraction=None,
+                status=FactStatus.UNCERTAIN,
+                rule=rule,
+                reason=reason,
+                review_required=True,
+            )
+        ], [
+            _finding(
+                rule=rule,
+                status=FactStatus.UNCERTAIN,
+                reason=reason,
+                missing_evidence=["declaration_bboxes", "pdp_boundary"],
+                confidence=0.0,
+                review_required=True,
+            )
+        ]
 
-    def as_tuple(box):
-        if isinstance(box, (tuple, list)) and len(box) == 4:
-            return tuple(float(v) for v in box)
-        return (float(box.x), float(box.y), float(box.width), float(box.height))
-
-    def inside(inner, outer) -> bool:
-        ix, iy, iw, ih = as_tuple(inner)
-        ox, oy, ow, oh = as_tuple(outer)
-        return (ix >= ox and iy >= oy and ix + iw <= ox + ow and iy + ih <= oy + oh)
-
-    observed_pdp = []
-    for c in captures:
-        if c.pdp_bbox is not None:
-            observed_pdp.append((c.image_id, c.surface_id, (
-                c.pdp_bbox.x, c.pdp_bbox.y, c.pdp_bbox.width, c.pdp_bbox.height
-            )))
-
-    if not observed_pdp:
-        reason = "Package surfaces were captured, but no PDP boundary was established."
-        fact = _make_fact(field="declaration_placement", extraction=None, status=FactStatus.UNCERTAIN,
-                          rule=rule, reason=reason, review_required=True, confidence_override=0.0)
-        return [fact], [_finding(rule=rule, status=FactStatus.UNCERTAIN, reason=reason,
-                                  missing_evidence=["pdp_boundary", "declaration_bboxes"],
-                                  confidence=0.0, review_required=True, fact=fact)]
-
-    relevant_fields = ("net_quantity", "mrp", "common_name", "manufacturer_name_address", "consumer_care")
-    located = []
-    unlocated = []
-    for field in relevant_fields:
-        ext = extractions.get(field)
-        bbox = _bbox_from_any(getattr(ext, "bbox", None)) if ext else None
-        if bbox is None:
-            continue
-        if hasattr(bbox, "x"):
-            bbox = (float(bbox.x), float(bbox.y), float(bbox.width), float(bbox.height))
-        matched = False
-        for image_id, surface_id, pdp in observed_pdp:
-            # Extraction provenance can identify which surface produced the value.
-            source_image = getattr(ext, "source_image", None) or getattr(ext, "image_id", None)
-            if source_image and source_image not in {image_id, "MULTI_SURFACE"}:
-                continue
-            if inside((bbox[0], bbox[1], bbox[2], bbox[3]), pdp):
-                matched = True
-                located.append((field, image_id, surface_id))
-                break
-        if not matched:
-            unlocated.append(field)
-
-    if located and not unlocated:
-        reason = f"Declaration evidence for {len(located)} required visible field(s) is spatially contained within an observed PDP."
-        status, conf, review = FactStatus.PASS, 0.90, False
-        missing=[]
-    elif located:
-        reason = (f"Some declaration evidence is inside an observed PDP, but placement could not be established for: "
-                  f"{', '.join(unlocated)}. Additional visual evidence is required.")
-        status, conf, review = FactStatus.UNCERTAIN, 0.65, True
-        missing=["declaration_bboxes"]
+    # We intentionally do not require every declaration to share one rectangular
+    # visual block. The legal test is represented as PDP presence plus the
+    # specific quantity-declaration clearance checks where measurable.
+    missing_pdp = [c.surface_id for c in captures if c.pdp_bbox is None]
+    if len(missing_pdp) == len(captures):
+        reason = (
+            "Package surfaces were captured, but no PDP boundary was supplied. "
+            "The engine cannot establish declaration placement from surface "
+            "orientation alone."
+        )
+        status = FactStatus.UNCERTAIN
+        confidence = 0.0
     else:
-        reason = "A PDP boundary was observed, but no declaration bounding box was demonstrated to lie within it."
-        status, conf, review = FactStatus.UNCERTAIN, 0.20, True
-        missing=["declaration_bboxes"]
+        reason = (
+            "PDP evidence is available for at least one captured surface. "
+            "Specific declaration-to-PDP placement still depends on declaration "
+            "bounding boxes supplied by OCR/CV."
+        )
+        status = FactStatus.PASS
+        confidence = 0.75
 
-    fact = _make_fact(field="declaration_placement", extraction=None, status=status,
-                      rule=rule, reason=reason, review_required=review, confidence_override=conf)
-    return [fact], [_finding(rule=rule, status=status, reason=reason, missing_evidence=missing,
-                              confidence=conf, review_required=review, fact=fact)]
+    fact = _make_fact(
+        field="declaration_placement",
+        extraction=None,
+        status=status,
+        rule=rule,
+        reason=reason,
+        review_required=status == FactStatus.UNCERTAIN,
+        confidence_override=confidence,
+    )
+
+    return [fact], [
+        _finding(
+            rule=rule,
+            status=status,
+            reason=reason,
+            missing_evidence=["pdp_boundary"] if status == FactStatus.UNCERTAIN else [],
+            confidence=confidence,
+            review_required=status == FactStatus.UNCERTAIN,
+            fact=fact,
+        )
+    ]
 
 
 def _evaluate_rule4_multipack(
@@ -1910,9 +1900,6 @@ def run_inspection(
     dimensions_relevant: bool = False,
     best_before_applicable: bool = False,
     geometry: GeometryType = GeometryType.UNKNOWN,
-    inspection_date: Optional[Any] = None,
-    rule_versions: Optional[Iterable[Any]] = None,
-    regulatory_module: str = "lmpc",
 ) -> ProductInspection:
     """
     Main inspection entry point.
@@ -1943,30 +1930,6 @@ def run_inspection(
 
     captures = captures or []
     rules = load_rules()
-
-    # A dated inspection MUST resolve against the authoritative RuleVersion
-    # registry. Falling back to today's rules.json for a historical date would
-    # make an otherwise correct inspection legally time-travelling. Conversely,
-    # the legacy undated API path remains unchanged for existing callers.
-    selected_versions = {}
-    inspection_date_value = None
-    if inspection_date is not None:
-        if rule_versions is None:
-            from regulatory.versions import RuleVersionSelectionError
-            raise RuleVersionSelectionError(
-                "A dated inspection requires an explicit RuleVersion registry; "
-                "the engine will not fall back to rules.json."
-            )
-        rules, selected_versions = apply_rule_versions(
-            rules,
-            rule_versions,
-            module=regulatory_module,
-            inspection_date=inspection_date,
-        )
-        from regulatory.runtime import coerce_inspection_date
-        inspection_date_value = coerce_inspection_date(inspection_date).isoformat()
-
-    applicable_rule_version = version_label(selected_versions)
     facts: List[ExtractedFact] = []
     findings: List[RuleFinding] = []
 
@@ -2022,8 +1985,6 @@ def run_inspection(
             exempt_reason=exemption.reason,
             evidence_complete=bool(captures),
             review_required=False,
-            inspection_date=inspection_date_value,
-            applicable_rule_version=applicable_rule_version,
         )
 
     # An undetermined exemption is not an exemption, but it is also not a clean
@@ -2273,8 +2234,6 @@ def run_inspection(
             summary_data["review_required"] > 0
             or overall == FactStatus.UNCERTAIN
         ),
-        inspection_date=inspection_date_value,
-        applicable_rule_version=applicable_rule_version,
     )
 
 

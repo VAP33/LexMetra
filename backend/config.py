@@ -76,6 +76,10 @@ JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "480"))
 # start with the insecure default secret outside of an explicit dev mode.
 DEV_MODE = _env_bool("LMPC_DEV_MODE", True)
 
+# Demo credentials are never created unless explicitly requested. Production
+# deployments must not silently ship predictable accounts/passwords.
+BOOTSTRAP_DEMO_USERS = _env_bool("LMPC_BOOTSTRAP_DEMO_USERS", False)
+
 if not JWT_SECRET_KEY:
     if DEV_MODE:
         # Deterministic-but-obviously-not-production secret so local
@@ -122,7 +126,7 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", True) and bool(
+VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", False) and bool(
     ANTHROPIC_API_KEY or GEMINI_API_KEY
 )
 
@@ -130,23 +134,23 @@ VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", True) and bool(
 # OCR engines
 # ---------------------------------------------------------------------------
 
-# Tesseract remains the guaranteed baseline. PaddleOCR is requested by default
-# for the demo because it is materially better at scene/package text in many
-# cases. If the runtime does not have PaddleOCR/PaddlePaddle installed, the
-# engine fails closed and the pipeline falls back to Tesseract while recording
-# that limitation in provenance. Set LMPC_ENABLE_PADDLEOCR=false to disable it.
-ENABLE_PADDLEOCR = _env_bool("LMPC_ENABLE_PADDLEOCR", True)
+# Tesseract is the default backend because it is installed in the container
+# image and needs no model download. PaddleOCR is optional and OFF by default:
+# it is a large dependency and this environment has no network access to
+# install it, so enabling the flag without the package installed degrades
+# gracefully to Tesseract-only and records that fact in the provenance.
+ENABLE_PADDLEOCR = _env_bool("LMPC_ENABLE_PADDLEOCR", False)
 
 # Bound on how many (variant x orientation) OCR passes a single region may
 # trigger. Kept small so a dense label with 20 regions cannot turn one request
 # into hundreds of Tesseract invocations.
-OCR_MAX_PASSES_PER_REGION = int(os.environ.get("LMPC_OCR_MAX_PASSES", "5"))
+OCR_MAX_PASSES_PER_REGION = int(os.environ.get("LMPC_OCR_MAX_PASSES", "8"))
 
 # Maximum number of text regions per image routed to OCR. Regions beyond this
 # are still reported in the detection result (so the audit trail is complete)
 # but are not read; the pipeline records reduced coverage rather than silently
 # claiming the declarations were absent.
-OCR_MAX_REGIONS_PER_IMAGE = int(os.environ.get("LMPC_OCR_MAX_REGIONS", "10"))
+OCR_MAX_REGIONS_PER_IMAGE = int(os.environ.get("LMPC_OCR_MAX_REGIONS", "14"))
 
 # Selects which OCR path `ocr_extraction.run_ocr()` uses.
 #

@@ -1,13 +1,8 @@
 """Grounded RAG query service."""
 from __future__ import annotations
 
-from datetime import date
-from typing import Optional
-
 from regulatory.models import RAGGroundingStatus, RAGResponse, RegulatoryContext
-
 from .retriever import HybridRetriever
-
 
 def classify_query(query: str) -> str:
     q = query.casefold()
@@ -20,7 +15,6 @@ def classify_query(query: str) -> str:
     if "compare" in q or "difference" in q:
         return "REGULATORY_COMPARISON"
     return "LEGAL_EXPLANATION"
-
 
 class GroundedRAGService:
     def __init__(self, retriever: HybridRetriever) -> None:
@@ -40,18 +34,13 @@ class GroundedRAGService:
                 grounding_status=RAGGroundingStatus.NOT_FOUND,
                 warning="No grounded source matched the regulatory context and effective date. Do not use model memory as a legal substitute.",
             )
-
-        # This is intentionally extractive. A future Gemini generation layer may
-        # summarize these approved snippets, but it must consume these citations
-        # and may never turn retrieval into a compliance verdict.
         lines = []
         for hit in hits[:top_k]:
             label = hit.chunk.source_reference or hit.chunk.document_id
             lines.append(f"[{label}] {hit.chunk.text.strip()}")
-
         rule_ids = sorted({h.chunk.rule_id for h in hits if h.chunk.rule_id})
         citations = sorted({h.chunk.source_reference for h in hits if h.chunk.source_reference})
-        confidence = max(0.0, min(1.0, hits[0].score if hits else 0.0))
+        confidence = max(0.0, min(1.0, hits[0].score))
         return RAGResponse(
             answer="\n\n".join(lines),
             query_type=query_type,

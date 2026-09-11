@@ -10,18 +10,7 @@ import hashlib
 import threading
 import time
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Callable, Optional
-
-
-class EngineStatus(str, Enum):
-    """Explicit lifecycle and degradation states for OCR engines."""
-
-    CONFIGURED = "CONFIGURED"
-    INITIALIZING = "INITIALIZING"
-    AVAILABLE = "AVAILABLE"
-    DEGRADED = "DEGRADED"
-    UNAVAILABLE = "UNAVAILABLE"
 
 
 @dataclass(frozen=True)

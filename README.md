@@ -1,4 +1,4 @@
-# Legal Metrology Compliance Platform — Starter Build
+# LexMetra — Legal Metrology Compliance Platform
 
 This is now a genuinely full-stack, running prototype — OCR, rule engine, sticker
 detection, product similarity, Postgres persistence, and a working dashboard, all
@@ -39,13 +39,7 @@ the whole stack.**
   (e.g. a non-standard date format). Contractually cannot decide PASS/FAIL, only
   attach a plain-language note. Needs your own `ANTHROPIC_API_KEY` to actually call
   the API; the JSON-parsing plumbing is tested offline via `verify_ambiguous_field_mocked`.
-- **`backend/product_similarity.py`** — perceptual-hash + color-histogram
-  nearest-neighbor matching for "have we seen this exact package before, and did
-  its price/label change." See the file's docstring for why this uses plain
-  embedding search rather than a full RAG stack — short version: RAG trades a
-  guaranteed-correct rule citation for a probabilistic one, which is the wrong
-  trade for a legal-compliance tool, and the "retrieval" problem here is really
-  just image nearest-neighbor, which doesn't need RAG's machinery.
+- **`backend/product_similarity.py`** — perceptual-hash + color-histogram nearest-neighbor matching for prior-package similarity. This is deliberately separate from legal RAG: similarity is advisory and cannot prove counterfeit, while the regulatory RAG layer retrieves dated, source-linked knowledge for grounding and citation.
 - **`backend/main.py`** — FastAPI wrapper exposing `/inspect` (text fields →
   verdict) and `/analyze-image` (photo → sticker suspicion + history match).
   Both tested end-to-end via FastAPI's TestClient, including against your real
