@@ -18,6 +18,7 @@ Design principles:
 from __future__ import annotations
 
 import io
+import logging
 import os
 import re
 import sys
@@ -55,7 +56,8 @@ from product_similarity import (
     save_to_index,
 )
 from ocr_extraction import classify_fields, run_ocr
-from vlm_verifier import verify_ambiguous_field, verify_ambiguous_field_gemini
+from vlm_verifier import verify_ambiguous_field, verify_ambiguous_field_gemini, recover_fields_from_image
+from visual_recovery import merge_visual_candidates
 from db import persistence as db
 from report import build_inspection_report_pdf
 import barcode_decode
@@ -89,26 +91,31 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    db.init_schema()
+    try:
+        db.init_schema()
 
-    # Never create predictable credentials implicitly. Demo accounts are an
-    # explicit development-only opt-in and are disabled by default.
-    if config.BOOTSTRAP_DEMO_USERS and config.DEV_MODE:
-        for u, p, r, n in [
-            ("admin", "password123", "admin", "System Admin"),
-            ("inspector", "password123", "inspector", "Field Inspector"),
-            ("reviewer", "password123", "reviewer", "Metrology Reviewer"),
-        ]:
-            if not db.get_user_by_username(u):
-                try:
-                    db.create_user(
-                        username=u,
-                        hashed_password=auth.hash_password(p),
-                        role=r,
-                        full_name=n,
-                    )
-                except Exception:
-                    pass
+        # Never create predictable credentials implicitly. Demo accounts are an
+        # explicit development-only opt-in and are disabled by default.
+        if config.BOOTSTRAP_DEMO_USERS and config.DEV_MODE:
+            for u, p, r, n in [
+                ("admin", "password123", "admin", "System Admin"),
+                ("inspector", "password123", "inspector", "Field Inspector"),
+                ("reviewer", "password123", "reviewer", "Metrology Reviewer"),
+            ]:
+                if not db.get_user_by_username(u):
+                    try:
+                        db.create_user(
+                            username=u,
+                            hashed_password=auth.hash_password(p),
+                            role=r,
+                            full_name=n,
+                        )
+                    except Exception:
+                        pass
+    except Exception as exc:
+        logging.getLogger("uvicorn.error").warning(
+            f"Database initialization deferred (PostgreSQL unavailable at startup: {exc})."
+        )
 
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -296,7 +303,7 @@ class CreateSessionRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+MAX_UPLOAD_BYTES = config.MAX_UPLOAD_BYTES
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
     "image/png",
@@ -839,6 +846,32 @@ async def extract_preview(
         classified = classify_fields(ocr_lines)
         surface_id = capture_session.new_surface_id()
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
+
+        # Build 02: visual recovery is evidence extraction only. It runs before
+        # legal evaluation, fills genuinely weak fields, and preserves any
+        # OCR/VLM disagreement as explicit conflicting evidence for review.
+        if config.VLM_VERIFICATION_ENABLED:
+            weak_fields = {
+                k: v for k, v in classified.items()
+                if k in {
+                    "common_name", "net_quantity", "mrp", "mfg_date",
+                    "expiry_date", "manufacturer_name", "packer_name",
+                    "importer_name", "consumer_care", "country_of_origin",
+                }
+                and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
+            }
+            if weak_fields:
+                try:
+                    visual_candidates = recover_fields_from_image(
+                        pil_img, weak_fields, image_id=image_id, surface_id=surface_id
+                    )
+                    classified = merge_visual_candidates(classified, visual_candidates)
+                except Exception:
+                    # Visual recovery is advisory evidence. OCR/CV and the
+                    # deterministic rule engine remain fully functional if the
+                    # model is unavailable, times out, or returns bad JSON.
+                    pass
+
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
         images_meta.append({
@@ -1096,6 +1129,32 @@ async def scan(
         classified = classify_fields(ocr_lines)
         surface_id = capture_session.new_surface_id()
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
+
+        # Build 02: visual recovery is evidence extraction only. It runs before
+        # legal evaluation, fills genuinely weak fields, and preserves any
+        # OCR/VLM disagreement as explicit conflicting evidence for review.
+        if config.VLM_VERIFICATION_ENABLED:
+            weak_fields = {
+                k: v for k, v in classified.items()
+                if k in {
+                    "common_name", "net_quantity", "mrp", "mfg_date",
+                    "expiry_date", "manufacturer_name", "packer_name",
+                    "importer_name", "consumer_care", "country_of_origin",
+                }
+                and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
+            }
+            if weak_fields:
+                try:
+                    visual_candidates = recover_fields_from_image(
+                        pil_img, weak_fields, image_id=image_id, surface_id=surface_id
+                    )
+                    classified = merge_visual_candidates(classified, visual_candidates)
+                except Exception:
+                    # Visual recovery is advisory evidence. OCR/CV and the
+                    # deterministic rule engine remain fully functional if the
+                    # model is unavailable, times out, or returns bad JSON.
+                    pass
+
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
         # Quality & PDP
@@ -1167,7 +1226,6 @@ async def scan(
             raw_text=primary_symbol.payload,
             value=primary_symbol.gtin13 or primary_symbol.payload,
             confidence=float(primary_symbol.confidence),
-            source=primary_symbol.method.value,
         )
 
     # Resolve product_id fallback: Barcode (primary) -> Common name -> Manufacturer -> Placeholder
@@ -1676,24 +1734,46 @@ def review_inspection(
 
 
 @app.get("/inspections/{inspection_id}/report.pdf")
+@app.head("/inspections/{inspection_id}/report.pdf")
 def get_inspection_report(
     inspection_id: str,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    token: Optional[str] = None,
+    bearer_token: Optional[str] = Depends(auth.oauth2_scheme),
 ):
+    effective_token = bearer_token or token
+    actor_username = "inspector"
+    if effective_token:
+        try:
+            token_data = auth.decode_access_token(effective_token)
+            user = db.get_user_by_username(token_data.username)
+            if user:
+                actor_username = user["username"]
+        except Exception:
+            pass
+    elif not config.DEV_MODE:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required to access inspection report.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
 
     pdf_bytes = build_inspection_report_pdf(detail)
     db.record_audit_event(
-        action="report_generated", actor_username=current_user.username,
-        resource_type="inspection", resource_id=inspection_id,
+        action="report_generated",
+        actor_username=actor_username,
+        resource_type="inspection",
+        resource_id=inspection_id,
     )
+    safe_id = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", inspection_id)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{inspection_id}_report.pdf"'
+            "Content-Disposition": f'inline; filename="{safe_id}_report.pdf"'
         },
     )
 
@@ -1712,7 +1792,51 @@ def get_product_history(
 
 @app.get("/health")
 def health():
+    """Cheap liveness probe. It deliberately does not require dependencies."""
+    from ocr_engine import active_engines
+    engines, engine_notes = active_engines()
     return {
         "status": "ok",
         "service": "lmpc-compliance-api",
+        "mode": "demo" if config.DEMO_MODE else "production",
+        "ocr": {
+            "active_engines": [getattr(engine, "name", str(engine)) for engine in engines],
+            "paddle_requested": bool(config.ENABLE_PADDLEOCR),
+            "notes": engine_notes,
+        },
+        "vlm": {
+            "visual_recovery_enabled": bool(config.VLM_VERIFICATION_ENABLED),
+        },
     }
+
+
+@app.get("/ready")
+def readiness():
+    """Dependency-aware readiness probe without exposing connection details."""
+    checks = {"database": "unavailable", "redis": "not_configured"}
+    ready = True
+
+    try:
+        with db.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        checks["database"] = "ok"
+    except Exception:
+        ready = False
+
+    redis_url = os.environ.get("REDIS_URL", "")
+    if redis_url:
+        try:
+            import redis
+            client = redis.Redis.from_url(
+                redis_url, decode_responses=True,
+                socket_connect_timeout=1, socket_timeout=1,
+            )
+            client.ping()
+            checks["redis"] = "ok"
+        except Exception:
+            # Redis is operational infrastructure, not legal truth. A Redis
+            # outage is reported but does not alter inspection correctness.
+            checks["redis"] = "unavailable"
+    return {"status": "ready" if ready else "not_ready", "service": "lmpc-compliance-api", "checks": checks}

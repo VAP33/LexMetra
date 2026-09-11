@@ -48,9 +48,11 @@
   <div style="display:flex; align-items:center; gap:12px;">
     <div id="authStatus" style="font-size:12px; color:#ddd; display:flex; align-items:center; gap:6px;">
       <span id="authUserText">Guest</span>
-      <input type="text" id="authUserInput" placeholder="User" value="admin" style="width:70px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
-      <input type="password" id="authPassInput" placeholder="Pass" value="password123" style="width:80px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
+      <input type="text" id="authUserInput" placeholder="User" value="" style="width:70px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
+      <input type="password" id="authPassInput" placeholder="Pass" value="" style="width:80px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
       <button id="authLoginBtn" style="padding:3px 8px; font-size:11px; background:#4ade80; color:#14213d; font-weight:600; border:none; border-radius:4px; cursor:pointer;">Sign In</button>
+      <button id="demoAdminBtn" style="padding:3px 8px; font-size:11px; background:#e8eef8; color:#14213d; border:none; border-radius:4px; cursor:pointer;">Quick Admin</button>
+      <button id="demoInspectorBtn" style="padding:3px 8px; font-size:11px; background:#e8eef8; color:#14213d; border:none; border-radius:4px; cursor:pointer;">Quick Inspector</button>
       <button id="authClearBtn" style="padding:3px 8px; font-size:11px; background:transparent; color:#ff8888; border:1px solid #ff8888; border-radius:4px; cursor:pointer;">Sign Out</button>
     </div>
     <nav>
@@ -73,7 +75,7 @@ function updateAuthUI() {
   const passInput = document.getElementById("authPassInput");
   const loginBtn = document.getElementById("authLoginBtn");
   const clearBtn = document.getElementById("authClearBtn");
-  const storedUser = localStorage.getItem("lmpc_username") || "admin";
+  const storedUser = localStorage.getItem("lmpc_username") || "Guest";
 
   if (authToken) {
     userText.textContent = `✓ Signed in (${storedUser})`;
@@ -119,6 +121,16 @@ document.getElementById("authLoginBtn").onclick = async () => {
   if (!ok) alert("Login failed. Check server status and credentials.");
 };
 
+async function quickDemoLogin(username) {
+  document.getElementById("authUserInput").value = username;
+  document.getElementById("authPassInput").value = "password123";
+  const ok = await doLogin(username, "password123");
+  if (!ok) alert("Demo login failed. Enable LMPC_DEMO_MODE and LMPC_BOOTSTRAP_DEMO_USERS on the backend.");
+}
+
+document.getElementById("demoAdminBtn").onclick = () => quickDemoLogin("admin");
+document.getElementById("demoInspectorBtn").onclick = () => quickDemoLogin("inspector");
+
 document.getElementById("authClearBtn").onclick = () => {
   authToken = "";
   localStorage.removeItem("lmpc_token");
@@ -128,10 +140,6 @@ document.getElementById("authClearBtn").onclick = () => {
 
 updateAuthUI();
 
-// Auto-login with default admin credentials if not logged in
-if (!authToken) {
-  doLogin("admin", "password123");
-}
 
 function authHeaders(headers = {}) {
   const h = { ...headers };

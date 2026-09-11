@@ -801,11 +801,25 @@ def _x_gap(a: OcrLine, b: OcrLine) -> int:
 
 def _is_label_line(text: str) -> bool:
     for field, pattern in FIELD_PATTERNS.items():
-        if field == "common_name":
-            continue
         if pattern.search(text):
             return True
     return False
+
+
+def _inline_label_value(field: str, text: str) -> Optional[str]:
+    """Return the text after an explicit field label when it is on one line."""
+    pattern = FIELD_PATTERNS.get(field)
+    if pattern is None:
+        return None
+    match = pattern.search(text)
+    if not match:
+        return None
+    remainder = text[match.end():]
+    remainder = re.sub(r"^\s*[:\-–=]+\s*", "", remainder)
+    remainder = _normalized_text(remainder)
+    if not remainder or pattern.fullmatch(remainder):
+        return None
+    return remainder
 
 
 def _candidate_value_lines(
@@ -890,8 +904,6 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
             continue
 
         for field, pattern in FIELD_PATTERNS.items():
-            if field == "common_name":
-                continue
             if field in label_hits:
                 continue
             if pattern.search(text):
@@ -901,6 +913,27 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
     for field, (i, label_line) in label_hits.items():
         has_inline_value = _value_shape(field, label_line.text)
         best_candidate: Optional[OcrLine] = None
+
+        # Company/role declarations are frequently printed as
+        # "Manufacturer: ACME Pvt Ltd". The old logic treated the whole line as
+        # a label and then borrowed the next line, which could silently turn
+        # "Common Name: Fruit Juice" into the manufacturer. Extract the inline
+        # remainder first and keep its original bbox as the strongest evidence.
+        if field in _FIELDS_TAKE_FOLLOWING_LINES:
+            inline_company = _inline_label_value(field, label_line.text)
+            if inline_company:
+                found[field] = {
+                    "field": field,
+                    "label": _normalized_text(label_line.text[: label_line.text.lower().find(inline_company.lower())]).strip(" :-–="),
+                    "value": inline_company,
+                    "confidence": label_line.confidence,
+                    "bbox": label_line.bbox,
+                    "label_bbox": label_line.bbox,
+                    "source": "ocr_label_inline",
+                    "status": "DETECTED",
+                }
+                used_line_idx.add(i)
+                continue
 
         if field in _COLUMN_VALUE_FIELDS and not has_inline_value:
             candidates = _candidate_value_lines(
@@ -1276,9 +1309,8 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
     # making common_name impossible to extract.
     if "common_name" in label_hits:
         i, label_line = label_hits["common_name"]
-        if _LABEL_SEPARATOR_RE.search(label_line.text):
-            value = _LABEL_SEPARATOR_RE.split(label_line.text, maxsplit=1)[-1].strip()
-        else:
+        value = _inline_label_value("common_name", label_line.text)
+        if value is None:
             value = label_line.text
 
         if value and not FIELD_PATTERNS["common_name"].fullmatch(value):

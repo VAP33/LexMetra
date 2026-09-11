@@ -33,6 +33,12 @@ class HybridRetriever:
         if chunk.module not in set(context.regulatory_modules or [chunk.module]): return False
         if context.department and chunk.department.casefold() != context.department.casefold(): return False
         if context.jurisdiction and chunk.jurisdiction.casefold() != context.jurisdiction.casefold(): return False
+        # Published amendment chunks may carry an explicit publication state.
+        # Scheduled/draft knowledge must never become runtime RAG evidence merely
+        # because its effective date has arrived. Legacy bootstrap chunks omit
+        # the field and remain eligible under their existing effective-date rules.
+        publication_state = (chunk.metadata or {}).get("publication_state")
+        if publication_state is not None and str(publication_state).upper() != "ACTIVE": return False
         if chunk.effective_from > context.inspection_date: return False
         if chunk.effective_to is not None and context.inspection_date >= chunk.effective_to: return False
         if context.commodity_type and chunk.commodity and chunk.commodity.casefold() != context.commodity_type.casefold(): return False

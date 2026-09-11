@@ -746,8 +746,9 @@ function ScanDetailsView({
   }, [images]);
 
   const effectiveProductId = productId.trim() || previewData?.suggested_details?.product_id || "";
-  const effectiveQty = Number(qtyValue) > 0 ? Number(qtyValue) : (previewData?.suggested_details?.net_quantity_value ?? 0);
-  const valid = effectiveProductId.length > 0 && effectiveQty > 0;
+  const effectiveQty = Number(qtyValue) > 0 ? Number(qtyValue) : (previewData?.suggested_details?.net_quantity_value ?? undefined);
+  const effectiveQtyUnit = qtyUnit || previewData?.suggested_details?.net_quantity_unit || undefined;
+  const valid = effectiveProductId.length > 0;
 
   const detectedDeclarationsList = useMemo(() => {
     if (!previewData?.field_extractions) return [];
@@ -916,7 +917,7 @@ function ScanDetailsView({
                       <Sparkles className="h-3 w-3" /> Auto-detected
                     </span>
                   ) : (
-                    <span className="text-[11px] text-amber-600 dark:text-amber-400">Please confirm</span>
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400">Not reliably observed yet</span>
                   )}
                 </div>
                 <input
@@ -982,8 +983,8 @@ function ScanDetailsView({
               productId: effectiveProductId,
               saleType,
               productCategory: category,
-              netQuantityValue: effectiveQty,
-              netQuantityUnit: qtyUnit,
+              ...(effectiveQty !== undefined ? { netQuantityValue: effectiveQty } : {}),
+              ...(effectiveQtyUnit ? { netQuantityUnit: effectiveQtyUnit } : {}),
               mrp: mrp ? Number(mrp) : (previewData?.suggested_details?.mrp ?? undefined),
               pdpAreaCm2: previewData?.suggested_details?.pdp_area_cm2 ?? undefined,
             })

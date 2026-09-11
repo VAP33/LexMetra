@@ -288,8 +288,8 @@ export async function scanPackage(file: Blob, details: ScanDetails): Promise<Raw
   form.append("product_id", details.productId);
   form.append("sale_type", details.saleType);
   form.append("product_category", details.productCategory);
-  form.append("net_quantity_value", String(details.netQuantityValue));
-  form.append("net_quantity_unit", details.netQuantityUnit);
+  if (details.netQuantityValue !== undefined) form.append("net_quantity_value", String(details.netQuantityValue));
+  if (details.netQuantityUnit) form.append("net_quantity_unit", details.netQuantityUnit);
   if (details.mrp !== undefined) form.append("mrp", String(details.mrp));
   if (details.pdpAreaCm2 !== undefined) form.append("pdp_area_cm2", String(details.pdpAreaCm2));
   if (details.isExportOnly) form.append("is_export_only", "true");
@@ -377,8 +377,8 @@ export interface CreateSessionRequest {
   productId: string;
   saleType: string;
   productCategory: string;
-  netQuantityValue: number;
-  netQuantityUnit: string;
+  netQuantityValue?: number;
+  netQuantityUnit?: string;
   mrp?: number;
   pdpAreaCm2?: number;
   isExportOnly?: boolean;
@@ -402,8 +402,8 @@ export async function createSession(req: CreateSessionRequest): Promise<CreateSe
       product_id: req.productId,
       sale_type: req.saleType,
       product_category: req.productCategory,
-      net_quantity_value: req.netQuantityValue,
-      net_quantity_unit: req.netQuantityUnit,
+      ...(req.netQuantityValue !== undefined ? { net_quantity_value: req.netQuantityValue } : {}),
+      ...(req.netQuantityUnit ? { net_quantity_unit: req.netQuantityUnit } : {}),
       mrp: req.mrp,
       pdp_area_cm2: req.pdpAreaCm2,
       is_export_only: req.isExportOnly ?? false,

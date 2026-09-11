@@ -659,6 +659,27 @@ class PaddleOcrEngine:
                 self._error = "PaddleOCR not enabled (LMPC_ENABLE_PADDLEOCR is off)."
             else:
                 try:  # pragma: no cover - not installed in this environment
+                    try:
+                        import torch  # Preload torch DLLs on Windows
+                    except Exception:
+                        pass
+                    try:
+                        import paddle.inference as pi
+
+                        if not getattr(pi.Config, "_lmpc_patched", False):
+                            orig_create = pi.create_predictor
+
+                            def _patched_create(cfg):
+                                if hasattr(cfg, "disable_onednn"):
+                                    cfg.disable_onednn()
+                                if hasattr(cfg, "disable_mkldnn"):
+                                    cfg.disable_mkldnn()
+                                return orig_create(cfg)
+
+                            pi.create_predictor = _patched_create
+                            pi.Config._lmpc_patched = True
+                    except Exception:
+                        pass
                     from paddleocr import PaddleOCR
 
                     self._reader = PaddleOCR(use_angle_cls=False, lang="en")
@@ -679,29 +700,63 @@ class PaddleOcrEngine:
         if not self.available():  # pragma: no cover - environment blocked
             return []
 
-        try:  # pragma: no cover - environment blocked
-            raw = self._reader.ocr(image, cls=False)
+        try:
+            if hasattr(self._reader, "predict"):
+                raw = self._reader.predict(image)
+            else:
+                raw = self._reader.ocr(image)
         except Exception:
-            return []
+            try:
+                raw = self._reader.ocr(image)
+            except Exception:
+                return []
 
         lines: List[RawLine] = []
-        for page in raw or []:  # pragma: no cover - environment blocked
-            for entry in page or []:
-                try:
-                    points, (text, score) = entry
-                except (TypeError, ValueError):
-                    continue
-                if not str(text).strip():
-                    continue
-                pts = np.asarray(points, dtype=np.float32)
-                x, y, w, h = cv2.boundingRect(pts)
-                lines.append(
-                    RawLine(
-                        text=str(text).strip(),
-                        bbox=(int(x), int(y), max(1, int(w)), max(1, int(h))),
-                        confidence=_clamp01(float(score)),
-                    )
+        for page in raw or []:
+            if isinstance(page, dict):
+                # PaddleOCR 3.x / paddlex format
+                rec_texts = page.get("rec_texts") or page.get("rec_text") or []
+                rec_scores = page.get("rec_scores") or page.get("rec_score") or []
+                rec_boxes = (
+                    page.get("rec_boxes")
+                    or page.get("dt_polys")
+                    or page.get("rec_polys")
+                    or []
                 )
+                for i, text in enumerate(rec_texts):
+                    if not str(text).strip():
+                        continue
+                    score = float(rec_scores[i]) if i < len(rec_scores) else 0.8
+                    if i < len(rec_boxes):
+                        pts = np.asarray(rec_boxes[i], dtype=np.float32)
+                        x, y, w, h = cv2.boundingRect(pts)
+                    else:
+                        x, y, w, h = 0, 0, 10, 10
+                    lines.append(
+                        RawLine(
+                            text=str(text).strip(),
+                            bbox=(int(x), int(y), max(1, int(w)), max(1, int(h))),
+                            confidence=_clamp01(score),
+                        )
+                    )
+            elif isinstance(page, list):
+                # PaddleOCR 2.x legacy format
+                for entry in page or []:
+                    try:
+                        points, (text, score) = entry
+                    except (TypeError, ValueError):
+                        continue
+                    if not str(text).strip():
+                        continue
+                    pts = np.asarray(points, dtype=np.float32)
+                    x, y, w, h = cv2.boundingRect(pts)
+                    lines.append(
+                        RawLine(
+                            text=str(text).strip(),
+                            bbox=(int(x), int(y), max(1, int(w)), max(1, int(h))),
+                            confidence=_clamp01(float(score)),
+                        )
+                    )
         return lines
 
 

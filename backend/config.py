@@ -74,7 +74,11 @@ JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "480"))
 
 # When true (default in absence of an explicit secret), the API refuses to
 # start with the insecure default secret outside of an explicit dev mode.
-DEV_MODE = _env_bool("LMPC_DEV_MODE", True)
+DEV_MODE = _env_bool("LMPC_DEV_MODE", False)
+
+# Explicit SIH/demo convenience switch. This preserves quick-login/bootstrap
+# workflows without making development mode the accidental production default.
+DEMO_MODE = _env_bool("LMPC_DEMO_MODE", DEV_MODE)
 
 # Demo credentials are never created unless explicitly requested. Production
 # deployments must not silently ship predictable accounts/passwords.
@@ -151,6 +155,12 @@ OCR_MAX_PASSES_PER_REGION = int(os.environ.get("LMPC_OCR_MAX_PASSES", "8"))
 # but are not read; the pipeline records reduced coverage rather than silently
 # claiming the declarations were absent.
 OCR_MAX_REGIONS_PER_IMAGE = int(os.environ.get("LMPC_OCR_MAX_REGIONS", "14"))
+
+# HTTP upload/resource guardrails. Keep the demo default at 12 MB, but make
+# deployment limits explicit and configurable without code edits.
+MAX_UPLOAD_BYTES = int(os.environ.get("LMPC_MAX_UPLOAD_BYTES", str(12 * 1024 * 1024)))
+if MAX_UPLOAD_BYTES <= 0:
+    raise RuntimeError("LMPC_MAX_UPLOAD_BYTES must be greater than zero.")
 
 # Selects which OCR path `ocr_extraction.run_ocr()` uses.
 #

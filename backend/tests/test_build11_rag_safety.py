@@ -83,3 +83,23 @@ def test_ineligible_commodity_does_not_cross_apply():
     ]
     hits = HybridRetriever(chunks).retrieve("Rule 6 quantity", context(date(2025, 6, 1)))
     assert [h.chunk.id for h in hits] == ["food"]
+
+
+def test_retriever_rejects_scheduled_publication_state():
+    from datetime import date
+    from rag.retriever import HybridRetriever
+    from regulatory.models import KnowledgeChunk, RegulatoryContext
+
+    base = dict(
+        module="lmpc", department="Department of Consumer Affairs",
+        regulation="Rules", document_id="doc", document_version="1",
+        rule_version="1", rule_id="R25", effective_from=date(2020,1,1),
+        effective_to=None, index_version="idx", page=1, section="25", clause="25",
+        language="en", commodity=None, jurisdiction="IN", text="maximum retail price",
+        source_url=None, source_reference="doc:p1",
+    )
+    scheduled = KnowledgeChunk(id="scheduled", metadata={"publication_state":"SCHEDULED"}, **base)
+    active = KnowledgeChunk(id="active", metadata={"publication_state":"ACTIVE"}, **base)
+    context = RegulatoryContext(inspection_date=date(2026,1,1), regulatory_modules=["lmpc"], department="Department of Consumer Affairs", jurisdiction="IN")
+    hits = HybridRetriever([scheduled, active]).retrieve("rule R25", context)
+    assert [h.chunk.id for h in hits] == ["active"]

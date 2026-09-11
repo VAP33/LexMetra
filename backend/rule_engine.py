@@ -54,6 +54,8 @@ from exemption import (
     classify_exemption,
 )
 import calibration as calib
+from regulatory.runtime import apply_rule_versions, version_label
+
 from unit_price import (
     compute_unit_sale_price,
     convert_declared_price_to_standard,
@@ -1900,6 +1902,9 @@ def run_inspection(
     dimensions_relevant: bool = False,
     best_before_applicable: bool = False,
     geometry: GeometryType = GeometryType.UNKNOWN,
+    inspection_date: Optional[Any] = None,
+    rule_versions: Optional[Iterable[Any]] = None,
+    regulatory_module: str = "lmpc",
 ) -> ProductInspection:
     """
     Main inspection entry point.
@@ -1930,6 +1935,30 @@ def run_inspection(
 
     captures = captures or []
     rules = load_rules()
+
+    # A dated inspection MUST resolve against the authoritative RuleVersion
+    # registry. Falling back to today's rules.json for a historical date would
+    # make an otherwise correct inspection legally time-travelling. Conversely,
+    # the legacy undated API path remains unchanged for existing callers.
+    selected_versions = {}
+    inspection_date_value = None
+    if inspection_date is not None:
+        if rule_versions is None:
+            from regulatory.versions import RuleVersionSelectionError
+            raise RuleVersionSelectionError(
+                "A dated inspection requires an explicit RuleVersion registry; "
+                "the engine will not fall back to rules.json."
+            )
+        rules, selected_versions = apply_rule_versions(
+            rules,
+            rule_versions,
+            module=regulatory_module,
+            inspection_date=inspection_date,
+        )
+        from regulatory.runtime import coerce_inspection_date
+        inspection_date_value = coerce_inspection_date(inspection_date).isoformat()
+
+    applicable_rule_version = version_label(selected_versions)
     facts: List[ExtractedFact] = []
     findings: List[RuleFinding] = []
 
@@ -1985,6 +2014,8 @@ def run_inspection(
             exempt_reason=exemption.reason,
             evidence_complete=bool(captures),
             review_required=False,
+            inspection_date=inspection_date_value,
+            applicable_rule_version=applicable_rule_version,
         )
 
     # An undetermined exemption is not an exemption, but it is also not a clean
@@ -2234,6 +2265,8 @@ def run_inspection(
             summary_data["review_required"] > 0
             or overall == FactStatus.UNCERTAIN
         ),
+        inspection_date=inspection_date_value,
+        applicable_rule_version=applicable_rule_version,
     )
 
 

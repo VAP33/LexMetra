@@ -433,3 +433,172 @@ if __name__ == "__main__":
             mock_json=example,
         )
         print(result)
+
+
+# ---------------------------------------------------------------------------
+# Multimodal declaration recovery
+# ---------------------------------------------------------------------------
+
+VISUAL_RECOVERY_PROMPT = """You are a visual evidence extractor for a Legal Metrology screening system.
+
+Look at the supplied package photograph and recover ONLY values that are visibly
+printed on the package for the requested fields. You are an evidence extractor,
+not a legal decision-maker.
+
+Rules:
+- Never invent a value.
+- Never infer a value from product knowledge, memory, or typical packaging.
+- Preserve the printed wording as closely as possible.
+- For dates, keep the printed date text in value/raw_text.
+- For net quantity and MRP, provide numeric_value only when visibly supported.
+- For a manufacturer/packer/importer, return the printed company/address text,
+  including multiple lines when they belong to the same declaration.
+- Return null for a requested field that is not readable or not visibly present.
+- Confidence is evidence readability only, not legal confidence.
+
+Return ONLY JSON in this exact shape:
+{
+  "fields": [
+    {
+      "field": "net_quantity",
+      "value": "150 g",
+      "raw_text": "NET WT 150 g",
+      "numeric_value": 150,
+      "numeric_unit": "g",
+      "bbox": [x, y, width, height],
+      "confidence": 0.0,
+      "explanation": "brief visual evidence explanation"
+    }
+  ]
+}
+"""
+
+
+def _extract_json_object(text: str) -> Optional[dict]:
+    cleaned = _clean_json_text(text)
+    try:
+        data = json.loads(cleaned)
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        # Some multimodal models wrap JSON in a short prefix/suffix despite the
+        # instruction. Recover only the first balanced JSON object, never arbitrary
+        # prose, so we do not accidentally parse a legal conclusion.
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            data = json.loads(cleaned[start:end + 1])
+            return data if isinstance(data, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+
+def _coerce_visual_field(item: Any, *, image_id: str, surface_id: Optional[str]) -> Optional[dict]:
+    if not isinstance(item, dict):
+        return None
+    field = str(item.get("field", "")).strip()
+    value = item.get("value")
+    if not field or value is None or not str(value).strip():
+        return None
+    try:
+        confidence = max(0.0, min(1.0, float(item.get("confidence", 0.0))))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if confidence <= 0:
+        return None
+    bbox = item.get("bbox")
+    if bbox is not None:
+        try:
+            bbox = [int(round(float(v))) for v in bbox]
+            if len(bbox) != 4 or bbox[2] <= 0 or bbox[3] <= 0 or bbox[0] < 0 or bbox[1] < 0:
+                bbox = None
+        except (TypeError, ValueError):
+            bbox = None
+    result = {
+        "field": field,
+        "value": str(value).strip(),
+        "raw_text": str(item.get("raw_text") or value).strip(),
+        "confidence": confidence,
+        "source": "vlm_visual_recovery",
+        "image_id": image_id,
+    }
+    if surface_id:
+        result["surface_id"] = surface_id
+    if bbox is not None:
+        result["bbox"] = tuple(bbox)
+    if item.get("numeric_value") is not None:
+        try:
+            result["numeric_value"] = float(item["numeric_value"])
+        except (TypeError, ValueError):
+            pass
+    if item.get("numeric_unit"):
+        result["numeric_unit"] = str(item["numeric_unit"]).strip().lower()
+    if item.get("explanation"):
+        result["reason"] = str(item["explanation"]).strip()[:500]
+    return result
+
+
+def recover_fields_from_image(
+    image: Any,
+    weak_fields: dict,
+    *,
+    image_id: str = "unknown-image",
+    surface_id: Optional[str] = None,
+    model: str = "gemini-2.5-flash-lite",
+    max_fields: int = 6,
+) -> list[dict]:
+    """Recover weak/partial declaration fields from actual pixels with Gemini.
+
+    This function is deliberately advisory. It never evaluates a legal rule and
+    never overwrites stronger OCR automatically. Only fields already identified
+    as weak/partial by the application are requested.
+    """
+    fields = [str(k) for k in list(weak_fields.keys())[:max_fields]]
+    if not fields:
+        return []
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise RuntimeError("GEMINI_API_KEY is not set for visual recovery.")
+
+    try:
+        import google.generativeai as genai
+    except ImportError as exc:
+        raise RuntimeError("google-generativeai is not installed.") from exc
+
+    try:
+        from PIL import Image as PILImage
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required for visual recovery.") from exc
+
+    if not hasattr(image, "convert"):
+        raise ValueError("recover_fields_from_image expects a PIL image.")
+
+    requested = ", ".join(fields)
+    prompt = (
+        f"Requested declaration fields: {requested}\n"
+        "For each requested field, inspect the supplied image itself. Return only fields "
+        "for which the printed declaration is visibly recoverable.\n\n"
+        + VISUAL_RECOVERY_PROMPT
+    )
+
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    model_client = genai.GenerativeModel(model)
+    response = model_client.generate_content(
+        [prompt, image.convert("RGB")],
+        generation_config={"temperature": 0},
+    )
+    text = getattr(response, "text", "") or ""
+    data = _extract_json_object(text)
+    if not data:
+        raise RuntimeError("Gemini visual recovery returned invalid JSON.")
+
+    items = data.get("fields")
+    if not isinstance(items, list):
+        raise RuntimeError("Gemini visual recovery returned an invalid fields list.")
+
+    result = []
+    for item in items:
+        coerced = _coerce_visual_field(item, image_id=image_id, surface_id=surface_id)
+        if coerced and coerced["field"] in weak_fields:
+            result.append(coerced)
+    return result
