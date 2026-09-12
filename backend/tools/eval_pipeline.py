@@ -42,6 +42,8 @@ from main import _prepare_extractions, _infer_applicability_context, _resolve_qu
 REPO_ROOT = _BACKEND_DIR.parent
 PHOTOS_DIR = REPO_ROOT / "images dataset"
 if not PHOTOS_DIR.exists():
+    PHOTOS_DIR = REPO_ROOT / "DEPENDENCIES" / "images dataset"
+if not PHOTOS_DIR.exists():
     PHOTOS_DIR = REPO_ROOT / "CLAUDE 2" / "proj" / "dataset" / "real_photos"
 
 GT_FILE = REPO_ROOT / "dataset" / "real_photos_ground_truth.json"

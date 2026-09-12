@@ -63,6 +63,16 @@ from report import build_inspection_report_pdf
 import barcode_decode
 import geometry
 import calibration
+from datetime import date
+from models import RegulatoryContext
+from rag_grounding import (
+    LegalKnowledgeResult,
+    RegulatoryScopeEngine,
+    resolve_regulatory_scope,
+    ground_inspection_context,
+    get_canonical_rule_versions,
+)
+from router import router as regulatory_router
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +87,8 @@ app = FastAPI(
         "vision and a deterministic Legal Metrology rule engine."
     ),
 )
+
+app.include_router(regulatory_router)
 
 # CORS origins are read from configuration (ALLOWED_ORIGINS env var). Do not
 # use "*" once authentication is enabled — wildcard origins + bearer tokens is
@@ -1100,6 +1112,8 @@ async def scan(
     first_stored_path: Optional[Path] = None
     images_cv: List[Tuple[str, np.ndarray]] = []
     images_ocr_boxes: Dict[str, List[Tuple[int, int, int, int]]] = {}
+    images_ocr_lines: Dict[str, list] = {}
+    image_id_owning_label: Dict[str, str] = {}
 
     for i, upload in enumerate(upload_list):
         raw_bytes, img, pil_img = await _read_image_upload(upload)
@@ -1125,10 +1139,14 @@ async def scan(
         ocr_lines = run_ocr(pil_img)
         all_ocr_lines.extend(ocr_lines)
         images_ocr_boxes[image_id] = [l.bbox for l in ocr_lines]
+        images_ocr_lines[image_id] = ocr_lines
 
         classified = classify_fields(ocr_lines)
         surface_id = capture_session.new_surface_id()
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
+        for fld, fld_data in classified.items():
+            if isinstance(fld_data, dict) and fld_data.get("value"):
+                image_id_owning_label[fld] = image_id
 
         # Build 02: visual recovery is evidence extraction only. It runs before
         # legal evaluation, fills genuinely weak fields, and preserves any
@@ -1179,6 +1197,18 @@ async def scan(
 
         suspects = detect_sticker_regions(img)
         all_suspects.extend(suspects)
+
+    # 0. Split-field reconstruction across multi-surface captures (Claude 2 capability)
+    if len(images_ocr_lines) > 1:
+        reconstructed_split = capture_session.reconstruct_split_fields(
+            accumulated_fields,
+            image_id_owning_label,
+            images_ocr_lines,
+        )
+        for fld, rec_entry in reconstructed_split.items():
+            curr = accumulated_fields.get(fld, {})
+            if not curr.get("value") or capture_session._is_label_only(curr, fld):
+                accumulated_fields[fld] = rec_entry
 
     # 1. Barcode decoding across uploaded surfaces
     barcode_result = barcode_decode.decode_across_images(images_cv)
@@ -1253,10 +1283,14 @@ async def scan(
         net_quantity_unit or "",
         accumulated_fields,
     )
-    if qty_val is None or qty_val <= 0:
-        qty_val = 1.0
-        qty_unit = qty_unit or "unit"
-        quantity_source = "default_fallback"
+    if net_quantity_value is None and quantity_source == "request":
+        qty_val = None
+        qty_unit = None
+        quantity_source = "not_observed"
+    elif qty_val is not None and qty_val <= 0:
+        qty_val = None
+        qty_unit = None
+        quantity_source = "not_observed"
 
     resolved_mrp = _resolve_mrp(mrp, accumulated_fields)
 
@@ -1279,6 +1313,20 @@ async def scan(
         save_to_index(embedding)
 
     # ------------------------- Legal evaluation --------------------------
+    c_type = (extractions.get("common_name") and extractions["common_name"].value) or product_category
+    reg_context = RegulatoryContext(
+        product_category=product_category,
+        commodity_type=c_type,
+        sale_type=sale_type,
+        net_quantity=qty_val,
+        quantity_unit=qty_unit,
+        is_imported=resolved_is_imported,
+        inspection_date=date.today(),
+    )
+    regulatory_scope_info = resolve_regulatory_scope(reg_context)
+    grounded_legal_knowledge = ground_inspection_context(reg_context)
+    grounded_rule_versions = get_canonical_rule_versions(grounded_legal_knowledge)
+
     inspection_id = f"{resolved_product_id}:scan-{uuid.uuid4().hex[:8]}"
 
     result = run_inspection(
@@ -1296,6 +1344,9 @@ async def scan(
         captures=surface_observations,
         best_before_applicable=best_before_applicable,
         is_imported=resolved_is_imported,
+        inspection_date=date.today(),
+        rule_versions=grounded_rule_versions,
+        regulatory_module=regulatory_scope_info.get("primary_module", "lmpc"),
     )
 
     # ------------------------- Legal advisory VLM verification -----------
@@ -1320,6 +1371,8 @@ async def scan(
 
     return {
         "inspection": result,
+        "regulatory_scope": regulatory_scope_info,
+        "rag_grounding": [g.model_dump() for g in grounded_legal_knowledge],
         "raw_ocr_lines": [
             {
                 "text": line.text,
@@ -1634,6 +1687,21 @@ def finalize_session(
             except Exception:
                 continue
 
+    # Grounded RAG & Regulatory Scope Integration
+    c_type = (extractions.get("common_name") and extractions["common_name"].value) or session["product_category"]
+    reg_context = RegulatoryContext(
+        product_category=session["product_category"],
+        commodity_type=c_type,
+        sale_type=session["sale_type"],
+        net_quantity=qty_val,
+        quantity_unit=qty_unit,
+        is_imported=resolved_is_imported,
+        inspection_date=date.today(),
+    )
+    regulatory_scope_info = resolve_regulatory_scope(reg_context)
+    grounded_legal_knowledge = ground_inspection_context(reg_context)
+    grounded_rule_versions = get_canonical_rule_versions(grounded_legal_knowledge)
+
     inspection_id = f"{session['product_id']}:scan-{uuid.uuid4().hex[:8]}"
 
     result = run_inspection(
@@ -1650,6 +1718,9 @@ def finalize_session(
         captures=surface_observations,
         best_before_applicable=best_before_applicable,
         is_imported=resolved_is_imported,
+        inspection_date=date.today(),
+        rule_versions=grounded_rule_versions,
+        regulatory_module=regulatory_scope_info.get("primary_module", "lmpc"),
     )
 
     db.save_inspection(result, mrp=resolved_mrp)
@@ -1733,7 +1804,9 @@ def review_inspection(
     }
 
 
+@app.get("/inspections/{inspection_id}/report")
 @app.get("/inspections/{inspection_id}/report.pdf")
+@app.head("/inspections/{inspection_id}/report")
 @app.head("/inspections/{inspection_id}/report.pdf")
 def get_inspection_report(
     inspection_id: str,

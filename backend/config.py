@@ -154,7 +154,7 @@ OCR_MAX_PASSES_PER_REGION = int(os.environ.get("LMPC_OCR_MAX_PASSES", "8"))
 # are still reported in the detection result (so the audit trail is complete)
 # but are not read; the pipeline records reduced coverage rather than silently
 # claiming the declarations were absent.
-OCR_MAX_REGIONS_PER_IMAGE = int(os.environ.get("LMPC_OCR_MAX_REGIONS", "14"))
+OCR_MAX_REGIONS_PER_IMAGE = int(os.environ.get("LMPC_OCR_MAX_REGIONS", "24"))
 
 # HTTP upload/resource guardrails. Keep the demo default at 12 MB, but make
 # deployment limits explicit and configurable without code edits.

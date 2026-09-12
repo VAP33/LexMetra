@@ -193,7 +193,7 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
         # label-only case must survive this hop.
         for predicate in (_has_value, _is_observed):
             picked = None
-            for source_field in ("manufacturer_name", "packer_name", "importer_name"):
+            for source_field in ("manufacturer_name", "packer_name", "importer_name", "marketer_name"):
                 data = bridged.get(source_field)
                 if data and predicate(data):
                     picked = data
@@ -667,3 +667,132 @@ def build_surface_observation(
         rotation_index=rotation_index,
         notes=merged_notes,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cross-Surface Split Field Reconstruction (Ported from CLAUDE 2)
+# ---------------------------------------------------------------------------
+
+_RECONSTRUCTABLE_FIELDS = ("mrp", "net_quantity", "batch_no", "unit_sale_price")
+_NUMERIC_MONEY_FIELDS = ("mrp", "unit_sale_price")
+
+
+def _is_label_only(entry: dict, field: str) -> bool:
+    """True when a field entry is JUST the label text with no parsed value at all."""
+    if field in _NUMERIC_MONEY_FIELDS:
+        return entry.get("numeric_value") is None
+    if field == "net_quantity":
+        return entry.get("numeric_value") is None
+    if field == "batch_no":
+        code = entry.get("batch_code") or ""
+        import re as _re
+        return not bool(_re.search(r"[A-Za-z0-9]{2,}", str(code)))
+    return False
+
+
+def _fragment_candidates(field: str, image_lines: Sequence[Any]) -> List[Tuple[float, Any, str]]:
+    """Bare value-shaped fragments in an image that are NOT attached to any label."""
+    import ocr_extraction
+    out: List[Tuple[float, Any, str]] = []
+    for line in image_lines:
+        text = getattr(line, "text", "")
+        conf = float(getattr(line, "confidence", 0.0))
+        pattern = ocr_extraction.FIELD_PATTERNS.get(field)
+        if field in _NUMERIC_MONEY_FIELDS:
+            money = ocr_extraction._extract_money(text)
+            if money is not None and (pattern is None or not pattern.search(text)):
+                out.append((conf, line, f"{money:.2f}"))
+        elif field == "net_quantity":
+            qty = ocr_extraction._extract_qty(text)
+            if qty is not None and (pattern is None or not pattern.search(text)):
+                out.append((conf, line, f"{qty[0]:.3f}{qty[1]}"))
+        elif field == "batch_no":
+            import re as _re
+            m = _re.search(r"\b[A-Z0-9][A-Z0-9./_-]{3,}\b", text, _re.I)
+            if m and (pattern is None or not pattern.search(text)):
+                out.append((conf, line, m.group(0).upper()))
+    return out
+
+
+def reconstruct_split_fields(
+    session_field_state: Dict[str, dict],
+    image_id_owning_label: Dict[str, str],
+    other_images_lines: Dict[str, Sequence[Any]],
+) -> Dict[str, dict]:
+    """
+    Attempt scoped cross-image reconstruction for fields currently present
+    only as a bare label (see _is_label_only).
+
+    session_field_state       - the session's current merged field map
+                                 (capture_session.merge_classified_fields output).
+    image_id_owning_label      - {field_name: image_id} for entries currently
+                                 in session_field_state, so provenance can
+                                 name both source images.
+    other_images_lines         - {image_id: [OcrLine, ...]} for every OTHER
+                                 capture in the same session, to search for a
+                                 completing fragment.
+
+    Returns a NEW dict containing only the fields that were successfully,
+    unambiguously reconstructed - callers should merge this into the field
+    map without overwriting any field that already has a full value.
+    Ambiguous cases (0 or >=2 plausible fragments) are left alone: the field
+    stays label-only / UNCERTAIN in the caller's normal flow, which is the
+    correct, honest outcome per the master spec ("no unique fragment ->
+    UNCERTAIN, never a guess").
+    """
+    import ocr_extraction
+    reconstructed: Dict[str, dict] = {}
+
+    for field in _RECONSTRUCTABLE_FIELDS:
+        entry = session_field_state.get(field)
+        if not entry or not _is_label_only(entry, field):
+            continue
+
+        label_image_id = image_id_owning_label.get(field)
+        all_candidates: List[Tuple[float, str, Any, str]] = []
+        for image_id, lines in other_images_lines.items():
+            if image_id == label_image_id:
+                continue
+            for conf, line, comparable in _fragment_candidates(field, lines):
+                all_candidates.append((conf, image_id, line, comparable))
+
+        if len(all_candidates) != 1:
+            continue
+
+        conf, image_id, line, comparable = all_candidates[0]
+        joined_text = f"{entry.get('value', '') or ''} {getattr(line, 'text', '').strip()}".strip()
+
+        new_entry = dict(entry)
+        new_entry["value"] = ocr_extraction._normalized_text(joined_text)
+        sources = {label_image_id, image_id} - {None, ""}
+        new_entry["source_images"] = sorted(str(s) for s in sources)
+        new_entry["spatial_relationship"] = "cross_image_continuation"
+        new_entry["verification"] = "UNCERTAIN"
+        new_entry["review_required"] = True
+        new_entry["status"] = "REVIEW_REQUIRED"
+        new_entry["confidence"] = min(
+            float(entry.get("confidence", 0.0) or 0.0), float(getattr(line, "confidence", 0.0))
+        ) * 0.6
+        new_entry["reason"] = (
+            f"Reconstructed from a label found in {label_image_id} and a "
+            f"matching value fragment found in {image_id}. Flagged for "
+            f"human review; not automatically treated as fully verified."
+        )
+
+        if field in _NUMERIC_MONEY_FIELDS:
+            money = ocr_extraction._extract_money(new_entry["value"])
+            if money is None:
+                continue
+            new_entry["numeric_value"] = money
+        elif field == "net_quantity":
+            qty = ocr_extraction._extract_qty(new_entry["value"])
+            if qty is None:
+                continue
+            new_entry["numeric_value"], new_entry["numeric_unit"] = qty
+        elif field == "batch_no":
+            new_entry["batch_code"] = comparable
+
+        reconstructed[field] = new_entry
+
+    return reconstructed
+

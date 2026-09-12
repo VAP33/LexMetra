@@ -311,7 +311,11 @@ def build_findings_section(inspection: Any) -> Dict[str, Any]:
     }
 
 
-def build_inspection_report_pdf(inspection: Dict[str, Any]) -> bytes:
+def build_inspection_report_pdf(
+    inspection: Dict[str, Any],
+    *,
+    rag_grounding: Optional[Sequence[Any]] = None,
+) -> bytes:
     """
     Render one inspection (as returned by db.get_inspection_detail /
     ProductInspection.model_dump()) into a PDF report and return the raw
@@ -376,6 +380,27 @@ def build_inspection_report_pdf(inspection: Dict[str, Any]) -> bytes:
     if exempt_reason:
         summary_rows.append(["Exemption reason", str(exempt_reason)])
 
+    decl_summary = _get(inspection, "declaration_summary") or {}
+    decls = _get(inspection, "declarations") or []
+    if not decl_summary and decls:
+        v_count = sum(
+            1 for d in decls
+            if str(_get(d, "status")).upper() == "VERIFIED"
+            or getattr(_get(d, "status"), "value", "") == "VERIFIED"
+        )
+        app_count = sum(
+            1 for d in decls
+            if str(_get(d, "status")).upper() not in ("NOT_APPLICABLE", "NOT APPLICABLE")
+            and getattr(_get(d, "status"), "value", "") != "NOT_APPLICABLE"
+        )
+        decl_summary = {"verified": v_count, "applicable": app_count}
+
+    if decl_summary and "applicable" in decl_summary:
+        v_count = decl_summary.get("verified", 0)
+        app_count = decl_summary.get("applicable", 0)
+        pct = (v_count / app_count * 100) if app_count > 0 else 0
+        summary_rows.append(["Declarations verified", f"{v_count} of {app_count} applicable declarations verified ({pct:.0f}%)"])
+
     summary_table = Table(summary_rows, colWidths=[55 * mm, 110 * mm])
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
@@ -386,6 +411,71 @@ def build_inspection_report_pdf(inspection: Dict[str, Any]) -> bytes:
     ]))
     story.append(summary_table)
     story.append(Spacer(1, 10))
+
+    # --- Canonical Declarations Table --------------------------------------
+    if decls:
+        story.append(Paragraph("Canonical Mandatory Declarations Matrix", h2))
+        story.append(Paragraph(
+            "Evaluation of mandatory packaged commodity declarations under Rule 6 of the Legal Metrology "
+            "(Packaged Commodities) Rules, 2011. Denominator includes only applicable declarations for this product category.",
+            disclaimer_style,
+        ))
+        story.append(Spacer(1, 6))
+
+        decl_header_style = ParagraphStyle(
+            "DeclTableHeader", parent=small, fontName="Helvetica-Bold",
+            textColor=colors.black, leading=9,
+        )
+        decl_table_rows = [[
+            Paragraph(t, decl_header_style)
+            for t in ("Declaration Field", "Extracted Value", "Status", "Clause / Rule", "Verification Reason")
+        ]]
+        decl_style_commands = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#dddddd")),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]
+        DECL_STATUS_COLORS = {
+            "VERIFIED": colors.HexColor("#1a7f37"),
+            "REVIEW_REQUIRED": colors.HexColor("#9a6700"),
+            "PARTIALLY_DETECTED": colors.HexColor("#9a6700"),
+            "NON_COMPLIANT": colors.HexColor("#cf222e"),
+            "NOT_APPLICABLE": colors.HexColor("#57606a"),
+            "NOT_DETECTED_IN_PROVIDED_IMAGES": colors.HexColor("#cf222e"),
+        }
+        for row_idx, d in enumerate(decls, start=1):
+            c_name = _get(d, "canonical_name") or _get(d, "field") or "-"
+            c_val = str(_get(d, "value") or _get(d, "normalized_value") or "Not detected")
+            if len(c_val) > 40:
+                c_val = c_val[:37] + "..."
+            d_status = _get(d, "status")
+            if hasattr(d_status, "value"):
+                d_status = d_status.value
+            d_status = str(d_status or "UNCERTAIN").upper()
+            rule_ref = str(_get(d, "rule_clause") or _get(d, "rule_id") or "-")
+            reason_txt = str(_get(d, "reason") or "")[:120]
+
+            decl_table_rows.append([
+                Paragraph(str(c_name), small),
+                Paragraph(c_val, small),
+                d_status,
+                Paragraph(rule_ref, small),
+                Paragraph(reason_txt, small),
+            ])
+            color = DECL_STATUS_COLORS.get(d_status, colors.black)
+            decl_style_commands.append(("TEXTCOLOR", (2, row_idx), (2, row_idx), color))
+            decl_style_commands.append(("FONTNAME", (2, row_idx), (2, row_idx), "Helvetica-Bold"))
+
+        decl_table = Table(
+            decl_table_rows,
+            colWidths=[42 * mm, 34 * mm, 25 * mm, 28 * mm, 48 * mm],
+            repeatRows=1,
+        )
+        decl_table.setStyle(TableStyle(decl_style_commands))
+        story.append(decl_table)
+        story.append(Spacer(1, 10))
 
     # --- Findings ----------------------------------------------------------
     # What this section SAYS is decided in `build_findings_section`, which is
@@ -446,5 +536,54 @@ def build_inspection_report_pdf(inspection: Dict[str, Any]) -> bytes:
     story.append(Spacer(1, 10))
     story.append(Paragraph(section["closing"], small))
 
+    # --- Grounded Statutory Standards (RAG) --------------------------------
+    grounded_list = rag_grounding or _get(inspection, "rag_grounding") or []
+    if grounded_list:
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("Grounded Statutory Provisions & Standards (RAG Knowledge)", h2))
+        story.append(Paragraph(
+            "Statutory provisions grounded by retrieval against authoritative Legal Metrology and sectoral legal acts. "
+            "Grounded knowledge determines applicable clauses and evidence thresholds; the deterministic Rule Engine evaluates compliance.",
+            disclaimer_style,
+        ))
+        story.append(Spacer(1, 6))
+
+        rag_header_style = ParagraphStyle(
+            "RagTableHeader", parent=small, fontName="Helvetica-Bold",
+            textColor=colors.black, leading=9,
+        )
+        rag_table_rows = [[
+            Paragraph(t, rag_header_style)
+            for t in ("Rule / Provision", "Framework", "Version & Date", "Applicability", "Statutory Source Citation")
+        ]]
+        for g in grounded_list:
+            rid = _get(g, "rule_id", "-")
+            mod = str(_get(g, "module", "-")).upper()
+            ver = f"{_get(g, 'rule_version', '-')} ({_get(g, 'effective_date', '-')})"
+            app = _get(g, "applicability", "APPLICABLE")
+            src = _get(g, "source_reference", "-")
+            rag_table_rows.append([
+                Paragraph(str(rid), small),
+                Paragraph(str(mod), small),
+                Paragraph(str(ver), small),
+                Paragraph(str(app), small),
+                Paragraph(str(src), small),
+            ])
+
+        rag_table = Table(
+            rag_table_rows,
+            colWidths=[40 * mm, 20 * mm, 38 * mm, 24 * mm, 55 * mm],
+            repeatRows=1,
+        )
+        rag_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f4f8")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#dddddd")),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(rag_table)
+
     doc.build(story)
     return buffer.getvalue()
+

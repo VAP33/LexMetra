@@ -52,6 +52,7 @@ class CanonicalDeclarationField(str, Enum):
     MRP = "mrp"
     CONSUMER_CARE = "consumer_care"
     UNIT_SALE_PRICE = "unit_sale_price"
+    BATCH_NO = "batch_no"
     STANDARD_PACK_SIZE = "standard_pack_size"
     COUNTRY_OF_ORIGIN = "country_of_origin"
 
@@ -161,6 +162,11 @@ CANONICAL_DECLARATION_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "rule_id": "LMPC-2011-R6-11-UNIT-PRICE",
         "rule_clause": "Rule 6(11)",
     },
+    "batch_no": {
+        "canonical_name": "Batch / Lot / Code Number",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1) / FSSAI 2.2.2",
+    },
     "standard_pack_size": {
         "canonical_name": "Standard Pack Size (Second Schedule)",
         "rule_id": "LMPC-2011-R5-STANDARD-PACK",
@@ -227,6 +233,13 @@ CANONICAL_FIELD_ALIASES: Dict[str, str] = {
     "unit_sale_price": "unit_sale_price",
     "unit price": "unit_sale_price",
     "usp": "unit_sale_price",
+    "batch no": "batch_no",
+    "batch_no": "batch_no",
+    "batch number": "batch_no",
+    "batch": "batch_no",
+    "lot no": "batch_no",
+    "lot number": "batch_no",
+    "lot code": "batch_no",
     "standard pack size": "standard_pack_size",
     "standard_pack_size": "standard_pack_size",
     "country of origin": "country_of_origin",

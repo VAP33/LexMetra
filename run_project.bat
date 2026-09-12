@@ -5,11 +5,19 @@ echo Starting LMPC Compliance Platform...
 echo ========================================================
 
 REM 1. Start Local PostgreSQL on Port 5433
-echo [1/3] Starting PostgreSQL (Port 5433)...
-start "PostgreSQL Server" /min "C:\Program Files\PostgreSQL\18\bin\postgres.exe" -D "%~dp0backend\db\data_local" -p 5433
-
-REM Brief pause to let DB initialize
-timeout /t 2 /nobreak >nul
+echo [1/3] Checking PostgreSQL (Port 5433)...
+if exist "%~dp0backend\db\data_local\postmaster.pid" (
+    netstat -ano | findstr :5433 >nul
+    if errorlevel 1 del /f /q "%~dp0backend\db\data_local\postmaster.pid" 2>nul
+)
+netstat -ano | findstr :5433 >nul
+if errorlevel 1 (
+    echo Starting PostgreSQL Server...
+    start "PostgreSQL Server" /min "C:\Program Files\PostgreSQL\18\bin\postgres.exe" -D "%~dp0backend\db\data_local" -p 5433
+    timeout /t 2 /nobreak >nul
+) else (
+    echo PostgreSQL is already running on port 5433.
+)
 
 REM 2. Start FastAPI Backend on Port 8000
 echo [2/3] Starting FastAPI Backend (Port 8000)...

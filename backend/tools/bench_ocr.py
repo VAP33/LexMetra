@@ -51,9 +51,8 @@ import cv2  # noqa: E402
 
 import ocr_engine  # noqa: E402
 
-#: Dataset location, resolved relative to the repository root so the harness
-#: works regardless of the caller's working directory.
-DEFAULT_DATASET = _BACKEND.parent / "images dataset"
+_ROOT = _BACKEND.parent
+DEFAULT_DATASET = _ROOT / "images dataset" if (_ROOT / "images dataset").exists() else _ROOT / "DEPENDENCIES" / "images dataset"
 
 
 def dataset_images(folder: Path) -> List[Path]:

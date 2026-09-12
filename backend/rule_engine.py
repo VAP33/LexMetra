@@ -685,6 +685,40 @@ def _evaluate_declaration_rule(
                     or f"Declaration label '{extraction.value}' was detected, but no valid date value could be established."
                 )
                 review = True
+            elif field == "manufacturer_name_address":
+                val_str = str(extraction.value or "").strip()
+                import re as _re
+                # Legal Metrology Rule 6(1)(a)/(b)/(c) requires complete entity name and complete address.
+                # Incomplete address fragments (ending abruptly in comma/colon, lacking PIN or state/city, or under 25 chars) must not be overstated.
+                has_pin = bool(_re.search(r"\b\d{6}\b", val_str))
+                has_state_or_city = bool(_re.search(r"\b(?:mumbai|delhi|bangalore|bengaluru|chennai|kolkata|pune|hyderabad|ahmedabad|maharashtra|gujarat|karnataka|tamil\s*nadu|uttar\s*pradesh|haryana|road|street|marg|plot|ind|estate|nagar|dist|district)\b", val_str, _re.I))
+                ends_abruptly = val_str.endswith(",") or val_str.endswith(";") or val_str.endswith(":") or val_str.endswith("/")
+                is_partial = (
+                    ends_abruptly
+                    or ",," in val_str
+                    or (not has_pin and not has_state_or_city)
+                    or len(val_str) < 12
+                )
+
+                if is_partial:
+                    status = FactStatus.UNCERTAIN
+                    reason = (
+                        f"Manufacturer / packer declaration '{val_str}' is partial or incomplete "
+                        "(missing complete postal address / state / PIN code). Human review required per Rule 6(1)(a)."
+                    )
+                    review = True
+                elif extraction.confidence < low_confidence_threshold:
+                    status = FactStatus.UNCERTAIN
+                    reason = (
+                        f"'{field}' was detected, but extraction confidence "
+                        f"{extraction.confidence:.2f} is below the configured "
+                        f"threshold {low_confidence_threshold:.2f}."
+                    )
+                    review = True
+                else:
+                    status = FactStatus.PASS
+                    reason = f"'{field}' is evidenced by the OCR/CV pipeline."
+                    review = False
             elif extraction.confidence < low_confidence_threshold:
                 status = FactStatus.UNCERTAIN
                 reason = (
@@ -2083,6 +2117,40 @@ def run_inspection(
         facts.extend(r6_facts)
         findings.extend(r6_findings)
 
+        # Batch / Lot / Code Number (Rule 6(1) / FSSAI)
+        batch_ext = extractions.get("batch_no")
+        if batch_ext is not None and _has_value(batch_ext):
+            r6_rule = _find_rule(rules, "LMPC-2011-R6-DECLARATIONS", "LMPC-2011-R6")
+            if batch_ext.confidence < low_confidence_threshold:
+                b_status = FactStatus.UNCERTAIN
+                b_reason = f"'batch_no' was detected ('{batch_ext.value}'), but extraction confidence {batch_ext.confidence:.2f} is below the configured threshold {low_confidence_threshold:.2f}."
+                b_review = True
+            else:
+                b_status = FactStatus.PASS
+                b_reason = f"'batch_no' is evidenced by the OCR/CV pipeline."
+                b_review = False
+            b_fact = _make_fact(
+                field="batch_no",
+                extraction=batch_ext,
+                status=b_status,
+                rule=r6_rule,
+                reason=b_reason,
+                review_required=b_review,
+            )
+            facts.append(b_fact)
+            if r6_rule:
+                findings.append(_finding(
+                    rule=r6_rule,
+                    status=b_status,
+                    reason=b_reason,
+                    evidence=b_fact.evidence,
+                    requirement_id="batch_no",
+                    requirement_description="Batch, lot or code identification number.",
+                    confidence=b_fact.confidence,
+                    review_required=b_review,
+                    fact=b_fact,
+                ))
+
     # ------------------------------------------------------------------
     # 3b. Rule 24 wholesale package declarations.
     # ------------------------------------------------------------------
@@ -2112,6 +2180,7 @@ def run_inspection(
 
     # ------------------------------------------------------------------
     # 3d. Rule 5 / Second Schedule standard pack sizes.
+    # (Omitted by statutory amendment GSR 779(E) dated 2021-11-02).
     # ------------------------------------------------------------------
     if sale_type.lower() in {"retail", "wholesale"}:
         r5_facts, r5_findings = _evaluate_rule5_standard_pack(
@@ -2297,8 +2366,17 @@ def _build_canonical_declarations(
             is_applicable = False
         elif field_id == "country_of_origin" and not context.get("is_imported", False):
             is_applicable = False
+        elif field_id == "standard_pack_size":
+            # Rule 5 / Second Schedule was omitted via statutory amendment GSR 779(E) dated 2021-11-02.
+            # For modern packaged goods (post-2021), standard pack sizes are no longer mandatory.
+            is_applicable = context.get("standard_pack_applicable", False)
 
         if not is_applicable:
+            reason = (
+                "Standard pack size (Rule 5 / Second Schedule) was omitted by statutory amendment GSR 779(E) and is not an active mandatory requirement for modern packaged goods."
+                if field_id == "standard_pack_size"
+                else "Declaration is outside statutory scope for this product category and origin."
+            )
             declarations.append(CanonicalDeclaration(
                 field=field_id,
                 canonical_name=canonical_name,
@@ -2306,7 +2384,7 @@ def _build_canonical_declarations(
                 status=CanonicalStatus.NOT_APPLICABLE,
                 confidence=1.0,
                 validation=ValidationDetails(present=False, readable=None, correct_format=None, compliant=True),
-                reason="Declaration is outside statutory scope for this product category and origin.",
+                reason=reason,
                 rule_id=rule_id,
                 rule_clause=rule_clause,
             ))

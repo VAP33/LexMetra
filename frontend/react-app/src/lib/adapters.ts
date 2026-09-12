@@ -104,7 +104,16 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
       if (c.validation.correct_format === false) issues.push("Value does not match the format the rule requires");
       if (c.validation.compliant === false) issues.push("Value does not satisfy the statutory requirement");
     }
-    const reasonText = [c.reason || "", ...issues].filter(Boolean).join(" • ");
+    let reasonText = [c.reason || "", ...issues].filter(Boolean).join(" • ");
+    if (!reasonText) {
+      if (uiStatus === "MISSING") {
+        reasonText = "Mandatory declaration was not detected in the provided image panels.";
+      } else if (uiStatus === "REVIEW") {
+        reasonText = "Declaration requires inspector review before compliance can be established.";
+      } else if (uiStatus === "UNOBSERVED") {
+        reasonText = "Evidence inconclusive; capture additional surface or inspect manually.";
+      }
+    }
 
     const bboxPx = bboxFromEvidence(c.evidence?.bbox);
 
@@ -158,7 +167,13 @@ function factsToDeclarations(facts: RawScanResponse["inspection"]["facts"]): Dec
       confidence: conf,
       ruleId: f.rule_id ?? undefined,
       ruleVersion: f.rule_version ?? undefined,
-      reason: f.reason,
+      reason: f.reason || (
+        f.status === "FAIL"
+          ? "Statutory requirement not satisfied or declaration not detected."
+          : f.review_required
+          ? "Declaration requires inspector verification."
+          : undefined
+      ),
       reviewRequired: f.review_required,
       missingEvidence: f.missing_evidence ?? undefined,
     });

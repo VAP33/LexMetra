@@ -1,0 +1,717 @@
+﻿# LEXMETRA SIH 2026 — BUILD 12 FINALIZATION & RELEASE CANDIDATE
+
+You are working on the **LexMetra** repository for SIH 2026.
+
+Repository:
+`VAP33/LexMetra`
+
+The goal now is **FINALIZATION**, not another architecture rewrite.
+
+I have already received the Build 12 engineering overlay from the other development environment. Apply it to the current project and then take the repository through complete real-environment validation.
+
+## 1. FIRST: PRESERVE THE EXISTING SYSTEM
+
+Before changing anything:
+
+* Inspect the entire current repository.
+* Treat the current working project as the source of truth.
+* Do NOT replace the project with a simplified version.
+* Do NOT delete working features merely because they are inconvenient.
+* Do NOT remove demo conveniences.
+* Do NOT remove PDF reporting.
+* Do NOT remove audit logging.
+* Do NOT remove OCR.
+* Do NOT remove PaddleOCR support.
+* Do NOT remove Tesseract fallback.
+* Do NOT remove Gemini/Anthropic visual verification.
+* Do NOT remove RAG.
+* Do NOT remove historical rule/versioning support.
+* Do NOT remove multilingual support.
+* Do NOT remove consumer-facing functionality.
+* Do NOT remove existing UI functionality.
+* Do NOT remove useful test coverage.
+* Do NOT remove Docker/PostgreSQL/Redis support.
+
+If two implementations overlap, compare them first and retain the strongest implementation.
+
+## 2. APPLY BUILD 12
+
+Apply the supplied:
+
+`LexMetra_Build_12_FINAL.zip`
+
+It is an **overlay**, not a replacement repository.
+
+Merge the files into the current project carefully.
+
+Do not blindly overwrite unrelated files.
+
+After applying it, inspect the resulting diff.
+
+Build 12 is intended to provide:
+
+* production/dev configuration hardening
+* explicit demo mode
+* preserved demo quick-login
+* configurable upload limits
+* `/ready` readiness endpoint
+* Redis operational fallback
+* RAG publication-state safety
+* regression tests
+* Build 12 documentation
+
+## 3. DEMO LOGIN MUST REMAIN
+
+This is important.
+
+The SIH demonstration needs fast login.
+
+Preserve:
+
+* Admin quick login
+* Inspector quick login
+* existing demo credentials
+* existing demo bootstrap mechanism
+* existing React quick-fill buttons
+* existing convenient development workflow
+
+Do NOT remove these in the name of security.
+
+Instead, make demo behavior explicitly controlled by:
+
+`LMPC_DEMO_MODE`
+
+and ensure production deployment can disable it.
+
+The security model must remain strong when demo mode is disabled.
+
+## 4. LEGAL SAFETY IS ABSOLUTE
+
+LexMetra is a legal/compliance inspection platform.
+
+Never weaken these principles:
+
+1. AI extracts evidence.
+2. RAG retrieves legal knowledge.
+3. Applicability determines scope.
+4. Rule engine determines compliance.
+5. Human review resolves material uncertainty.
+
+Never:
+
+* hallucinate legal rules
+* hallucinate evidence
+* treat missing evidence as failure
+* treat OCR failure as legal failure
+* treat missing RAG as PASS
+* treat missing VLM as PASS
+* treat barcode presence as compliance
+* treat pHash as counterfeit proof
+* treat uncalibrated measurements as verified
+* treat an uncited source as verified law
+* treat absence of evidence as proof of violation
+
+Most importantly:
+
+`NOT_OBSERVED != FAIL`
+
+`CONFLICT != CONFIDENT FACT`
+
+`NO_RAG != PASS`
+
+`NO_VLM != PASS`
+
+`NO_EVIDENCE != PROVEN_VIOLATION`
+
+## 5. RULE VERSION SAFETY
+
+This is non-negotiable.
+
+Runtime legal applicability must use **ACTIVE** rule versions only.
+
+Never automatically activate:
+
+* SCHEDULED
+* DRAFT
+* APPROVED
+* FUTURE
+* deprecated historical versions
+
+No automatic legal amendment activation.
+
+Human approval/activation must remain explicit.
+
+Historical inspections must never silently start using future rules.
+
+Historical rules must never be overwritten.
+
+Effective-date filtering must remain intact.
+
+## 6. RAG VALIDATION
+
+Inspect the complete RAG pipeline.
+
+Verify:
+
+* ingestion
+* chunking
+* metadata
+* embeddings/retrieval
+* effective dates
+* jurisdiction
+* department
+* commodity/module applicability
+* publication state
+* citations
+* source references
+* amendment handling
+* approval lifecycle
+* historical immutability
+
+Ensure scheduled/unpublished legal material cannot become authoritative merely because its effective date has arrived.
+
+Only properly activated/published legal material should participate in authoritative compliance decisions.
+
+If a RAG source is unavailable, the system must fail safely rather than inventing a rule.
+
+## 7. OCR / VISION
+
+Validate the actual installed environment.
+
+There are two OCR paths:
+
+### Primary/complementary:
+
+PaddleOCR
+
+### Fallback:
+
+Tesseract
+
+PaddleOCR must NOT be removed.
+
+The existing worker/process isolation architecture must remain.
+
+Verify:
+
+* PaddleOCR can be discovered
+* worker launches
+* worker crashes do not crash the API
+* timeout handling works
+* Tesseract fallback works
+* OCR uncertainty is represented correctly
+* multilingual OCR works where supported
+* weak OCR can invoke visual recovery
+* VLM failure cannot create a false legal FAIL
+
+Test with actual product/package images.
+
+Do not rely only on synthetic unit tests.
+
+## 8. VLM PROVIDERS
+
+Validate the existing provider abstraction.
+
+Check:
+
+* Gemini configuration
+* Anthropic configuration
+* provider selection
+* timeout/error handling
+* missing credentials
+* malformed responses
+* evidence normalization
+* confidence handling
+* conflict handling
+
+Visual recovery must only supplement weak/partial evidence.
+
+It must never invent evidence.
+
+Cross-surface conflicts must become reviewable uncertainty rather than being silently resolved into a confident fact.
+
+## 9. REAL IMAGE BENCHMARK
+
+Run the actual inspection pipeline on representative real images.
+
+At minimum test:
+
+* clear front package
+* tilted package
+* poor lighting
+* glare
+* small text
+* multilingual text
+* partial label
+* multiple surfaces
+* conflicting surfaces
+* missing declarations
+* weak OCR
+* barcode
+* logo/brand region
+* quantity/weight/volume
+* manufacturer/importer details
+* MRP
+* date declarations where relevant
+
+Record:
+
+* OCR success
+* field extraction
+* geometry
+* evidence linkage
+* rule mapping
+* final status
+* review-required cases
+* failure reasons
+
+Do not turn benchmark weakness into fake PASS results.
+
+## 10. MULTI-SURFACE / GEOMETRY
+
+Verify that multiple images/surfaces are handled correctly.
+
+Ensure:
+
+* observations retain image provenance
+* surface identity is preserved
+* conflicting observations are detectable
+* geometry calculations are traceable
+* measurement/calibration uncertainty is explicit
+* evidence is not duplicated or silently overwritten
+
+## 11. BACKEND
+
+Run the complete backend test suite.
+
+Verify:
+
+* FastAPI startup
+* authentication
+* role hierarchy
+* inspector access
+* reviewer access
+* admin access
+* audit log
+* upload validation
+* scan pipeline
+* report generation
+* health endpoint
+* readiness endpoint
+
+`/health` should remain cheap and suitable for liveness.
+
+`/ready` should verify required runtime dependencies.
+
+No secrets should appear in health responses.
+
+## 12. DATABASE
+
+Validate PostgreSQL.
+
+Verify:
+
+* startup
+* migrations/schema
+* connection
+* audit persistence
+* rule persistence
+* amendment persistence
+* inspection persistence
+* historical records
+* append-only audit behavior
+
+Audit records must not be silently mutable/deletable through normal application paths.
+
+## 13. REDIS
+
+Validate Redis.
+
+Redis is an operational dependency/cache.
+
+It must NEVER become authoritative for legal correctness.
+
+Verify:
+
+* connection
+* cache set/get
+* expiration
+* Redis unavailable behavior
+* local fallback
+* application continues safely when Redis is unavailable where appropriate
+
+A cache outage must never change a legal verdict.
+
+## 14. AUTHENTICATION
+
+Run the authentication suite with the real installed dependencies.
+
+Verify:
+
+* password hashing
+* JWT creation
+* JWT validation
+* role hierarchy
+* protected endpoints
+* invalid credentials
+* expired/invalid tokens
+* admin-only endpoints
+* reviewer restrictions
+* inspector restrictions
+* demo bootstrap gating
+
+Production must not use insecure development defaults.
+
+Development/demo mode may explicitly enable demo behavior.
+
+## 15. FRONTEND
+
+The frontend is already installed locally.
+
+Do NOT reinstall or remove `node_modules` unless genuinely necessary.
+
+Run the actual frontend build.
+
+Verify:
+
+* login
+* quick Admin login
+* quick Inspector login
+* dashboard
+* image upload
+* inspection workflow
+* results
+* evidence display
+* rule explanation
+* RAG citations
+* review-required states
+* audit/report access
+* consumer mode
+* responsive layout
+* API error states
+* loading states
+
+Do not break the frontend merely to make the codebase "cleaner."
+
+`node_modules` does NOT need to be committed to Git.
+
+The lockfile and package manifests should be committed.
+
+## 16. PDF REPORTING
+
+PDF generation is an existing working feature.
+
+Do not remove it.
+
+Test:
+
+* generation
+* evidence inclusion
+* legal disclaimer
+* inspection metadata
+* compliance result
+* review-required status
+* source/citation information
+* malformed/missing data handling
+
+Make sure a report cannot accidentally present uncertain evidence as a legally certain violation.
+
+## 17. AUDIT LOGGING
+
+Test audit logging end-to-end.
+
+Verify:
+
+* login events where applicable
+* inspection actions
+* review actions
+* amendment lifecycle actions
+* administrative actions
+* timestamps
+* actor identity
+* append-only behavior
+* persistence
+
+Do not delete the audit subsystem.
+
+## 18. DOCKER
+
+Run:
+
+`docker compose config`
+
+Then, if Docker is available:
+
+`docker compose build`
+
+and:
+
+`docker compose up`
+
+Verify:
+
+* backend
+* frontend if defined
+* PostgreSQL
+* Redis
+* healthchecks
+* dependency startup
+* environment variables
+* networking
+* persistence
+
+Do not commit local database volumes or runtime artifacts.
+
+## 19. ENVIRONMENT FILES
+
+Ensure there is an `.env.example`.
+
+Document all required variables, especially:
+
+* `LMPC_DEV_MODE`
+* `LMPC_DEMO_MODE`
+* `LMPC_BOOTSTRAP_DEMO_USERS`
+* `DATABASE_URL`
+* `REDIS_URL`
+* `JWT_SECRET_KEY`
+* `ALLOWED_ORIGINS`
+* `LMPC_MAX_UPLOAD_BYTES`
+* PaddleOCR configuration
+* Gemini credentials
+* Anthropic credentials
+* VLM enablement
+
+Never commit real credentials.
+
+## 20. DUPLICATE TREE CLEANUP
+
+There is/was a:
+
+`Chatgpt Patch/`
+
+tree.
+
+DO NOT delete it blindly.
+
+First compare it against the canonical repository.
+
+Preserve any genuinely unique useful material.
+
+In particular inspect:
+
+* `DEMO_RELIABILITY_REPORT.md`
+* `DEMO_SETUP.md`
+* any unique implementation/test/documentation content
+
+Move useful information into canonical locations if appropriate.
+
+After comparison, remove redundant duplicate source trees.
+
+The final repository must have one canonical implementation.
+
+No redundant backend copies.
+
+No shadow implementations.
+
+No abandoned generated source trees.
+
+## 21. PROJECT DOCUMENTATION
+
+Update stale documentation.
+
+Ensure README / setup / project state accurately describe the current system.
+
+Do not leave claims such as:
+
+* "dashboard broken"
+* "RAG missing"
+* "Rule 25 missing"
+* "no Redis"
+* "no Docker"
+* "no production safety"
+
+if those statements are no longer true.
+
+Do not falsely claim legal rules are officially verified unless there is actual primary-source evidence.
+
+Be honest about what is implemented versus what still requires official legal verification.
+
+## 22. TESTING STANDARD
+
+Run:
+
+* full Python test suite
+* focused RAG tests
+* amendment/versioning tests
+* production safety tests
+* OCR tests
+* Paddle worker tests
+* auth tests
+* PDF tests
+* audit tests
+* frontend tests/build
+* Docker validation
+* real-image benchmark
+
+Fix actual failures.
+
+Do not weaken tests merely to make the suite green.
+
+Do not remove tests because they expose problems.
+
+## 23. NO FEATURE REGRESSION
+
+Before declaring completion, specifically confirm that these remain functional:
+
+* PDF reports
+* audit logging
+* OCR
+* Tesseract fallback
+* PaddleOCR
+* visual recovery
+* Gemini
+* Anthropic
+* RAG
+* legal rule engine
+* rule versioning
+* amendments
+* historical rules
+* multi-surface analysis
+* evidence tracking
+* multilingual handling
+* consumer mode
+* quick Admin login
+* quick Inspector login
+* PostgreSQL
+* Redis
+* Docker
+* frontend
+* API authentication
+
+## 24. CLEAN REPOSITORY
+
+Remove only:
+
+* generated runtime files
+* local uploads
+* local reports
+* caches
+* build artifacts
+* node_modules
+* local databases
+* temporary debugging files
+* redundant duplicate source trees after comparison
+
+Never remove source code simply because it looks old without checking whether it is still referenced.
+
+Final repository should be clean enough for:
+
+`git clone`
+
+then documented setup commands.
+
+## 25. FINAL GATE
+
+Do NOT call the project complete merely because unit tests pass.
+
+Completion requires:
+
+### Engineering
+
+* backend working
+* frontend working
+* PostgreSQL working
+* Redis working
+* Docker working
+* authentication working
+* OCR working
+* Paddle worker safe
+* VLM providers working/failing safely
+* PDF working
+* audit working
+
+### Legal safety
+
+* ACTIVE-only runtime
+* historical immutability
+* effective-date correctness
+* no automatic activation
+* RAG citations
+* applicability filtering
+* uncertainty handling
+* human review for material uncertainty
+
+### AI safety
+
+* no hallucinated evidence
+* no hallucinated rules
+* no unsupported compliance claims
+* no AI-only legal authority
+
+### Product
+
+* demo login preserved
+* UI functional
+* real-image inspection works
+* multilingual handling works
+* consumer mode works
+
+### Repository
+
+* no redundant source trees
+* no secrets
+* no runtime artifacts
+* documentation accurate
+* tests retained
+
+## 26. WHAT TO DO IF SOMETHING FAILS
+
+Do not stop at the first failure.
+
+Work through the failures systematically.
+
+Classify each as:
+
+* code defect
+* environment defect
+* dependency issue
+* configuration issue
+* expected limitation
+* legal-data limitation
+
+Fix code/configuration defects.
+
+For environment/dependency issues, document the exact command required.
+
+Do not fake a successful result.
+
+## 27. FINAL RESPONSE FROM YOU
+
+When finished, provide a concise release report containing:
+
+1. Build 12 status
+2. Files changed
+3. Tests passed/skipped/failed
+4. Frontend build status
+5. Docker status
+6. PostgreSQL status
+7. Redis status
+8. PaddleOCR status
+9. Gemini/Anthropic status
+10. real-image benchmark status
+11. RAG/legal safety status
+12. PDF status
+13. audit status
+14. duplicate-tree cleanup status
+15. any remaining blockers
+
+If everything is genuinely green, state:
+
+**LEXMETRA BUILD 12 RELEASE CANDIDATE: READY**
+
+If anything remains, clearly identify it instead of hiding it.
+
+Do not create Build 13.
+
+This is the final engineering pass. The objective is a clean, defensible, demonstrable SIH 2026 release candidate, not another endless sequence of "one more build."
+

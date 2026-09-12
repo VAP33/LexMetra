@@ -1,8 +1,12 @@
 """Safe placeholder modules for future regulatory domains."""
 from __future__ import annotations
 from typing import Any,Dict,List
-from .models import EvidenceRequirement,RegulatoryContext,RegulatoryFinding,RegulatoryModuleMetadata
-from .module import RegulatoryModule
+try:
+    from .models import EvidenceRequirement,RegulatoryContext,RegulatoryFinding,RegulatoryModuleMetadata
+    from .module import RegulatoryModule
+except ImportError:
+    from models import EvidenceRequirement,RegulatoryContext,RegulatoryFinding,RegulatoryModuleMetadata
+    from module import RegulatoryModule
 class UnsupportedRegulatoryModule(RegulatoryModule):
     def __init__(self,module_id:str,name:str,department:str,regulation:str)->None:
         self._meta=RegulatoryModuleMetadata(id=module_id,name=name,department=department,regulation=regulation,status="interface_only")

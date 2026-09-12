@@ -1,0 +1,98 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artefacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Runtime-generated upload/report directories (rebuilt at runtime, not source)
+backend/uploads/
+backend/reports/
+uploads/
+reports/
+processed_images/
+temp/
+tmp/
+outputs/
+results/
+runs/
+
+# Runtime-generated similarity index (rebuilt from scan history)
+backend/product_index.json
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# ML model weights
+*.pt
+*.pth
+*.onnx
+*.h5
+*.weights
+
+# AI iteration/working copies — not project source
+CLAUDE 1/
+CLAUDE 2/
+CLAUDE 3/
+CLAUDE 4/
+CLAUDE 5/
+
+# Internal AI prompt / state tracking files
+CLAUDE.md
+CLAUDE MASTERPROMPT.txt
+CLAUDE*/
+PROJECT_STATE.md
+PROJECT_MANIFEST.json
+build_manifest.py
+ARCHITECTURE_INVENTORY.md
+ENGINE_UPGRADE_NOTES.md
+ENGINEERING_ASSESSMENT_AND_ROADMAP.md
+"SIH 2026 — MASTER IMPLEMENTATION PLAN.md"
+
+# Raw screenshot dumps (not curated dataset)
+images dataset/
+
+# Generated sample/demo outputs
+samples/
+demo_inspection_report.pdf
+
+# PostgreSQL local data directory
+backend/db/data_local/
+
+# Frontend build output and dependencies
+frontend/react-app/dist/
+frontend/react-app/node_modules/

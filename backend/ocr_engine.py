@@ -67,7 +67,7 @@ try:  # pragma: no cover - config is always importable in the app
     _PADDLE_REQUESTED = bool(config.ENABLE_PADDLEOCR)
 except Exception:  # pragma: no cover - keeps the module importable standalone
     _MAX_PASSES = 8
-    _MAX_REGIONS = 14
+    _MAX_REGIONS = 24
     _PADDLE_REQUESTED = os.environ.get("LMPC_ENABLE_PADDLEOCR", "").strip().lower() in {
         "1",
         "true",
@@ -659,10 +659,7 @@ class PaddleOcrEngine:
                 self._error = "PaddleOCR not enabled (LMPC_ENABLE_PADDLEOCR is off)."
             else:
                 try:  # pragma: no cover - not installed in this environment
-                    try:
-                        import torch  # Preload torch DLLs on Windows
-                    except Exception:
-                        pass
+
                     try:
                         import paddle.inference as pi
 

@@ -9,7 +9,9 @@ import type { ScanDetails } from "./types";
 const API_BASE: string =
   (typeof import.meta !== "undefined" &&
     (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL) ||
-  "http://localhost:8000";
+  (typeof window !== "undefined" && window.location?.hostname
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : "http://localhost:8000");
 
 const TOKEN_STORAGE_KEY = "lmpc_access_token";
 const USER_STORAGE_KEY = "lmpc_user";

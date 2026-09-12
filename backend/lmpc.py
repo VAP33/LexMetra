@@ -8,10 +8,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, List
-from .models import EvidenceRequirement, RegulatoryContext, RegulatoryFinding, RegulatoryModuleMetadata
-from .module import RegulatoryModule
+try:
+    from .models import EvidenceRequirement, RegulatoryContext, RegulatoryFinding, RegulatoryModuleMetadata
+    from .module import RegulatoryModule
+except ImportError:
+    from models import EvidenceRequirement, RegulatoryContext, RegulatoryFinding, RegulatoryModuleMetadata
+    from module import RegulatoryModule
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent.parent
 RULES_PATH = ROOT / "rules" / "rules.json"
 
 class LMPCModule(RegulatoryModule):

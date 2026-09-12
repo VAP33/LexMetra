@@ -25,7 +25,8 @@ import pytest
 import barcode_decode as bd
 from barcode_decode import ReadMethod, SymbolStatus, SymbologyKind
 
-_DATASET = Path(__file__).resolve().parent.parent.parent / "images dataset"
+_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATASET = _ROOT / "images dataset" if (_ROOT / "images dataset").exists() else _ROOT / "DEPENDENCIES" / "images dataset"
 _BRU = _DATASET / "Screenshot_2026-09-06-22-06-12-38_92460851df6f172a4592fca41cc2d2e6.jpg"
 
 requires_dataset = pytest.mark.skipif(

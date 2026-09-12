@@ -341,7 +341,10 @@ FIELD_PATTERNS = {
         re.I,
     ),
     "mfg_date": re.compile(
+        r"\b(?:pkd|pkg)\.?\s*(?:date|dt)?\b|"
+        r"\bpacked\s+on\b|\bdate\s+of\s+pack\w*\b|"
         r"\b(?:mfg|mfd)\.?\s*(?:date|dt)\b|"
+        r"\b(?:mfg|mfd)\.?(?!\s*by\b)\b|"
         r"\bmanufactur(?:ed|e|ing)?\.?\s*(?:date|dt)\b|"
         r"\bdate\s+of\s+manufactur\w*\b",
         re.I,
@@ -358,7 +361,7 @@ FIELD_PATTERNS = {
     ),
     "manufacturer_name": re.compile(
         r"\bmanufactured\s+by\b|\bmanufactured\s*&\s*packed\s+by\b|"
-        r"\bpacked\s+by\b|\bmanufacturer\b",
+        r"\b(?:mfg|mfd)\.?\s*by\b|\bpacked\s+by\b|\bmanufacturer\b",
         re.I,
     ),
     "packer_name": re.compile(
@@ -371,7 +374,7 @@ FIELD_PATTERNS = {
     ),
     "marketer_name": re.compile(
         r"\bmarketed\s+by\b|\bmarketed\s*&\s*distributed\s+by\b|"
-        r"\bmarketer\b|\bmarketed\s+and\s+distributed\s+by\b",
+        r"\b(?:mktd|mkt)\.?\s*by\b|\bmarketer\b|\bmarketed\s+and\s+distributed\s+by\b",
         re.I,
     ),
     "country_of_origin": re.compile(
@@ -381,7 +384,7 @@ FIELD_PATTERNS = {
     "consumer_care": re.compile(
         r"\bconsumer\s+care\b|\bcustomer\s+(?:care|queries|service)\b|"
         r"\bconsumer\s+(?:queries|helpline)\b|\bhelpline\b|"
-        r"\bcontact\s+(?:us|customer)\b",
+        r"\bcontact\s+(?:us|customer)\b|\blevercare\b|\bfeedback\b|\btoll\s*free\b",
         re.I,
     ),
     "unit_sale_price": re.compile(
@@ -402,6 +405,7 @@ _COLUMN_VALUE_FIELDS = {
     "mfg_date",
     "expiry_date",
     "batch_no",
+    "net_quantity",
 }
 
 _FIELDS_TAKE_FOLLOWING_LINES = {
@@ -476,7 +480,7 @@ _DATE_RE = re.compile(
     # MM/YYYY (e.g. 05/2026, 12/2027)
     r"|\d{1,2}\s*[/.-]\s*\d{4}"
     # MM/YY where month is 01-12 and year is 2 digits (e.g. 12/10, 05/26, 09/24)
-    r"|(?:0[1-9]|1[0-2]|[1-9])\s*[/.-]\s*\d{2}"
+    r"|(?:0[1-9]|1[0-2]|[1-9])\s*[/-]\s*\d{2}"
     # YYYY/MM or YYYY/MM/DD (e.g. 2026/05/13, 2026-05)
     r"|\d{4}\s*[/.-]\s*\d{1,2}(?:\s*[/.-]\s*\d{1,2})?"
     # Month name with 2- or 4-digit year (e.g. OCT 26, DEC 2027, 12 OCT 2026)
@@ -491,7 +495,14 @@ _DATE_RE = re.compile(
 _EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(
     r"(?<!\d)(?:\+91[\s-]?)?(?:0)?[6-9]\d{9}(?!\d)"
+    r"|(?<!\d)1800[\s-]?\d{2,4}[\s-]?\d{3,5}(?!\d)"
     r"|(?<!\d)\d{3,5}[\s-]\d{6,8}(?!\d)"
+    r"|\b(?:1800|haya)[\s-]\d{2}[\s-]\d{2}[\s-]\d{3,4}\b"
+)
+
+_RATE_RE = re.compile(
+    r"(?:(?:₹|rs\.?|=|/)\s*|^|\b)([0-9]+(?:\.[0-9]{1,2})?)\s*/\s*(g|kg|gm|gms|grams?|ml|l|litres?|liters?|cm|m|metres?|meters?|units?|pieces?|pcs?|pc|nos?\.?)\b",
+    re.I,
 )
 
 _ADDRESS_HINT_RE = re.compile(
@@ -639,9 +650,18 @@ def _canonical_numeric_unit(unit: str) -> Optional[str]:
     return aliases.get(u)
 
 
-def _extract_qty(text: str) -> Optional[Tuple[float, str]]:
+def _extract_qty(text: str, allow_glyph_repair: bool = False) -> Optional[Tuple[float, str]]:
     match = _QTY_RE.search(text)
     if not match:
+        if allow_glyph_repair:
+            m_glyph = re.search(r"(?<![\w.])([0-9]{1,4})\s*([9gq])\b", text)
+            if m_glyph:
+                try:
+                    val = float(m_glyph.group(1))
+                    if val > 0:
+                        return val, "g"
+                except (ValueError, TypeError):
+                    pass
         return None
 
     raw_value = match.group(1).replace(",", ".")
@@ -694,7 +714,7 @@ def _normalize_date(text: Optional[str], *, strict: bool = False) -> Optional[st
         return None
     t = text.strip()
     # Check MM/YY (e.g. 12/10 or 05/26)
-    m = re.match(r"^(\d{1,2})\s*[/.-]\s*(\d{2})$", t)
+    m = re.match(r"^(\d{1,2})\s*[/-]\s*(\d{2})$", t)
     if m:
         mo, yr = int(m.group(1)), int(m.group(2))
         if 1 <= mo <= 12:
@@ -774,7 +794,7 @@ def _value_shape(field: str, text: str) -> bool:
         return bool(re.search(r"\b[A-Z0-9][A-Z0-9./_-]{3,}\b", text, re.I))
 
     if field == "net_quantity":
-        return _extract_qty(text) is not None
+        return _extract_qty(text) is not None or bool(re.search(r"(?<![\w.])([0-9]{1,4})\s*([9gq])\b", text))
 
     return False
 
@@ -911,6 +931,9 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
 
     # Explicit-label fields.
     for field, (i, label_line) in label_hits.items():
+        if field in {"mfg_date", "expiry_date"}:
+            # Handled by generalized evidence-based date association engine below
+            continue
         has_inline_value = _value_shape(field, label_line.text)
         best_candidate: Optional[OcrLine] = None
 
@@ -1022,21 +1045,30 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
 
         elif field == "batch_no":
             code = val_line.text if val_line else None
+            if code:
+                lbl_match = FIELD_PATTERNS["batch_no"].search(code)
+                if lbl_match:
+                    code = code[lbl_match.end():]
+                code = re.sub(r"^[\s:\-–=~,|]+", "", code).rstrip(" |")
+                code = _normalized_text(code)
+            has_valid_code = bool(code and re.search(r"[A-Za-z0-9]{2,}", code))
             entry = {
                 "field": field,
                 "label": _normalized_text(label_line.text),
-                "value": _normalized_text(code) if code else None,
-                "batch_code": _normalized_text(code) if code else None,
+                "value": code if has_valid_code else None,
+                "batch_code": code if has_valid_code else None,
                 "raw_text": f"{label_line.text} {code}" if code and code != label_line.text else label_line.text,
                 "confidence": min(label_line.confidence, getattr(val_line, "confidence", label_line.confidence)),
                 "bbox": getattr(val_line, "bbox", label_line.bbox),
                 "label_bbox": label_line.bbox,
                 "source": "ocr_associated_value_line" if best_candidate else "ocr_label_line",
-                "status": "DETECTED" if code else "REVIEW_REQUIRED",
+                "status": "DETECTED" if has_valid_code else "REVIEW_REQUIRED",
             }
+            if not has_valid_code:
+                entry["reason"] = f"Declaration label '{label_line.text}' detected, but corresponding batch/lot code was not reliably detected."
 
         elif field == "net_quantity":
-            qty_res = _extract_qty(val_line.text) if val_line else None
+            qty_res = _extract_qty(val_line.text, allow_glyph_repair=True) if val_line else None
             if qty_res is not None:
                 qty_val, qty_unit = qty_res
                 entry = {
@@ -1162,7 +1194,7 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                 l.text for l in ordered[max(0, i - 3): min(len(ordered), i + 4)]
             )
             if re.search(
-                r"\b(?:care|queries|helpline|customer|consumer|contact|toll)\b",
+                r"\b(?:care|queries|helpline|customer|consumer|contact|toll|feedback|levercare)\b",
                 nearby,
                 re.I,
             ):
@@ -1377,6 +1409,99 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
         # Avoid changing the established field-only contract too much. Expose
         # them under a private-looking auxiliary key that callers may ignore.
         found["_auxiliary_dates"] = auxiliary_dates
+
+    # Generalized Evidence-Based Date Field Association
+    try:
+        from date_association import associate_date_fields
+        date_entries = associate_date_fields(ordered)
+        for d_field, d_entry in date_entries.items():
+            found[d_field] = d_entry
+    except Exception as e:
+        logger.warning(f"Generalized date association failed: {e}")
+
+    # Unit sale price rate pattern fallback (e.g. "= 2.80/g" or "₹2.80/g" without explicit "USP" keyword)
+    if "unit_sale_price" not in found:
+        for idx, line in enumerate(ordered):
+            if idx in used_line_idx:
+                continue
+            t_lower = line.text.lower()
+            if any(w in t_lower for w in ("serving", "protein", "carbohydrate", "fat", "kcal", "%", "batch", "pkd", "use by")):
+                continue
+            rate_m = _RATE_RE.search(line.text)
+            if rate_m:
+                try:
+                    rate_val = float(rate_m.group(1))
+                    rate_u = _canonical_numeric_unit(rate_m.group(2))
+                    if rate_val > 0 and rate_u:
+                        found["unit_sale_price"] = {
+                            "field": "unit_sale_price",
+                            "label": "Unit Sale Price",
+                            "value": f"₹{rate_val:g}/{rate_u}",
+                            "numeric_value": rate_val,
+                            "numeric_unit": rate_u,
+                            "currency": "INR",
+                            "raw_text": line.text,
+                            "confidence": line.confidence * 0.9,
+                            "bbox": line.bbox,
+                            "label_bbox": line.bbox,
+                            "source": "ocr_rate_pattern",
+                            "status": "DETECTED",
+                        }
+                        used_line_idx.add(idx)
+                        break
+                except (ValueError, TypeError):
+                    pass
+
+    # Common name fallback: if no explicit "common name" label was matched,
+    # check for proprietary food declaration or prominent uppercase commodity title
+    if "common_name" not in found:
+        for idx, line in enumerate(ordered):
+            m_prop = re.search(
+                r"\bproprietary\s+food\s*:\s*[0-9.-]*\s*,?\s*([A-Za-z\s-]+(?:MIX|MIXTURE|COFFEE|TEA|POWDER|FOOD|BEVERAGE)[A-Za-z\s-]*)",
+                line.text,
+                re.I,
+            )
+            if m_prop:
+                title_val = _normalized_text(m_prop.group(1)).rstrip(" .")
+                if len(title_val) >= 5:
+                    found["common_name"] = {
+                        "field": "common_name",
+                        "label": "Proprietary Food Name",
+                        "value": title_val,
+                        "confidence": line.confidence * 0.9,
+                        "bbox": line.bbox,
+                        "label_bbox": line.bbox,
+                        "source": "ocr_proprietary_food_title",
+                        "status": "DETECTED",
+                    }
+                    used_line_idx.add(idx)
+                    break
+
+        if "common_name" not in found:
+            for idx, line in enumerate(ordered[:min(30, len(ordered))]):
+                if idx in used_line_idx:
+                    continue
+                txt = line.text.strip()
+                if len(txt) < 8 or len(txt) > 80:
+                    continue
+                if _is_label_line(txt):
+                    continue
+                t_lower = txt.lower()
+                if any(w in t_lower for w in ("serving", "nutrition", "ingredient", "directions", "feedback", "batch", "pkd", "mfg", "mrp")):
+                    continue
+                if any(comm in t_lower for comm in ("coffee", "chicory", "tea", "mixture", "instant", "beverage", "powder", "flakes")):
+                    found["common_name"] = {
+                        "field": "common_name",
+                        "label": "Product Title",
+                        "value": _normalized_text(txt),
+                        "confidence": line.confidence * 0.85,
+                        "bbox": line.bbox,
+                        "label_bbox": line.bbox,
+                        "source": "ocr_inferred_commodity_title",
+                        "status": "DETECTED",
+                    }
+                    used_line_idx.add(idx)
+                    break
 
     attach_reading_agreement(found, ordered)
 

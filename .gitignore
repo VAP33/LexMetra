@@ -96,3 +96,6 @@ backend/db/data_local/
 # Frontend build output and dependencies
 frontend/react-app/dist/
 frontend/react-app/node_modules/
+
+# Embedded git repos / nested workspaces
+DEPENDENCIES/OCR Updated Integrated Module/

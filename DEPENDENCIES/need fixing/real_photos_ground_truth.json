@@ -1,0 +1,90 @@
+{
+  "_notes": [
+    "Ground truth was manually read from the photos by visually inspecting each image - NOT generated or assumed by the pipeline under test.",
+    "Fields marked \"ambiguous_do_not_score\": true were fields the human annotator could not confidently read either (e.g. cropped by the photo edge, motion blur) - per the master spec's instruction, these are marked as a limitation rather than guessed, and the benchmark script excludes them from accuracy scoring.",
+    "\"not_on_this_surface\": true means the field is genuinely not printed on the photographed panel (confirmed by other photos of the same product, or by explicit on-pack text e.g. Kellogg's 'see bottom of can') - the CORRECT vision output for these is NOT_OBSERVED, not a wrong answer.",
+    "This is a small (6-image, 4-product), honestly-annotated spot-check, not a statistically powered benchmark. Do not present these numbers as general accuracy claims - see IMPLEMENTATION_STATUS.md for that caveat in context."
+  ],
+  "images": [
+    {
+      "image_id": "bru_jar_back_panel_1.jpg",
+      "file": "Screenshot_2026-09-06-22-06-12-38_92460851df6f172a4592fca41cc2d2e6.jpg",
+      "product": "Bru Instant Coffee-Chicory 150g jar",
+      "geometry": "cylindrical",
+      "ground_truth": {
+        "mrp": {"value": 420.0},
+        "batch_no": {"value_contains": "HF130526"},
+        "net_quantity": {"not_on_this_surface": true},
+        "manufacturer_name_address": {"not_on_this_surface": true},
+        "expiry_date": {"ambiguous_do_not_score": true, "annotator_note": "Two stacked dates (13/05/26 and 12/10/27) with unclear which is packed-date vs use-by; human annotator not confident from the photo alone."},
+        "barcode": {"value": "8909106043251"}
+      }
+    },
+    {
+      "image_id": "bru_jar_back_panel_2.jpg",
+      "file": "Screenshot_2026-09-06-22-06-22-17_92460851df6f172a4592fca41cc2d2e6.jpg",
+      "product": "Bru Instant Coffee-Chicory 150g jar",
+      "geometry": "cylindrical",
+      "ground_truth": {
+        "net_quantity": {"value": 150, "unit": "g"},
+        "manufacturer_name_address": {"value_contains": "HINDUSTAN UNILEVER"},
+        "consumer_care": {"value_contains": "1800-10-22-221"},
+        "mrp": {"not_on_this_surface": true},
+        "batch_no": {"not_on_this_surface": true}
+      }
+    },
+    {
+      "image_id": "vaseline_lotion_back.jpg",
+      "file": "Screenshot_2026-09-06-22-07-38-18_92460851df6f172a4592fca41cc2d2e6.jpg",
+      "product": "Vaseline Healthy Bright body lotion 200ml",
+      "geometry": "cylindrical",
+      "mixed_orientation": true,
+      "ground_truth": {
+        "net_quantity": {"value": 200, "unit": "ml"},
+        "manufacturer_name_address": {"value_contains": "HINDUSTAN UNILEVER"},
+        "mrp": {"not_on_this_surface": true, "annotator_note": "MRP digits are physically covered by an opaque printed sticker in this photo."}
+      }
+    },
+    {
+      "image_id": "kelloggs_pringles_tube.jpg",
+      "file": "Screenshot_2026-09-06-22-07-02-74_92460851df6f172a4592fca41cc2d2e6.jpg",
+      "product": "Kellogg's Potato Crisps Pizza Flavour tube",
+      "geometry": "cylindrical",
+      "ground_truth": {
+        "net_quantity": {"value": 102, "unit": "g"},
+        "mrp": {"value": 110.00},
+        "unit_sale_price": {"value_contains": "1.08"},
+        "common_name": {"value_contains": "POTATO CRISPS"},
+        "batch_no": {"not_on_this_surface": true, "annotator_note": "Pack text explicitly states batch/mfg/expiry are printed on the bottom of the can, not this side panel."},
+        "mfg_date": {"not_on_this_surface": true},
+        "expiry_date": {"not_on_this_surface": true},
+        "barcode": {"ambiguous_do_not_score": true, "annotator_note": "Barcode digits are too small/angled in the photo for the human annotator to confidently transcribe as ground truth; the pipeline's own decode is reported but not scored against a possibly-wrong manual guess."}
+      }
+    },
+    {
+      "image_id": "screwdriver_blister_front.jpg",
+      "file": "Screenshot_2026-09-06-22-07-54-12_92460851df6f172a4592fca41cc2d2e6.jpg",
+      "product": "SW-999 precision screwdriver set (blister pack, front only)",
+      "geometry": "planar",
+      "ground_truth": {
+        "mrp": {"not_on_this_surface": true, "annotator_note": "Only the front marketing face is photographed; no LMPC declaration panel is visible at all. Correct vision behaviour is NOT_OBSERVED for every field, not a guess."},
+        "net_quantity": {"not_on_this_surface": true},
+        "manufacturer_name_address": {"not_on_this_surface": true},
+        "batch_no": {"not_on_this_surface": true}
+      }
+    },
+    {
+      "image_id": "doraemon_candy_ball.jpg",
+      "file": "Screenshot_2026-09-06-22-09-20-76_92460851df6f172a4592fca41cc2d2e6.jpg",
+      "product": "Doraemon confectionery surprise ball",
+      "geometry": "spherical",
+      "ground_truth": {
+        "mfg_date": {"value_contains": "24/07/26", "annotator_note": "Labelled 'Pkd.' (packed date), used here as the closest available mfg-date proxy."},
+        "barcode": {"value": "7622202332241"},
+        "mrp": {"ambiguous_do_not_score": true, "annotator_note": "A red price badge is visible but cropped/blurred at the image edge; human annotator cannot confidently read the full number."},
+        "net_quantity": {"ambiguous_do_not_score": true, "annotator_note": "Motion-blurred small print on a curved/near-spherical surface; human annotator could not confidently transcribe this either."},
+        "expiry_date": {"not_on_this_surface": true, "annotator_note": "The 'USE BY:' field is printed on the pack but left visually blank in this photo - a genuine on-pack omission, not a vision failure. This is exactly the master spec's NOT_OBSERVED-vs-MISSING distinction: vision correctly reports NOT_OBSERVED; only the legal engine, with sufficient coverage, should ever call this MISSING."}
+      }
+    }
+  ]
+}

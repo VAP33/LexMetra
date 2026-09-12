@@ -35,7 +35,7 @@ sys.path.insert(0, str(_BACKEND))
 sys.path.insert(0, str(_BACKEND / "tools"))
 
 _ROOT = _BACKEND.parent
-_DATASET = _ROOT / "images dataset"
+_DATASET = _ROOT / "images dataset" if (_ROOT / "images dataset").exists() else _ROOT / "DEPENDENCIES" / "images dataset"
 
 
 def _images() -> list[Path]:

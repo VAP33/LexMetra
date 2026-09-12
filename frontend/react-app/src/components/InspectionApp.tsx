@@ -313,12 +313,13 @@ function EmptyState({ title, description, onAction, actionLabel = "Scan Product"
   );
 }
 
-function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
+function ErrorBanner({ message, onRetry, onLogout }: { message: string; onRetry?: () => void; onLogout?: () => void }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-destructive/25 bg-danger-soft p-4 text-sm">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/25 bg-danger-soft p-4 text-sm">
       <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
       <p className="flex-1 text-destructive">{message}</p>
       {onRetry && <Button variant="secondary" onClick={onRetry}><RefreshCcw className="h-4 w-4" />Retry</Button>}
+      {onLogout && <Button variant="secondary" onClick={onLogout}><LogOut className="h-4 w-4" />Sign in</Button>}
     </div>
   );
 }
@@ -341,6 +342,7 @@ function HomeView({
   loading,
   error,
   onRetry,
+  onLogout,
   onNavigate,
   onOpen,
 }: {
@@ -348,6 +350,7 @@ function HomeView({
   loading: boolean;
   error?: string;
   onRetry: () => void;
+  onLogout?: () => void;
   onNavigate: (view: View) => void;
   onOpen: (inspection: Inspection) => void;
 }) {
@@ -370,7 +373,7 @@ function HomeView({
           <Button onClick={() => onNavigate("scan")}><ScanLine className="h-4 w-4" />Start inspection<ArrowRight className="h-4 w-4" /></Button>
         </section>
 
-        {error && <ErrorBanner message={error} onRetry={onRetry} />}
+        {error && <ErrorBanner message={error} onRetry={onRetry} onLogout={onLogout} />}
 
         <section className="grid grid-cols-2 gap-3 rounded-2xl border border-border/70 bg-card p-4 sm:grid-cols-4 sm:p-5">
           <Metric label="Scanned" value={scanned} loading={loading} />
@@ -1709,6 +1712,7 @@ export function InspectionApp() {
 
   function handleAuthExpiry(err: unknown): boolean {
     if (err instanceof ApiError && err.status === 401) {
+      clearSession();
       setUser(null);
       return true;
     }
@@ -1831,7 +1835,7 @@ export function InspectionApp() {
 
   const content =
     view === "home" ? (
-      <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onNavigate={go} onOpen={handleOpen} />
+      <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onLogout={handleLogout} onNavigate={go} onOpen={handleOpen} />
     ) : view === "history" ? (
       <ListView kind="history" inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onOpen={handleOpen} onNavigate={go} />
     ) : view === "register" ? (

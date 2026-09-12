@@ -1,7 +1,10 @@
 """Registry for independent regulatory modules."""
 from __future__ import annotations
 from typing import Dict,Iterable
-from .module import RegulatoryModule
+try:
+    from .module import RegulatoryModule
+except ImportError:
+    from module import RegulatoryModule
 class RegulatoryModuleRegistry:
     def __init__(self,modules:Iterable[RegulatoryModule]=()):
         self._modules:Dict[str,RegulatoryModule]={}
