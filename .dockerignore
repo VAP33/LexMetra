@@ -1,13 +1,141 @@
+# =============================================================================
+# .dockerignore — LexMetra / LMPC Compliance Platform
+#
+# Keeps the Docker build context lean and prevents secrets / large files /
+# local state from being sent to the Docker daemon or baked into the image.
+#
+# Rule of thumb: anything that is not needed to build or run the backend
+# at runtime should be excluded.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Version control
+# -----------------------------------------------------------------------------
 .git
-**/__pycache__
-**/*.pyc
-.pytest_cache
-.coverage
-htmlcov
-backend/uploads
-backend/reports
+.gitignore
+.gitattributes
+
+# -----------------------------------------------------------------------------
+# Secrets — never in image
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
 backend/.env
-.venv
-venv
-*.md
-!README.md
+backend/.env.*
+!backend/.env.example
+
+# -----------------------------------------------------------------------------
+# Python runtime / cache artefacts
+# -----------------------------------------------------------------------------
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Virtual environments
+# -----------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# -----------------------------------------------------------------------------
+# Node / frontend build artefacts
+# The Dockerfile Stage 1 does its own clean npm ci inside the container.
+# Sending node_modules from the host would be huge, wrong-platform binaries,
+# and would override the clean install.
+# -----------------------------------------------------------------------------
+frontend/react-app/node_modules/
+frontend/react-app/dist/
+node_modules/
+
+# -----------------------------------------------------------------------------
+# Local PostgreSQL data directory (gigabytes of DB files)
+# -----------------------------------------------------------------------------
+backend/db/data_local/
+
+# -----------------------------------------------------------------------------
+# ML model weights (large binary files, not needed at build time)
+# -----------------------------------------------------------------------------
+*.pt
+*.pth
+*.onnx
+*.h5
+*.weights
+
+# -----------------------------------------------------------------------------
+# Generated runtime outputs (rebuilt at runtime, not source)
+# -----------------------------------------------------------------------------
+backend/uploads/
+backend/reports/
+backend/product_index.json
+uploads/
+reports/
+processed_images/
+temp/
+tmp/
+outputs/
+results/
+runs/
+
+# -----------------------------------------------------------------------------
+# Local databases / caches
+# -----------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+# -----------------------------------------------------------------------------
+# IDE / OS noise
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+*.log
+logs/
+
+# -----------------------------------------------------------------------------
+# Jupyter notebooks
+# -----------------------------------------------------------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# -----------------------------------------------------------------------------
+# Large duplicate / archive folders — not needed to run the app
+# -----------------------------------------------------------------------------
+DEPENDENCIES/
+"CLAUDE 1"/
+"CLAUDE 2"/
+"CLAUDE 3"/
+"CLAUDE 4"/
+"CLAUDE 5"/
+"Chatgpt Patch"/
+"OCR Updated Integrated Module"/
+LMPC-Compliance-Platform/
+*.zip
+*.tar.gz
+*.tar
+
+# -----------------------------------------------------------------------------
+# Debug / scratch files
+# -----------------------------------------------------------------------------
+backend/crop_debug.jpg
+backend/Untitled-1.txt
+**/__advt_run.ts

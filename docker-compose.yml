@@ -1,0 +1,135 @@
+# LexMetra / LMPC Compliance Platform — Docker Compose
+#
+# Services:
+#   db       — PostgreSQL 16 (persistent volume)
+#   redis    — Redis 7 (operational cache, not source of truth)
+#   backend  — FastAPI + Uvicorn (port 8000)
+#              also serves the built React frontend at /app/
+#
+# Quick start:
+#   cp .env.example .env          # then edit .env — set JWT_SECRET_KEY at minimum
+#   docker compose up --build
+#
+# Access:
+#   API + Frontend : http://localhost:8000
+#   API Docs       : http://localhost:8000/docs
+#   Dashboard      : http://localhost:8000/frontend/dashboard.html
+#
+# Login (demo only, requires LMPC_BOOTSTRAP_DEMO_USERS=true):
+#   admin / password123
+#   inspector / password123
+#   reviewer  / password123
+
+services:
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL 16
+  # -------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-lmpc_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lmpc_dev_pw}
+      POSTGRES_DB:       ${POSTGRES_DB:-lmpc}
+    volumes:
+      - lmpc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lmpc_app} -d ${POSTGRES_DB:-lmpc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    ports:
+      # Exposed only for local debugging. Remove in production.
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  # -------------------------------------------------------------------------
+  # Redis 7 (operational cache — never source of legal truth)
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Redis is intentionally NOT exposed on the host in this config.
+    # Uncomment below only for local debugging:
+    # ports:
+    #   - "6379:6379"
+
+  # -------------------------------------------------------------------------
+  # Backend — FastAPI + Uvicorn
+  # Multi-stage Dockerfile also builds the React frontend and embeds it.
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        # Pass NODE_ENV for the Vite production build
+        NODE_ENV: production
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lmpc_app}:${POSTGRES_PASSWORD:-lmpc_dev_pw}@db:5432/${POSTGRES_DB:-lmpc}
+
+      # Redis cache
+      REDIS_URL: redis://redis:6379/0
+
+      # Auth — JWT_SECRET_KEY is REQUIRED. Docker Compose will refuse to start
+      # if this is not set in your .env file.
+      JWT_SECRET_KEY:       ${JWT_SECRET_KEY:?ERROR: Set JWT_SECRET_KEY in your .env file (see .env.example)}
+      JWT_ALGORITHM:        ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES:   ${JWT_EXPIRE_MINUTES:-480}
+
+      # App mode
+      LMPC_DEV_MODE:             ${LMPC_DEV_MODE:-false}
+      LMPC_DEMO_MODE:            ${LMPC_DEMO_MODE:-false}
+      LMPC_BOOTSTRAP_DEMO_USERS: ${LMPC_BOOTSTRAP_DEMO_USERS:-false}
+
+      # CORS — include your frontend origin if accessing from a different host
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8000,http://localhost:5173}
+
+      # Storage (container-internal paths; backed by named volumes)
+      UPLOAD_DIR: /app/backend/uploads
+      REPORT_DIR: /app/backend/reports
+
+      # OCR
+      LMPC_ENABLE_PADDLEOCR:       ${LMPC_ENABLE_PADDLEOCR:-false}
+      LMPC_MAX_UPLOAD_BYTES:        ${LMPC_MAX_UPLOAD_BYTES:-12582912}
+      LMPC_OCR_MAX_PASSES:          ${LMPC_OCR_MAX_PASSES:-8}
+      LMPC_OCR_MAX_REGIONS:         ${LMPC_OCR_MAX_REGIONS:-24}
+      LMPC_ENABLE_REGION_FIRST_OCR: ${LMPC_ENABLE_REGION_FIRST_OCR:-true}
+
+      # Optional VLM providers (leave blank to disable)
+      VLM_VERIFICATION_ENABLED: ${VLM_VERIFICATION_ENABLED:-false}
+      ANTHROPIC_API_KEY:         ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY:            ${GEMINI_API_KEY:-}
+
+    volumes:
+      - lmpc_uploads:/app/backend/uploads
+      - lmpc_reports:/app/backend/reports
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+# ---------------------------------------------------------------------------
+# Named volumes — persisted across container restarts
+# ---------------------------------------------------------------------------
+volumes:
+  lmpc_pgdata:      # PostgreSQL data files
+  lmpc_uploads:     # User-uploaded product images
+  lmpc_reports:     # Generated PDF inspection reports
