@@ -165,6 +165,9 @@ function factsToDeclarations(facts: RawScanResponse["inspection"]["facts"]): Dec
       value: f.extracted_value || "Not detected",
       status: mapFactStatus(f.status),
       confidence: conf,
+      provenance: f.raw_text
+        ? { rawText: f.raw_text, imageId: null, surfaceId: null, surfaceType: null }
+        : null,
       ruleId: f.rule_id ?? undefined,
       ruleVersion: f.rule_version ?? undefined,
       reason: f.reason || (
@@ -311,6 +314,9 @@ export function fromScanResponse(
     verifiedScore,
     reviewedScore,
     scoreBreakdown: scoreCounts,
+    mrp: raw.resolved_inputs?.mrp ?? null,
+    netQuantityValue: raw.resolved_inputs?.net_quantity_value ?? null,
+    netQuantityUnit: raw.resolved_inputs?.net_quantity_unit ?? null,
     pdpAreaCm2: raw.resolved_inputs?.pdp_area_cm2 ?? undefined,
     barcodeInfo: raw.barcode_info,
     summary:
@@ -370,6 +376,9 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
     verifiedScore,
     reviewedScore,
     scoreBreakdown: scoreCounts,
+    mrp: row.mrp ?? null,
+    netQuantityValue: row.net_quantity_value ?? null,
+    netQuantityUnit: row.net_quantity_unit ?? null,
     summary:
       row.overall_status === "PASS"
         ? "All checked declarations verified"
@@ -424,6 +433,7 @@ export function fromFinalizedInspection(
     verifiedScore,
     reviewedScore,
     scoreBreakdown: scoreCounts,
+    mrp: undefined,
     summary:
       inspection.overall_status === "PASS"
         ? "All checked declarations verified across every captured surface"

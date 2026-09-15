@@ -169,6 +169,9 @@ export interface Inspection {
     verifiedOfJudgeableScore: number;
   };
   productIdSource?: string;
+  mrp?: number | null;
+  netQuantityValue?: number | null;
+  netQuantityUnit?: string | null;
   pdpAreaCm2?: number;
   barcodeInfo?: {
     status?: string;
