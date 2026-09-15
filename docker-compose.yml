@@ -86,7 +86,7 @@ services:
 
       # Auth — JWT_SECRET_KEY is REQUIRED. Docker Compose will refuse to start
       # if this is not set in your .env file.
-      JWT_SECRET_KEY:       ${JWT_SECRET_KEY:?ERROR: Set JWT_SECRET_KEY in your .env file (see .env.example)}
+      JWT_SECRET_KEY:       "${JWT_SECRET_KEY:?ERROR: Set JWT_SECRET_KEY in your .env file (see .env.example)}"
       JWT_ALGORITHM:        ${JWT_ALGORITHM:-HS256}
       JWT_EXPIRE_MINUTES:   ${JWT_EXPIRE_MINUTES:-480}
 

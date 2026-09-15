@@ -29,7 +29,11 @@ COPY frontend/react-app/package.json frontend/react-app/package-lock.json ./
 
 # Clean install — uses package-lock.json for exact, reproducible versions.
 # --ignore-scripts prevents any postinstall hooks from running as root.
-RUN npm ci --ignore-scripts
+# --include=dev is required despite NODE_ENV=production above: the build
+# script itself (`tsc && vite build`) lives in devDependencies (typescript,
+# vite, tailwindcss, ...), and npm silently omits devDependencies whenever
+# NODE_ENV=production is set unless explicitly overridden here.
+RUN npm ci --include=dev --ignore-scripts
 
 # Copy the rest of the frontend source
 COPY frontend/react-app/ ./
