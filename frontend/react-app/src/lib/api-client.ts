@@ -231,6 +231,7 @@ export interface RawScanResponse {
       rule_version?: string | null;
       reason: string;
       review_required: boolean;
+      raw_text?: string | null;
       bbox?: { x: number; y: number; width: number; height: number } | null;
       // Named inputs the rule engine needed but never received. Populated by
       // backend/rule_engine.py (e.g. ["calibrated_pdp_area_cm2"] when Rule 7(2)
@@ -478,8 +479,11 @@ export async function getInspectionDetail(id: string): Promise<RawInspectionRow>
   return request<RawInspectionRow>(`/inspections/${encodeURIComponent(id)}`);
 }
 
-export async function markReviewed(id: string, note: string): Promise<void> {
-  await request(`/inspections/${encodeURIComponent(id)}/review`, {
+export async function markReviewed(
+  id: string,
+  note: string,
+): Promise<{ status: string; inspection_id: string; review_note: string; reviewed_by: string }> {
+  return request(`/inspections/${encodeURIComponent(id)}/review`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ note }),
@@ -508,8 +512,12 @@ export async function checkHealth(): Promise<{ status: string } | null> {
  */
 export async function reportPdfAvailable(id: string): Promise<boolean> {
   try {
+    const token = getStoredToken();
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
     const res = await fetch(`${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf`, {
       method: "HEAD",
+      headers,
     });
     return res.ok;
   } catch {

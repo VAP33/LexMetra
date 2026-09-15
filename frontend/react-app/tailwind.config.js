@@ -24,18 +24,22 @@ export default {
         border: "hsl(var(--border))",
         brand: {
           DEFAULT: "#2563eb",
+          foreground: "#ffffff",
           soft: "rgba(37, 99, 235, 0.12)",
         },
         success: {
           DEFAULT: "#16a34a",
+          foreground: "#ffffff",
           soft: "rgba(22, 163, 74, 0.12)",
         },
         warning: {
           DEFAULT: "#d97706",
+          foreground: "#ffffff",
           soft: "rgba(217, 119, 6, 0.12)",
         },
         destructive: {
           DEFAULT: "#dc2626",
+          foreground: "#ffffff",
           soft: "rgba(220, 38, 38, 0.12)",
         },
         "danger-soft": "rgba(220, 38, 38, 0.12)",

@@ -57,7 +57,7 @@ this is an *additive* program, not a rewrite.
 | Authority case management | Queue/assign/resolve | Absent | MISSING |
 | Analytics / intelligence | Trends, clustering | Absent | MISSING |
 | Voice / IndicTrans2 | Multilingual assistant | Absent | MISSING |
-| Frontend | Gov-oriented multilingual UI | `frontend/dashboard.html` (+`capture.html`) working; `frontend/react-app/` very early (scaffold only) | dashboard WORKING_BUT_UNVERIFIED; React EXPERIMENTAL |
+| Frontend | Gov-oriented multilingual UI | `frontend/react-app/` is the Inspector surface (Scan / History / Review Queue parity with `dashboard.html`). `frontend/dashboard.html` is **FROZEN** (no new features, not deleted). `frontend/capture.html` stays a separate calibrated-capture tool. | React: WORKING_BUT_UNVERIFIED (tsc+vite build green 2026-09-16; live API round-trip blocked — backend not running). dashboard: FROZEN reference |
 | Deployment | Docker | Complete `docker-compose.yml` (Postgres 16, Redis 7, backend + healthchecks) | VERIFIED_WORKING |
 
 ---
@@ -78,8 +78,8 @@ this is an *additive* program, not a rewrite.
 | Amendment lifecycle state machine | VERIFIED_WORKING |
 | Amendment OCR→diff end-to-end | PARTIAL |
 | Docker Compose (Postgres+Redis+backend) | VERIFIED_WORKING |
-| React frontend | EXPERIMENTAL (scaffold: `main.tsx`, config, no verified build in this pass) |
-| Static dashboard | WORKING_BUT_UNVERIFIED (README claims tested; not re-verified here) |
+| React frontend | WORKING_BUT_UNVERIFIED — `npm run build` (`tsc && vite build`) succeeded 2026-09-16; login screen verified in browser against the built preview. Authenticated Scan/Inspections/Review flows not live-checked (backend was down). |
+| Static dashboard | **FROZEN** (ARCH-01 D-02 + FE-01 parity). Do not add features. Do not delete until EVID-01 and other Wave 1 agents confirm they no longer need it as a reference. |
 | OpenL Tablets / YOLO / pgvector / BGE-M3 | MISSING entirely |
 | FSSAI / Consumer / Authority / Analytics / Voice | MISSING entirely |
 | `DEPENDENCIES/` tree | NON-CORE — see §7 and `02-DEPENDENCIES-CLASSIFICATION.md` |
@@ -118,7 +118,7 @@ this is an *additive* program, not a rewrite.
 2. **No semantic/vector retrieval.** BM25/TF-IDF only; blocks Tier C RAG claims.
 3. **No trained CV / YOLO.** Classical CV is an honest MVP fallback; caps accuracy on degraded prints.
 4. **Consumer + Authority ecosystems unbuilt.** ~half the product vision (USP 6/7/8), zero code.
-5. **Frontend split across two surfaces.** Now *decided*: React app is the surface to build on; `dashboard.html` frozen — see `DECISIONS.md`.
+5. **Frontend split across two Inspector surfaces.** Now *decided and executed at the React layer*: React app is the surface to build on; `dashboard.html` is **frozen-not-deleted** (FE-01, 2026-09-16). `capture.html` remains out of FE-01 scope (calibrated mm capture, not the review dashboard).
 6. **Repo hygiene:** `DEPENDENCIES/` is non-core and should be archived out of the working tree — see §7.
 
 ---
@@ -162,10 +162,25 @@ Instruction: **archive, do not delete.**
 | `01-CONTRACTS.md` | ARCH-01 | Canonical pipeline contract + RuleSet Resolver → OpenL contract |
 | `02-DEPENDENCIES-CLASSIFICATION.md` | ARCH-01 → DEVOPS-01 | Classification + archiving instruction |
 | `AGENT-EXECUTION-GUIDE.md` | ARCH-01 | How every agent runs under CDD (roles, waves, DoD, PR gates) |
-| `TEST-BASELINE.md` | TEST-01 | Real pass/fail floor (pending) |
+| `TEST-BASELINE.md` | TEST-01 | Real pass/fail floor |
 | `agents/ARCH-01/{STATE,WORKLOG,DECISIONS,HANDOFF}.md` | ARCH-01 | Per-agent working state |
+| `agents/FE-01/{STATE,WORKLOG,DECISIONS,HANDOFF}.md` | FE-01 | Inspector React consolidation |
 
 ---
 
-*Baseline authored by ARCH-01 as the Stage 2 deliverable. Section 6 is the only
-open dependency; it resolves when TEST-01 reports.*
+## Amendment — 2026-09-16 (FE-01, coordinated with ARCH-01 D-02)
+
+`frontend/react-app/` is now the Inspector surface. Feature parity with the
+three `dashboard.html` tabs (Scan, Inspections, Review Queue) is implemented
+in React; `dashboard.html` is **frozen** (no new features) and **not deleted**.
+EVID-01 should extend `frontend/react-app/src/components/evidence/EvidenceView.tsx`.
+`frontend/capture.html` is intentionally left separate.
+
+ARCH-01: fold this amendment into the frozen voice of this document when you
+next revise it. FE-01 did not change any pipeline contract.
+
+---
+
+*Baseline authored by ARCH-01 as the Stage 2 deliverable. Section 6 is owned
+by TEST-01 (`TEST-BASELINE.md` now exists). Frontend status updated by FE-01
+on 2026-09-16.*
