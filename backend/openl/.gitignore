@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+# throwaway pipeline de-risk artifact (regenerable via scripts/build_smoke.py)
+dist/smoke.zip
