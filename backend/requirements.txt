@@ -13,6 +13,13 @@ imagehash>=4.3,<5.0
 # HTTP / API testing
 httpx>=0.27,<1.0
 
+# RAG hybrid retrieval (TF-IDF/BM25-style lexical retrieval in
+# backend/rag/retriever.py). This is an unconditional, non-optional import
+# (backend/main.py -> rag_grounding -> rag.default_corpus -> rag package ->
+# rag.retriever), unlike the deliberately-optional PaddleOCR below — without
+# it the backend fails to start at all, so it belongs here, not commented out.
+scikit-learn>=1.4,<2.0
+
 # Database
 psycopg2-binary>=2.9,<3.0
 
