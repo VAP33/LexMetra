@@ -76,6 +76,13 @@ import { dataUrlToBlob } from "@/lib/data-url";
 import { TeslaScannerAnimation } from "./TeslaScannerAnimation";
 import { BeforeAfterSlider } from "./BeforeAfterSlider";
 import { RegulatoryIntelligenceDashboard } from "./RegulatoryIntelligenceDashboard";
+import {
+  PackageIntegrityCard,
+  FssaiVerificationCard,
+  ConsumerReportModal,
+  AuthorityDashboardView,
+  MultilingualAssistantWidget,
+} from "./USPComponents";
 
 type View =
   | "home"
@@ -91,7 +98,8 @@ type View =
   | "detail"
   | "evidence"
   | "report"
-  | "regulatory";
+  | "regulatory"
+  | "authority";
 
 const navItems: Array<{ label: string; view: View; icon: LucideIcon }> = [
   { label: "Home", view: "home", icon: LayoutDashboard },
@@ -99,6 +107,7 @@ const navItems: Array<{ label: string; view: View; icon: LucideIcon }> = [
   { label: "Register", view: "register", icon: ClipboardCheck },
   { label: "Review", view: "reviewQueue", icon: ShieldAlert },
   { label: "Rules", view: "regulatory", icon: FileText },
+  { label: "Authority", view: "authority", icon: ShieldCheck },
   { label: "Profile", view: "profile", icon: UserRound },
 ];
 
@@ -1313,6 +1322,8 @@ function ResultView({
   onOpenReport: () => void;
   onNew: () => void;
 }) {
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTracking, setReportTracking] = useState<{ caseId: string; reportId: string } | null>(null);
   const style = statusStyles[inspection.status];
   const verified = inspection.declarations.filter((item) => item.status === "VERIFIED" || item.status === "EXEMPT").length;
   const total = inspection.declarations.length;
@@ -1470,11 +1481,50 @@ function ResultView({
 
         <AiSignalsSection inspection={inspection} />
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Button onClick={onSave} variant={inspection.saved ? "secondary" : "primary"} disabled={inspection.saved}><BadgeCheck className="h-4 w-4" />{inspection.saved ? "Saved to register" : "Save inspection"}</Button>
-          <Button onClick={onOpenEvidence} variant="secondary"><ScanLine className="h-4 w-4" />View evidence</Button>
-          <Button onClick={onOpenReport} variant="secondary"><FileText className="h-4 w-4" />Report preview</Button>
+        {/* USP 1: Package Integrity Verification */}
+        <PackageIntegrityCard inspectionId={inspection.id} productId={inspection.productId} />
+
+        {/* USP 2: FSSAI Cross-Verification */}
+        <FssaiVerificationCard inspectionId={inspection.id} category={inspection.category} />
+
+        {/* Escalation notification banner if already reported */}
+        {reportTracking && (
+          <div className="flex items-center justify-between rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-xs">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+              <span>
+                Statutory Docket filed: <strong>{reportTracking.caseId}</strong> (Tracking ID: {reportTracking.reportId})
+              </span>
+            </div>
+            <span className="font-bold text-destructive">SUBMITTED TO AUTHORITY</span>
+          </div>
+        )}
+
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Button onClick={onSave} variant={inspection.saved ? "secondary" : "primary"} disabled={inspection.saved}>
+            <BadgeCheck className="h-4 w-4" />{inspection.saved ? "Saved to register" : "Save inspection"}
+          </Button>
+          <Button onClick={onOpenEvidence} variant="secondary">
+            <ScanLine className="h-4 w-4" />View evidence
+          </Button>
+          <Button onClick={onOpenReport} variant="secondary">
+            <FileText className="h-4 w-4" />Report preview
+          </Button>
+          <Button onClick={() => setShowReportModal(true)} variant="secondary" className="border-destructive/30 text-destructive hover:bg-destructive/10">
+            <ShieldAlert className="h-4 w-4" />Escalate to Authority
+          </Button>
         </div>
+
+        {showReportModal && (
+          <ConsumerReportModal
+            inspection={inspection}
+            onClose={() => setShowReportModal(false)}
+            onSuccess={(cId, rId) => {
+              setReportTracking({ caseId: cId, reportId: rId });
+              setShowReportModal(false);
+            }}
+          />
+        )}
       </main>
     </>
   );
@@ -2764,6 +2814,8 @@ export function InspectionApp() {
       <ReportView inspection={selected} onBack={() => go("result")} />
     ) : view === "regulatory" ? (
       <RegulatoryIntelligenceDashboard onBack={() => go("home")} />
+    ) : view === "authority" ? (
+      <AuthorityDashboardView onBack={() => go("home")} />
     ) : (
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onNavigate={go} onOpen={handleOpen} />
     );
@@ -2776,6 +2828,7 @@ export function InspectionApp() {
       {!inFocusedFlow && <div className="md:pl-64">{content}</div>}
       {inFocusedFlow && content}
       {!inFocusedFlow && <BottomNav view={view} onNavigate={go} />}
+      <MultilingualAssistantWidget currentInspection={selected} />
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-xl md:bottom-8">
           <Check className="h-4 w-4 text-success" />{toast}

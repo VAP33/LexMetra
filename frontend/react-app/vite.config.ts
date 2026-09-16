@@ -12,5 +12,12 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    proxy: {
+      '/regulatory': 'http://127.0.0.1:8000',
+      '/inspections': 'http://127.0.0.1:8000',
+      '/extract-preview': 'http://127.0.0.1:8000',
+      '/scan': 'http://127.0.0.1:8000',
+      '/auth': 'http://127.0.0.1:8000',
+    },
   },
 })

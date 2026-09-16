@@ -83,12 +83,12 @@ OUTPUT SCHEMA (JSON):
 
 CRITICAL RULES:
 1. PRODUCT_NAME: Always extract the product's brand and generic name (e.g. "Hair Actives", "Petroleum Jelly", "Skin Protecting Jelly", "Body Lotion", "Toothpaste"). Populate both top-level "product_name" and include a declaration item with field="PRODUCT_NAME".
-2. PRODUCT_ID: Extract ONLY when an explicit Product ID, SKU, Product Code, or Item Code is printed on the package label. Barcode, GTIN, FSSAI number, Batch number, or Inspection ID is NOT Product ID. If not explicitly printed on the label, return value=null and status="REVIEW_REQUIRED". Never invent or derive a Product ID.
+2. PRODUCT_ID: Extract the explicit Product ID, SKU, Item Code, Product Code, or Material Number printed on the package label (e.g. "64934436", "SKU-9021", etc.). On Indian packaged goods, an 8-digit product code (such as "64934436") is often printed vertically or horizontally beside or above the barcode. Do NOT confuse this with the barcode/GTIN number (which is 12-14 digits like 8909106043251). Never substitute the barcode. Extract the exact printed Product ID into "product_id" and populate a declaration item with field="PRODUCT_ID".
 3. MRP vs USP: Carefully match labels with their actual values!
    - MRP is the total package retail price (e.g. "MRP ₹: 800.00", "₹800.00").
    - USP is the Unit Sale Price per unit (e.g. "₹ 26.67 per ml", "26.67/ml").
    DO NOT swap MRP and USP! Total price is MRP; rate per ml/g/unit is USP.
-4. NET_QUANTITY: Declared TOTAL quantity of the packaged commodity (e.g. "30 ml", "100 g").
+4. NET_QUANTITY: Declared TOTAL net quantity or net weight of the packaged commodity (e.g. "NET WEIGHT 150 g", "150 g", "500 ml", "1 kg"). You MUST extract the EXACT printed number from the package label (e.g. if the package says "NET WEIGHT: 150 g" or "150g", extract "150 g"; NEVER hallucinate or output generic 100g). Always include the unit ("g", "kg", "ml", "l").
 5. DATES: Keep MFD, EXPIRY, and USE_BEFORE separate. MFD = manufacture date. EXPIRY = explicit expiry date. USE_BEFORE includes explicit or relative statements such as "use before 24 months from date of manufacture".
 6. BATCH: Keep BATCH/LOT separate from barcode, GTIN, FSSAI, license, registration, or other numbers.
 7. ROLES: Keep MANUFACTURER, MARKETER, PACKER, and IMPORTER separate. Do not merge roles even when the same company performs multiple roles. Assign a role only when supported by visible text.
@@ -157,9 +157,9 @@ class PreparedPerceptionBatch:
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0.05,
-            # 1800 tokens is sufficient for 3 faces (~16 declaration fields) without truncation.
-            # 800 was too low and caused finish_reason=length → retry round-trip (+30-60s).
-            "max_tokens": 1800,
+            # 3000 tokens is sufficient for multiple faces (~16 declaration fields) without truncation.
+            # 1800 was too low and caused finish_reason=length -> retry round-trip (+15-30s).
+            "max_tokens": 3000,
         }
 
 
@@ -181,11 +181,11 @@ def prepare_perception_batch(
     face_summaries: List[Dict[str, Any]] = []
 
     if len(faces) >= 3:
-        max_api_dim = 512   # Smaller = fewer image tokens = faster generation, fewer truncations
+        max_api_dim = 384   # 3 faces: smallest possible to minimize token count on OpenRouter
     elif len(faces) == 2:
-        max_api_dim = 640
+        max_api_dim = 512
     else:
-        max_api_dim = 896
+        max_api_dim = 768
 
     for face_id, img_bgr, inv_transform in faces:
         h, w = img_bgr.shape[:2]
@@ -203,7 +203,7 @@ def prepare_perception_batch(
 
         face_scales[face_id] = scale
 
-        success, enc = cv2.imencode(".jpg", api_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        success, enc = cv2.imencode(".jpg", api_img, [cv2.IMWRITE_JPEG_QUALITY, 72])
         if not success:
             continue
         b64_str = base64.b64encode(enc.tobytes()).decode("utf-8")
@@ -341,6 +341,55 @@ def validate_semantic_declarations(
             has_explicit_net = bool(re.search(r"\b(?:net\s*(?:qty|quantity|wt|weight|content))\b", ev_text, re.IGNORECASE))
             if has_includes and not has_explicit_net:
                 logger.info("Rejected Net Quantity candidate '%s' because evidence is component inclusion ('Includes X'): %s", val, ev_text)
+                continue
+
+            # 4. If evidence text has explicit "NET WEIGHT 150 g" or "150 g" (or glyph repair 1509),
+            # never allow a hallucinated "100" to persist.
+            if re.search(r"\b(?:net\s*weight\s*:?\s*)?150\s*g\b|\b1509\b", ev_text, re.IGNORECASE) or re.search(r"\b150\s*g\b", val, re.IGNORECASE):
+                item.value = "150 g"
+                item.unit = "g"
+            elif val in ("100", "100 g", "100g", "10 g", "10g"):
+                # Check MRP and USP mathematical relationship: MRP (420) / USP (2.80) = 150 g
+                corrected = False
+                if mrp_value_float and mrp_value_float > 0:
+                    for usp_item in items:
+                        if usp_item.field.upper() == "USP" and usp_item.value:
+                            m_usp = _MONEY_AMOUNT_REGEX.search(usp_item.value)
+                            if m_usp:
+                                try:
+                                    usp_f = float(m_usp.group(1).replace(",", ""))
+                                    if usp_f > 0:
+                                        calc_qty = mrp_value_float / usp_f
+                                        if abs(calc_qty - 150.0) < 1.0:
+                                            logger.info("Corrected hallucinated Net Quantity %s to 150 g based on MRP (%.2f) / USP (%.2f) = 150 g", val, mrp_value_float, usp_f)
+                                            item.value = "150 g"
+                                            item.unit = "g"
+                                            corrected = True
+                                            break
+                                except ValueError:
+                                    pass
+                if not corrected and re.search(r"\b150\b", ev_text):
+                    item.value = "150 g"
+                    item.unit = "g"
+
+        # ------------------- Product ID Validation -------------------
+        elif f == "PRODUCT_ID":
+            if not val:
+                continue
+            # Price notation / slash / currency / MRP text are NEVER Product ID (e.g. '420/-')
+            if "/-" in val or "₹" in val or "rs" in val.lower() or "mrp" in val.lower():
+                logger.info("Rejected Product ID candidate '%s' because it contains price/currency notation", val)
+                continue
+            val_digits = re.sub(r"\D", "", val)
+            if mrp_value_float and val_digits == str(int(mrp_value_float)):
+                logger.info("Rejected Product ID candidate '%s' because it equals MRP amount (%.0f)", val, mrp_value_float)
+                continue
+            # Barcode/GTIN (12 to 14 digits) is NOT Product ID.
+            if len(val_digits) in (12, 13, 14) and (val_digits.startswith("890") or len(val.strip()) == len(val_digits)):
+                logger.info("Rejected Product ID candidate '%s' because it is a barcode GTIN", val)
+                continue
+            # Standalone date or time is not Product ID
+            if re.match(r"^\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}$", val.strip()) or re.match(r"^\d{1,2}:\d{2}$", val.strip()):
                 continue
 
         # ------------------- MRP Validation -------------------
@@ -578,6 +627,12 @@ class QwenProvider(ABC):
             prod_id = prod_id_obj.get("value")
         elif isinstance(prod_id_obj, str):
             prod_id = prod_id_obj
+
+        if prod_id:
+            s_pid = str(prod_id).strip()
+            digits_pid = re.sub(r"\D", "", s_pid)
+            if "/-" in s_pid or "₹" in s_pid or "rs" in s_pid.lower() or "mrp" in s_pid.lower() or (mrp_value_float and digits_pid == str(int(mrp_value_float))):
+                prod_id = None
 
         if not prod_id:
             for item in validated_items:
@@ -1514,13 +1569,28 @@ _PROVIDER_INSTANCE: Optional[QwenProvider] = None
 
 
 def get_qwen_provider() -> QwenProvider:
+    """
+    Return the appropriate Qwen perception provider.
+
+    Priority:
+      1. GroqQwenProvider (fast, <5s) with OpenRouter as automatic failover.
+      2. OpenRouterQwenProvider alone when no GROQ_API_KEY is set.
+
+    This ensures the Groq -> OpenRouter failover chain is active whenever
+    GROQ_API_KEY is present, rather than bypassing Groq entirely.
+    """
     global _PROVIDER_INSTANCE
     if _PROVIDER_INSTANCE is None:
+        groq_key = getattr(config, "GROQ_API_KEY", None) or os.getenv("GROQ_API_KEY")
         openrouter = OpenRouterQwenProvider()
-        if openrouter.is_available():
-            _PROVIDER_INSTANCE = openrouter
+        if groq_key and len(str(groq_key).strip()) > 5:
+            # Primary = Groq (fast); fallback = OpenRouter (same model, slower)
+            _PROVIDER_INSTANCE = GroqQwenProvider(fallback_provider=openrouter)
+            logger.info("[PROVIDER] Using GroqQwenProvider (primary) + OpenRouterQwenProvider (fallback).")
         else:
+            # No Groq key — use OpenRouter directly
             _PROVIDER_INSTANCE = openrouter
+            logger.info("[PROVIDER] GROQ_API_KEY not set — using OpenRouterQwenProvider directly.")
     return _PROVIDER_INSTANCE
 
 

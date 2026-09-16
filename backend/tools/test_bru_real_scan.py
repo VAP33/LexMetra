@@ -93,7 +93,7 @@ for k, v in body.get("resolved_inputs", {}).items():
 print("\n--- 5. EXTRACTED DECLARATION EVIDENCE ---")
 fields = body.get("raw_ocr_fields", {})
 for k in [
-    "common_name", "net_quantity", "mrp", "manufacturer_name", "marketer_name",
+    "product_id", "common_name", "net_quantity", "mrp", "manufacturer_name", "marketer_name",
     "mfg_date", "expiry_date", "consumer_care", "unit_sale_price", "batch_no"
 ]:
     f_data = fields.get(k)
@@ -111,6 +111,14 @@ print(f"PDF Report status: {rep_resp.status_code}")
 print(f"PDF Bytes length:  {len(rep_resp.content)}")
 print(f"Valid PDF header:  {rep_resp.content.startswith(b'%PDF')}")
 
+# Verifications
+assert body["resolved_inputs"]["net_quantity_value"] == 150.0, f"Expected 150.0 g, got {body['resolved_inputs']['net_quantity_value']}"
+nq_val = str(fields.get("net_quantity", {}).get("value", ""))
+assert "150" in nq_val, f"Expected '150' in net_quantity value, got {nq_val}"
+pid_val = (insp.get("product_identity") or {}).get("product_id") or fields.get("product_id", {}).get("value")
+assert pid_val == "64934436", f"Expected product_id '64934436', got {pid_val}"
+
 print("\n" + "=" * 60)
 print("REAL BRU MULTI-SURFACE HTTP INSPECTION SUCCEEDED")
+print(f"VERIFIED: Net Quantity = {nq_val}, Product ID = {pid_val}")
 print("=" * 60)

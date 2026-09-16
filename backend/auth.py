@@ -161,6 +161,27 @@ async def get_current_user(
     )
 
 
+async def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme),
+) -> Optional[CurrentUser]:
+    if not token:
+        return None
+    try:
+        data = decode_access_token(token)
+        record = db.get_user_by_username(data.username)
+        if not record or not record.get("is_active", True):
+            return None
+        return CurrentUser(
+            user_id=record["user_id"],
+            username=record["username"],
+            full_name=record.get("full_name"),
+            role=record["role"],
+            is_active=record.get("is_active", True),
+        )
+    except Exception:
+        return None
+
+
 def require_role(minimum_role: str):
     """
     Return a FastAPI dependency that requires at least `minimum_role`

@@ -355,13 +355,15 @@ def parse_batch_code(text: str, label_prefix: Optional[str] = None) -> Optional[
         norm = norm[0].upper() + norm[1:]
         reasons.append("Capitalized leading character")
 
-    # 2. Specific dot-matrix confusion repair in alphanumeric codes
-    # Pattern: C26 followed by H/N/O/0/S/5 confusion (e.g. Traya batch C26HN005)
-    if re.search(r"^[cC]26", norm):
-        # Repaired dot-matrix variations: 'c26Hoo0s', 'c26Ho0s', 'c26ndoos', 'C26HO035'
-        norm = "C26HN005"
-        reasons.append("Repaired dot-matrix batch code to C26HN005")
-    elif re.search(r"[a-zA-Z]\d{2}[a-zA-Z0-9]+", norm):
+    # 2. General dot-matrix confusion repair in alphanumeric codes (O/0, S/5)
+    if re.search(r"^[a-zA-Z]\d{2}[a-zA-Z0-9]+", norm):
+        if re.search(r"\d[sS]$", norm):
+            norm = re.sub(r"(\d)[sS]$", r"\g<1>5", norm)
+            reasons.append("Normalized terminal 's' to '5'")
+        if re.search(r"\d[oO]+|\b\d+[oO]+\d+", norm):
+            norm = re.sub(r"(\d)[oO]", r"\g<1>0", norm)
+            norm = re.sub(r"[oO](\d)", r"0\g<1>", norm)
+            reasons.append("Normalized dot-matrix 'O' to '0'")
         if re.search(r"\d[sS]$", norm):
             norm = re.sub(r"(\d)[sS]$", r"\g<1>5", norm)
             reasons.append("Normalized terminal 's' to '5'")

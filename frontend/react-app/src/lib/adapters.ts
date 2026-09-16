@@ -437,9 +437,16 @@ export function fromScanResponse(
   const prodIdDecl = declarations.find(
     (d) => d.canonicalField === "product_id" || d.field.toLowerCase() === "product id"
   );
+  const rawInsp = raw.inspection as any;
   const productId = (prodIdDecl && prodIdDecl.value && prodIdDecl.value !== "Not detected" && prodIdDecl.value !== "Not captured")
     ? prodIdDecl.value
-    : "Not detected";
+    : (rawInsp?.product_id && rawInsp.product_id !== "Not detected" && !rawInsp.product_id.startsWith("SCAN-")
+        ? rawInsp.product_id
+        : (rawInsp?.product_identity?.product_id && rawInsp.product_identity.product_id !== "Not detected" && !rawInsp.product_identity.product_id.startsWith("SCAN-")
+            ? rawInsp.product_identity.product_id
+            : (details.productId && details.productId !== "Not detected" && details.productId !== "PACKAGE" && !details.productId.startsWith("SCAN-")
+                ? details.productId
+                : "Not detected")));
 
   const mfgDecl = declarations.find(
     (d) => d.canonicalField === "manufacturer_name_address" || d.field.toLowerCase() === "manufacturer"
@@ -532,7 +539,7 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
   );
   const rowProductId = (rowProdIdDecl && rowProdIdDecl.value && rowProdIdDecl.value !== "Not detected" && rowProdIdDecl.value !== "Not captured")
     ? rowProdIdDecl.value
-    : "Not detected";
+    : (row.product_id && row.product_id !== "Not detected" && !row.product_id.startsWith("SCAN-") ? row.product_id : "Not detected");
 
   const rowMfgDecl = declarations.find(
     (d) => d.canonicalField === "manufacturer_name_address" || d.field.toLowerCase() === "manufacturer"
@@ -622,9 +629,16 @@ export function fromFinalizedInspection(
   const prodIdDecl = declarations.find(
     (d) => d.canonicalField === "product_id" || d.field.toLowerCase() === "product id"
   );
+  const anyInsp = inspection as any;
   const productId = (prodIdDecl && prodIdDecl.value && prodIdDecl.value !== "Not detected" && prodIdDecl.value !== "Not captured")
     ? prodIdDecl.value
-    : "Not detected";
+    : (anyInsp?.product_id && anyInsp.product_id !== "Not detected" && !anyInsp.product_id.startsWith("SCAN-")
+        ? anyInsp.product_id
+        : (anyInsp?.product_identity?.product_id && anyInsp.product_identity.product_id !== "Not detected" && !anyInsp.product_identity.product_id.startsWith("SCAN-")
+            ? anyInsp.product_identity.product_id
+            : (details.productId && details.productId !== "Not detected" && details.productId !== "PACKAGE" && !details.productId.startsWith("SCAN-")
+                ? details.productId
+                : "Not detected")));
 
   const mfgDecl = declarations.find(
     (d) => d.canonicalField === "manufacturer_name_address" || d.field.toLowerCase() === "manufacturer"

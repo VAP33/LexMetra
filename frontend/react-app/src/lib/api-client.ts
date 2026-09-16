@@ -634,3 +634,170 @@ export async function reportPdfAvailable(id: string): Promise<boolean> {
 export function reportPdfUrl(id: string): string {
   return `${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf`;
 }
+
+// ---------------------------------------------------------------------------
+// USP 1: Package Integrity Verification
+// ---------------------------------------------------------------------------
+
+export interface IntegrityReportData {
+  status: "NO SIGNIFICANT DIFFERENCE DETECTED" | "POTENTIAL ALTERATION DETECTED" | "UNABLE TO VERIFY";
+  product_id?: string;
+  has_reference: boolean;
+  reference_image_url?: string;
+  inspected_image_url?: string;
+  comparison_method: string;
+  confidence_score: number;
+  detected_differences: Array<{
+    bbox: [number, number, number, number];
+    severity: "LOW" | "MEDIUM" | "HIGH";
+    confidence: number;
+    description: string;
+  }>;
+  explanation: string;
+  is_advisory: boolean;
+  disclaimer: string;
+}
+
+export async function getPackageIntegrity(inspectionId: string): Promise<IntegrityReportData> {
+  return request<IntegrityReportData>(`/inspections/${encodeURIComponent(inspectionId)}/integrity`);
+}
+
+// ---------------------------------------------------------------------------
+// USP 2: FSSAI Cross-Verification
+// ---------------------------------------------------------------------------
+
+export interface FssaiVerificationData {
+  status: "VERIFIED / MATCH" | "MISMATCH DETECTED" | "UNABLE TO VERIFY" | "NOT APPLICABLE";
+  is_food: boolean;
+  license_number?: string;
+  registration_type?: string;
+  issuing_authority?: string;
+  state_jurisdiction?: string;
+  declared_manufacturer?: string;
+  registry_licensee?: string;
+  details: Record<string, any>;
+  evidence_text?: string;
+  explanation: string;
+}
+
+export async function getFssaiVerification(inspectionId: string): Promise<FssaiVerificationData> {
+  return request<FssaiVerificationData>(`/inspections/${encodeURIComponent(inspectionId)}/fssai`);
+}
+
+// ---------------------------------------------------------------------------
+// USP 3: Consumer -> Authority Reporting & Enforcement Queue
+// ---------------------------------------------------------------------------
+
+export interface AuthorityCaseData {
+  case_id: string;
+  report_id: string;
+  inspection_id: string;
+  created_at: string;
+  updated_at: string;
+  status: string;
+  priority: string;
+  reporter_type: string;
+  reporter_name?: string;
+  reporter_contact?: string;
+  product_name: string;
+  product_id?: string;
+  category: string;
+  issue_category: string;
+  details: string;
+  location?: string;
+  retailer_name?: string;
+  lmpc_verdict: string;
+  lmpc_violations_count: number;
+  fssai_status?: string;
+  integrity_status?: string;
+  evidence_image_urls: string[];
+  assigned_officer?: string;
+  actions: Array<{
+    action_id: string;
+    timestamp: string;
+    officer_username: string;
+    action_type: string;
+    notes: string;
+    statutory_clause?: string;
+  }>;
+}
+
+export async function submitConsumerReport(payload: {
+  inspection_id: string;
+  product_name: string;
+  issue_category: string;
+  details: string;
+  reporter_type?: string;
+  reporter_name?: string;
+  reporter_contact?: string;
+  product_id?: string;
+  category?: string;
+  location?: string;
+  retailer_name?: string;
+  lmpc_verdict?: string;
+  lmpc_violations_count?: number;
+  fssai_status?: string;
+  integrity_status?: string;
+  evidence_image_urls?: string[];
+}): Promise<AuthorityCaseData> {
+  return request<AuthorityCaseData>("/reports/consumer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getConsumerReport(reportId: string): Promise<AuthorityCaseData> {
+  return request<AuthorityCaseData>(`/reports/${encodeURIComponent(reportId)}`);
+}
+
+export async function listAuthorityCases(params?: { status?: string; priority?: string }): Promise<AuthorityCaseData[]> {
+  const q = new URLSearchParams();
+  if (params?.status) q.set("status", params.status);
+  if (params?.priority) q.set("priority", params.priority);
+  const qs = q.toString();
+  return request<AuthorityCaseData[]>(`/authority/cases${qs ? `?${qs}` : ""}`);
+}
+
+export async function takeAuthorityCaseAction(
+  caseId: string,
+  payload: {
+    action_type: string;
+    notes: string;
+    statutory_clause?: string;
+    new_status?: string;
+  }
+): Promise<AuthorityCaseData> {
+  return request<AuthorityCaseData>(`/authority/cases/${encodeURIComponent(caseId)}/action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// USP 4: Multilingual Voice/Text Assistant
+// ---------------------------------------------------------------------------
+
+export interface AssistantResponse {
+  query: string;
+  language: "en" | "hi" | "mr";
+  response_text: string;
+  speech_text: string;
+  suggested_questions: string[];
+  grounding_sources: string[];
+  action_suggestion?: string;
+}
+
+export async function askAssistant(payload: {
+  query: string;
+  language: "en" | "hi" | "mr";
+  inspection_id?: string;
+  inspection_context?: any;
+}): Promise<AssistantResponse> {
+  return request<AssistantResponse>("/assistant/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { API_BASE } from "../lib/api-client";
 import {
   FileText,
   Upload,
@@ -75,7 +76,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
 
   async function fetchVersions() {
     try {
-      const res = await fetch("/regulatory/versions");
+      const res = await fetch(`${API_BASE}/regulatory/versions`);
       if (res.ok) {
         const data = await res.json();
         setVersions(data.versions || []);
@@ -109,7 +110,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
     formData.append("file", file);
 
     try {
-      const res = await fetch("/regulatory/upload-amendment", {
+      const res = await fetch(`${API_BASE}/regulatory/upload-amendment`, {
         method: "POST",
         body: formData,
       });
@@ -168,7 +169,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
     if (!activeProposal) return;
     setErrorMsg(null);
     try {
-      const res = await fetch(`/regulatory/proposals/${activeProposal.proposal_id}/request-auth`, {
+      const res = await fetch(`${API_BASE}/regulatory/proposals/${activeProposal.proposal_id}/request-auth`, {
         method: "POST",
       });
       if (res.ok) {
@@ -192,7 +193,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
     setErrorMsg(null);
 
     try {
-      const res = await fetch(`/regulatory/proposals/${activeProposal.proposal_id}/publish`, {
+      const res = await fetch(`${API_BASE}/regulatory/proposals/${activeProposal.proposal_id}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ auth_code: authCodeInput }),
