@@ -16,7 +16,6 @@ import {
   FileText,
   Filter,
   Flashlight,
-  Globe,
   History as HistoryIcon,
   Image as ImageIcon,
   Info,
@@ -84,8 +83,6 @@ import {
   AuthorityDashboardView,
   MultilingualAssistantWidget,
 } from "./USPComponents";
-import { CustomerDashboard } from "./CustomerDashboard";
-import { SeniorRegionalDashboard } from "./SeniorRegionalDashboard";
 
 type View =
   | "home"
@@ -102,19 +99,15 @@ type View =
   | "evidence"
   | "report"
   | "regulatory"
-  | "authority"
-  | "customer"
-  | "seniorRegional";
+  | "authority";
 
 const navItems: Array<{ label: string; view: View; icon: LucideIcon }> = [
-  { label: "Dashboard", view: "home", icon: LayoutDashboard },
-  { label: "Inspections", view: "history", icon: HistoryIcon },
+  { label: "Home", view: "home", icon: LayoutDashboard },
+  { label: "History", view: "history", icon: HistoryIcon },
   { label: "Register", view: "register", icon: ClipboardCheck },
-  { label: "Review Queue", view: "reviewQueue", icon: ShieldAlert },
-  { label: "Senior Intel", view: "seniorRegional", icon: Globe },
-  { label: "Regulatory Rules", view: "regulatory", icon: FileText },
-  { label: "Authority Dockets", view: "authority", icon: ShieldCheck },
-  { label: "Citizen Scans", view: "customer", icon: ScanLine },
+  { label: "Review", view: "reviewQueue", icon: ShieldAlert },
+  { label: "Rules", view: "regulatory", icon: FileText },
+  { label: "Authority", view: "authority", icon: ShieldCheck },
   { label: "Profile", view: "profile", icon: UserRound },
 ];
 
@@ -199,7 +192,7 @@ function StatusBadge({ status, compact = false }: { status: InspectionStatus; co
   );
 }
 
-function _Metric({ label, value, accent, loading = false }: { label: string; value: number; accent?: InspectionStatus; loading?: boolean }) {
+function Metric({ label, value, accent, loading = false }: { label: string; value: number; accent?: InspectionStatus; loading?: boolean }) {
   const accentClass = accent ? statusStyles[accent].text : "text-foreground";
   return (
     <div className="min-w-0">
@@ -232,7 +225,7 @@ function InspectionRow({ inspection, onOpen }: { inspection: Inspection; onOpen:
 
 function AppHeader({
   title,
-  eyebrow = "LEXMETRA · Department of Consumer Affairs",
+  eyebrow = "The Inspectors",
   onMenu,
   online,
 }: {
@@ -249,11 +242,8 @@ function AppHeader({
             <Menu className="h-5 w-5" />
           </button>
           <div>
-            <div className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
-              <p className="text-[10px] font-bold uppercase tracking-[.18em] text-muted-foreground">{eyebrow}</p>
-            </div>
-            <h1 className="mt-0.5 text-lg font-bold tracking-tight text-foreground">{title}</h1>
+            <p className="text-[10px] font-bold uppercase tracking-[.18em] text-muted-foreground">{eyebrow}</p>
+            <h1 className="mt-0.5 text-lg font-semibold tracking-[-.03em] text-foreground">{title}</h1>
           </div>
         </div>
         <div className="hidden items-center gap-3 md:flex">
@@ -263,7 +253,7 @@ function AppHeader({
             </span>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-full bg-success-soft px-3 py-1.5 text-xs font-semibold text-success">
-              <span className="h-1.5 w-1.5 rounded-full bg-success" />Central DCA Engine Live
+              <span className="h-1.5 w-1.5 rounded-full bg-success" />Live
             </span>
           )}
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground"><UserRound className="h-4 w-4" /></div>
@@ -277,16 +267,11 @@ function AppHeader({
 function DesktopRail({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-border/70 bg-card px-4 py-6 md:flex">
-      <div className="mb-8 flex items-center gap-3 px-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-          <ScanLine className="h-5 w-5" />
-        </div>
+      <div className="mb-10 flex items-center gap-3 px-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground"><ScanLine className="h-5 w-5" /></div>
         <div>
-          <div className="flex items-center gap-1.5">
-            <p className="text-sm font-black tracking-wider text-foreground">LEXMETRA</p>
-            <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[9px] font-bold text-brand">OFFICIAL</span>
-          </div>
-          <p className="text-[10px] font-bold uppercase tracking-[.08em] text-muted-foreground">Dept of Consumer Affairs</p>
+          <p className="text-sm font-bold tracking-[-.03em]">THE INSPECTORS</p>
+          <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">SIH 2026 · PS 26034</p>
         </div>
       </div>
       <nav className="space-y-1">
@@ -294,28 +279,15 @@ function DesktopRail({ view, onNavigate }: { view: View; onNavigate: (view: View
           const Icon = item.icon;
           const active = view === item.view;
           return (
-            <button
-              key={item.view}
-              type="button"
-              onClick={() => onNavigate(item.view)}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${
-                active ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-[18px] w-[18px]" />
-              {item.label}
+            <button key={item.view} type="button" onClick={() => onNavigate(item.view)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"}`}>
+              <Icon className="h-[18px] w-[18px]" />{item.label}
             </button>
           );
         })}
       </nav>
-      <div className="mt-auto rounded-2xl bg-muted/70 border border-border/60 p-4 text-xs">
-        <div className="flex items-center gap-2 font-bold text-foreground">
-          <ShieldCheck className="h-4 w-4 text-brand" />
-          <span>Statutory Authority Unit</span>
-        </div>
-        <p className="mt-1.5 leading-relaxed text-muted-foreground text-[11px]">
-          Legal Metrology (Packaged Commodities) Rules, 2011 · Department of Consumer Affairs
-        </p>
+      <div className="mt-auto rounded-2xl bg-muted p-4">
+        <div className="flex items-center gap-2 text-xs font-semibold text-foreground"><ShieldCheck className="h-4 w-4 text-brand" />Live compliance engine</div>
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">Real OCR extraction and deterministic rule evaluation are active.</p>
       </div>
     </aside>
   );
@@ -399,378 +371,73 @@ function HomeView({
   onNavigate: (view: View) => void;
   onOpen: (inspection: Inspection) => void;
 }) {
-  const [lang, setLang] = useState<"en" | "hi" | "mr">("en");
-
   const scanned = inspections.length;
   const compliant = inspections.filter((item) => item.status === "COMPLIANT").length;
   const violations = inspections.filter((item) => item.status === "VIOLATION").length;
-  const uncertainCases = inspections.filter((item) => item.status === "UNCERTAIN").length;
-  const pendingReviews = inspections.filter((item) => item.reviewRequired && !item.reviewed).length;
+  const review = inspections.filter((item) => item.status === "UNCERTAIN" || (item.reviewRequired && !item.reviewed)).length;
   const registerHealth = scanned ? Math.round((compliant / scanned) * 100) : 0;
-
-  // Realistic count for today's active inspections
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const inspectionsToday = inspections.filter(
-    (item) => item.timestamp && item.timestamp.startsWith(todayStr)
-  ).length || Math.min(scanned, 4);
-
-  // Package integrity alert count
-  const integrityAlerts = inspections.filter(
-    (item) => item.stickerSuspicions && item.stickerSuspicions.length > 0
-  ).length;
-
-  // Grounded dynamic AI summary based on actual inspection data
-  const aiSummary = useMemo(() => {
-    if (lang === "hi") {
-      return {
-        badge: "दैनिक संचालन ब्रीफिंग",
-        headline: "विधिक मेट्रोलॉजी प्रवर्तन एवं संकुल निगरानी सारांश",
-        text: `आज के रजिस्टर में ${inspectionsToday} संकुल जांचे गए हैं। कुल ${scanned} दर्ज वस्तुओं में से ${violations} में वैधानिक घोषणाओं का उल्लंघन मिला है जिन पर विधिक नोटिस अपेक्षित है। ${uncertainCases + pendingReviews} प्रकरण समीक्षाधीन हैं। पैकेजिंग अखंडता प्रणाली ने ${integrityAlerts} संभावित लेबल छेड़छाड़ दर्ज किए हैं।`,
-        actionPill: "उच्च प्राथमिकता समीक्षा",
-      };
-    }
-    if (lang === "mr") {
-      return {
-        badge: "दैनिक कामकाज अहवाल",
-        headline: "कायदेशीर मापनशास्त्र अंमलबजावणी व पाकीट देखरेख अहवाल",
-        text: `आजच्या कार्यकक्षेत ${inspectionsToday} पाकिटांची तपासणी झाली आहे. नोंदवहीत उपलब्ध ${scanned} पैकी ${violations} उत्पादनांमध्ये वैधानिक उल्लंघने आढळली असून कायदेशीर कारवाई प्रस्तावित आहे. ${uncertainCases + pendingReviews} प्रकरणे फेरतपासणीसाठी प्रलंबित आहेत. पॅकेज इंटिग्रिटी प्रणालीने ${integrityAlerts} संशयास्पद नोंदी शोधल्या आहेत.`,
-        actionPill: "तातडीची तपासणी",
-      };
-    }
-    return {
-      badge: "Operational Intelligence Briefing",
-      headline: "Legal Metrology Surveillance & Compliance Summary",
-      text: `${inspectionsToday} inspections processed on docket today. Across all ${scanned} active packages, ${violations} statutory violations under Rule 6 require officer review notices. ${uncertainCases + pendingReviews} cases remain under evidentiary verification. Package Integrity monitor detected ${integrityAlerts} tampering/label alteration alerts.`,
-      actionPill: "High Priority Review",
-    };
-  }, [lang, inspectionsToday, scanned, violations, uncertainCases, pendingReviews, integrityAlerts]);
-
-  // Filter highest urgency cases (violations and pending reviews)
-  const urgentQueue = useMemo(() => {
-    return inspections.filter((i) => i.status === "VIOLATION" || (i.reviewRequired && !i.reviewed)).slice(0, 4);
-  }, [inspections]);
 
   return (
     <>
-      <AppHeader title="Inspector Command Center" online={!error} />
-      <main className="mx-auto max-w-7xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
-        {/* Government Officer Operational Header */}
-        <section className="flex flex-col justify-between gap-4 rounded-2xl border border-border/80 bg-card p-6 shadow-sm sm:flex-row sm:items-center">
+      <AppHeader title="Inspection dashboard" online={!error} />
+      <main className="mx-auto max-w-6xl space-y-8 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
+        <section className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="rounded-md bg-brand-soft px-2 py-0.5 text-[10px] font-bold text-brand uppercase tracking-wider">
-                Government of India · DCA
-              </span>
-              <span className="text-xs text-muted-foreground">·</span>
-              <span className="text-xs font-semibold text-muted-foreground">Enforcement Unit: Zone 4 Surveillance</span>
-            </div>
-            <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
-              Legal Metrology Field Operations
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Statutory verification under Legal Metrology (Packaged Commodities) Rules, 2011 & FSSAI Standards
-            </p>
+            <p className="text-sm font-semibold text-brand">Field Unit · Legal Metrology</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-[-.05em] text-foreground sm:text-4xl">Inspection dashboard</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Ready for your next inspection?</p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Button onClick={() => onNavigate("scan")} variant="primary" className="shadow-sm">
-              <ScanLine className="h-4 w-4" />
-              New Inspection
-            </Button>
-            <Button onClick={() => onNavigate("seniorRegional")} variant="secondary">
-              <Globe className="h-4 w-4" />
-              Regional Intel
-            </Button>
-            <Button onClick={() => onNavigate("authority")} variant="secondary">
-              <ShieldCheck className="h-4 w-4" />
-              Authority Dockets
-            </Button>
-          </div>
+          <Button onClick={() => onNavigate("scan")}><ScanLine className="h-4 w-4" />Start inspection<ArrowRight className="h-4 w-4" /></Button>
         </section>
 
         {error && <ErrorBanner message={error} onRetry={onRetry} onLogout={onLogout} />}
 
-        {/* Dynamic Multilingual AI Analysis Block */}
-        <section className="rounded-2xl border border-brand/30 bg-gradient-to-br from-brand/5 via-card to-card p-5 sm:p-6 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3 mb-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand text-brand-foreground">
-                <Sparkles className="h-4 w-4" />
-              </div>
+        <section className="grid grid-cols-2 gap-3 rounded-2xl border border-border/70 bg-card p-4 sm:grid-cols-4 sm:p-5">
+          <Metric label="Scanned" value={scanned} loading={loading} />
+          <Metric label="Compliant" value={compliant} accent="COMPLIANT" loading={loading} />
+          <Metric label="Violations" value={violations} accent="VIOLATION" loading={loading} />
+          <Metric label="Review" value={review} accent="UNCERTAIN" loading={loading} />
+        </section>
+
+        <section className="grid gap-5 lg:grid-cols-[1.2fr_.8fr]">
+          <button type="button" onClick={() => onNavigate("scan")} className="group relative overflow-hidden rounded-2xl bg-primary p-6 text-left text-primary-foreground transition-transform hover:-translate-y-0.5 sm:p-8">
+            <div className="absolute right-6 top-6 flex h-12 w-12 items-center justify-center rounded-full border border-primary-foreground/20 bg-primary-foreground/10"><ScanLine className="h-6 w-6" /></div>
+            <p className="text-xs font-bold uppercase tracking-[.16em] text-primary-foreground/60">Next action</p>
+            <h3 className="mt-12 max-w-sm text-2xl font-semibold tracking-[-.04em]">Scan a product label with confidence.</h3>
+            <p className="mt-3 max-w-sm text-sm leading-6 text-primary-foreground/70">Capture declarations, validate the package, and keep an evidence-backed record.</p>
+            <span className="mt-7 inline-flex items-center gap-2 text-sm font-semibold">Open scanner <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></span>
+          </button>
+          <div className="rounded-2xl border border-border/70 bg-card p-6 sm:p-8">
+            <div className="flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-brand">{aiSummary.badge}</span>
-                <h3 className="text-sm font-bold text-foreground">{aiSummary.headline}</h3>
+                <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Register health</p>
+                {loading ? <div className="mt-3 h-9 w-16 animate-pulse rounded-md bg-muted" /> : <p className="mt-3 text-3xl font-semibold tracking-[-.05em]">{registerHealth}%</p>}
               </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success-soft text-success"><BadgeCheck className="h-6 w-6" /></div>
             </div>
-
-            {/* Language Selector (EN / HI / MR) */}
-            <div className="inline-flex rounded-lg border border-border/70 bg-card p-0.5 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setLang("en")}
-                className={`rounded-md px-2.5 py-1 transition ${lang === "en" ? "bg-brand text-brand-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                English
-              </button>
-              <button
-                type="button"
-                onClick={() => setLang("hi")}
-                className={`rounded-md px-2.5 py-1 transition ${lang === "hi" ? "bg-brand text-brand-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                हिन्दी
-              </button>
-              <button
-                type="button"
-                onClick={() => setLang("mr")}
-                className={`rounded-md px-2.5 py-1 transition ${lang === "mr" ? "bg-brand text-brand-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                मराठी
-              </button>
-            </div>
-          </div>
-
-          <p className="text-xs leading-relaxed text-foreground/90 font-medium">
-            {aiSummary.text}
-          </p>
-        </section>
-
-        {/* Dense 5-Metric Operational Ticker */}
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <div className="rounded-xl border border-border/70 bg-card p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Inspections Today</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">{loading ? "…" : inspectionsToday}</p>
-            <span className="mt-1 block text-[10px] text-muted-foreground">of {scanned} total logged</span>
-          </div>
-
-          <div className="rounded-xl border border-destructive/20 bg-danger-soft/30 p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-destructive">Violations Flagged</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-destructive">{loading ? "…" : violations}</p>
-            <span className="mt-1 block text-[10px] text-destructive/80">Rule 6 non-compliance</span>
-          </div>
-
-          <div className="rounded-xl border border-warning/20 bg-warning-soft/30 p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-warning">Pending Reviews</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-warning">{loading ? "…" : (uncertainCases + pendingReviews)}</p>
-            <span className="mt-1 block text-[10px] text-warning/80">Requires inspector review</span>
-          </div>
-
-          <div className="rounded-xl border border-border/70 bg-card p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Package Integrity</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">{loading ? "…" : integrityAlerts}</p>
-            <span className="mt-1 block text-[10px] text-muted-foreground">Tamper/sticker alerts</span>
-          </div>
-
-          <div className="rounded-xl border border-success/20 bg-success-soft/30 p-4 shadow-xs col-span-2 sm:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-success">Register Health</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-success">{loading ? "…" : `${registerHealth}%`}</p>
-            <span className="mt-1 block text-[10px] text-success/80">Compliant ratio</span>
+            <div className="mt-7 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-success transition-all" style={{ width: `${registerHealth}%` }} /></div>
+            <p className="mt-3 text-sm text-muted-foreground">{scanned ? "Based on all inspections run so far." : "Run your first scan to populate this."}</p>
           </div>
         </section>
 
-        {/* Operational Workbench: 2-Column Command Grid */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          {/* Left Column: Immediate Action & Queue (7 Cols) */}
-          <div className="space-y-6 lg:col-span-7">
-            {/* Urgent Review & Violations Queue */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-border/70 pb-3 mb-3">
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-destructive" />
-                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                    Priority Review Queue ({urgentQueue.length})
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("reviewQueue")}
-                  className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
-                >
-                  Full Queue <ChevronRight className="h-3 w-3" />
-                </button>
-              </div>
-
-              {urgentQueue.length > 0 ? (
-                <div className="divide-y divide-border/60">
-                  {urgentQueue.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between py-3">
-                      <div className="min-w-0 flex-1 pr-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-foreground truncate">{item.product}</span>
-                          <span className="font-mono text-[10px] text-muted-foreground">#{item.id}</span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                          {item.manufacturer || "Manufacturer not detected"} · {item.summary || "Pending officer review"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={item.status} compact />
-                        <Button
-                          variant="secondary"
-                          className="h-8 px-2.5 text-xs"
-                          onClick={() => onOpen(item)}
-                        >
-                          Review
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground py-4 text-center">
-                  All priority review cases have been processed.
-                </p>
-              )}
-            </section>
-
-            {/* Recent Inspections Log */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-border/70 pb-3 mb-3">
-                <div>
-                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                    Recent Verified Inspections
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground">Live statutory records in local registry</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("history")}
-                  className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
-                >
-                  View All ({scanned}) <ArrowRight className="h-3 w-3" />
-                </button>
-              </div>
-
-              {loading ? (
-                <div className="space-y-2 py-2">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="h-12 animate-pulse rounded-lg bg-muted" />
-                  ))}
-                </div>
-              ) : inspections.length ? (
-                <div className="divide-y divide-border/60">
-                  {inspections.slice(0, 4).map((inspection) => (
-                    <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} />
-                  ))}
-                </div>
-              ) : (
-                <EmptyState
-                  title="No inspections yet"
-                  description="Scan your first package label to populate the local operational register."
-                  onAction={() => onNavigate("scan")}
-                />
-              )}
-            </section>
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Latest activity</p>
+              <h3 className="mt-1 text-xl font-semibold tracking-[-.035em]">Recent inspections</h3>
+            </div>
+            <button type="button" onClick={() => onNavigate("history")} className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:text-brand/80">View all <ArrowRight className="h-4 w-4" /></button>
           </div>
-
-          {/* Right Column: Regulatory Intelligence & Inter-Agency Surveillance (5 Cols) */}
-          <div className="space-y-6 lg:col-span-5">
-            {/* Regulatory Updates & Rule Engine Status */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-border/70 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-brand" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                    Regulatory Updates
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("regulatory")}
-                  className="text-[11px] font-semibold text-brand hover:underline"
-                >
-                  Rule Engine
-                </button>
-              </div>
-
-              <div className="space-y-2.5 text-xs">
-                <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
-                  <div className="flex items-center justify-between font-semibold">
-                    <span>LMPC 2011 · Rule 6 (Consolidated)</span>
-                    <span className="rounded bg-success-soft text-success px-1.5 py-0.2 text-[9px] font-bold">ACTIVE</span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-                    Mandatory MRP, Unit Sale Price (USP), Net Quantity font height, Batch &amp; Manufacturer details enforcement.
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
-                  <div className="flex items-center justify-between font-semibold">
-                    <span>G.S.R. 594(E) QR Code Provision</span>
-                    <span className="rounded bg-brand-soft text-brand px-1.5 py-0.2 text-[9px] font-bold">GAZETTE</span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-                    Electronic declarations permitted via registered QR codes on commodities with PDP under 100 cm².
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            {/* Cross-Verification: FSSAI & Package Integrity */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-border/70 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                    Inter-Agency Cross-Check
-                  </h3>
-                </div>
-                <span className="text-[10px] font-mono text-muted-foreground">DOCA · FSSAI</span>
-              </div>
-
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between rounded-xl bg-muted/40 p-3 border border-border/60">
-                  <div>
-                    <p className="font-semibold text-foreground">FSSAI License Verification</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">14-digit FoSCoS registry validation</p>
-                  </div>
-                  <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-bold text-success">
-                    ONLINE
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between rounded-xl bg-muted/40 p-3 border border-border/60">
-                  <div>
-                    <p className="font-semibold text-foreground">Package Integrity Model</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Dual-contour sticker &amp; price tamper check</p>
-                  </div>
-                  <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-bold text-brand">
-                    ACTIVE
-                  </span>
-                </div>
-              </div>
-            </section>
-
-            {/* Senior Officer & Citizen Reporting Links */}
-            <section className="rounded-2xl border border-brand/20 bg-muted/30 p-4 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-bold uppercase tracking-wider text-muted-foreground text-[10px]">
-                  Specialized Portals
-                </span>
-                <span className="text-[10px] text-brand font-semibold">Dual Mode</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => onNavigate("seniorRegional")}
-                  className="rounded-xl border border-border/80 bg-card p-2.5 text-left hover:border-brand transition group"
-                >
-                  <Globe className="h-4 w-4 text-brand mb-1 group-hover:scale-110 transition-transform" />
-                  <p className="font-semibold text-foreground">Senior Officer</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Regional surveillance</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("customer")}
-                  className="rounded-xl border border-border/80 bg-card p-2.5 text-left hover:border-brand transition group"
-                >
-                  <ScanLine className="h-4 w-4 text-brand mb-1 group-hover:scale-110 transition-transform" />
-                  <p className="font-semibold text-foreground">Citizen Portal</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Public scan &amp; report</p>
-                </button>
-              </div>
-            </section>
-          </div>
-        </div>
+          {loading ? (
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">
+              {[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />)}
+            </div>
+          ) : inspections.length ? (
+            <div className="rounded-2xl border border-border/70 bg-card px-4">{inspections.slice(0, 4).map((inspection) => <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} />)}</div>
+          ) : (
+            <EmptyState title="No inspections yet" description="Scan your first product to start building your inspection history." onAction={() => onNavigate("scan")} />
+          )}
+        </section>
       </main>
     </>
   );
@@ -1528,15 +1195,7 @@ function ProcessingErrorView({ message, onRetry, onCancel }: { message: string; 
 // Result
 // ---------------------------------------------------------------------------
 
-function DeclarationRow({
-  declaration,
-  inspectionId,
-  onFactUpdated,
-}: {
-  declaration: Declaration;
-  inspectionId?: string;
-  onFactUpdated?: (field: string, newVal: string, refreshed: any) => void;
-}) {
+function DeclarationRow({ declaration }: { declaration: Declaration }) {
   const statusMap: Record<DeclarationStatus, { label: string; className: string; icon: LucideIcon }> = {
     VERIFIED: { label: "Verified", className: "text-success", icon: Check },
     MISSING: { label: "Not detected", className: "text-destructive", icon: XCircle },
@@ -1545,94 +1204,23 @@ function DeclarationRow({
     UNOBSERVED: { label: "Not detected", className: "text-muted-foreground", icon: CircleHelp },
   };
   const [expanded, setExpanded] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(declaration.value || "");
-  const [saving, setSaving] = useState(false);
-
   const item = statusMap[declaration.status] || statusMap.REVIEW;
   const Icon = item.icon;
-
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inspectionId || !editValue.trim() || saving) return;
-    setSaving(true);
-    try {
-      const { updateInspectionFact } = await import("@/lib/api-client");
-      const res = await updateInspectionFact(inspectionId, {
-        field: declaration.field,
-        value: editValue.trim(),
-        reviewer_notes: "Direct inspection result inline correction.",
-      });
-      if (onFactUpdated) {
-        onFactUpdated(declaration.field, editValue.trim(), res.refreshed_detail);
-      }
-      setIsEditing(false);
-    } catch (err: any) {
-      alert("Failed to update fact: " + err?.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <div className="border-b border-border/70 py-4 last:border-0">
-      <div className="grid w-full grid-cols-[1fr_auto] items-center gap-4 text-left sm:grid-cols-[1.1fr_1fr_auto]">
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-left">
+      <button type="button" onClick={() => setExpanded((v) => !v)} className="grid w-full grid-cols-[1fr_auto] items-center gap-4 text-left sm:grid-cols-[1.1fr_1fr_auto]">
+        <div>
           <p className="text-sm font-semibold">{declaration.field}</p>
-          <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">{declaration.value || "Not detected"}</p>
-        </button>
-        <div className="hidden sm:flex items-center gap-2">
-          {!isEditing ? (
-            <p className="truncate text-sm text-foreground font-medium">{declaration.value || "—"}</p>
-          ) : (
-            <form onSubmit={handleSaveEdit} className="flex items-center gap-1.5 w-full">
-              <input
-                type="text"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                className="h-8 flex-1 rounded-lg border border-brand bg-background px-2.5 text-xs outline-none"
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={saving}
-                className="h-8 rounded-lg bg-brand px-2 text-[11px] font-bold text-brand-foreground"
-              >
-                {saving ? "…" : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                className="h-8 rounded-lg border border-border px-2 text-[11px] text-muted-foreground"
-              >
-                Cancel
-              </button>
-            </form>
-          )}
+          <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">{declaration.value}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {inspectionId && !isEditing && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditValue(declaration.value || "");
-                setIsEditing(true);
-              }}
-              className="rounded-lg border border-border/70 bg-card px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:border-brand hover:text-brand transition"
-            >
-              Edit
-            </button>
-          )}
-          <div className={`flex items-center gap-1 text-xs font-semibold ${item.className}`}>
-            <Icon className="h-4 w-4" />{item.label}
-            <button type="button" onClick={() => setExpanded((v) => !v)} className="p-1">
-              <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
-            </button>
-          </div>
+        <p className="hidden truncate text-sm text-muted-foreground sm:block">{declaration.value}</p>
+        <div className={`flex items-center gap-1.5 text-xs font-semibold ${item.className}`}>
+          <Icon className="h-4 w-4" />{item.label}
+          <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
         </div>
-      </div>
+      </button>
       {expanded && (
-        <div className="mt-3 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground space-y-2">
+        <div className="mt-3 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">
           <p className="font-medium text-foreground">{declaration.reason || "No further detail available for this field."}</p>
 
           <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4 rounded-md bg-card p-2 border border-border/50 text-[11px]">
@@ -1727,19 +1315,15 @@ function ResultView({
   onOpenEvidence,
   onOpenReport,
   onNew,
-  onInspectionUpdated,
 }: {
   inspection: Inspection;
   onSave: () => void;
   onOpenEvidence: () => void;
   onOpenReport: () => void;
   onNew: () => void;
-  onInspectionUpdated?: (updated: Inspection) => void;
 }) {
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportTracking, setReportTracking] = useState<{ caseId: string; reportId: string } | null>(null);
-  const [resultLang, setResultLang] = useState<"en" | "hi" | "mr">("en");
-
   const style = statusStyles[inspection.status];
   const verified = inspection.declarations.filter((item) => item.status === "VERIFIED" || item.status === "EXEMPT").length;
   const total = inspection.declarations.length;
@@ -1752,17 +1336,6 @@ function ResultView({
     inspection.status === "VIOLATION" ? "Some required information was not detected or needs an officer review." :
     inspection.status === "EXEMPT" ? (inspection.exemptReason || "This package falls outside the scope of these rules.") :
     "Some information could not be reliably verified from the image.";
-
-  const resultAiSummary = useMemo(() => {
-    const prod = inspection.product || "Product";
-    if (resultLang === "hi") {
-      return `${prod} का विधिक मेट्रोलॉजी (पैकेज्ड कमोडिटीज) नियम, 2011 के अंतर्गत निरीक्षण: कुल ${total} में से ${verified} वैधानिक घोषणाएं सत्यापित। वर्तमान स्थिति: ${inspection.status === "VIOLATION" ? "उल्लंघन (अधिसूचना आवश्यक)" : inspection.status === "UNCERTAIN" ? "समीक्षाधीन (प्रमाण संदिग्ध)" : "पूर्णतः अनुरूप"}। किसी भी घोषणा को संपादित करने पर नियम पुनः स्वचालित रूप से पुनर्मूल्यांकित किए जाएंगे।`;
-    }
-    if (resultLang === "mr") {
-      return `${prod} ची कायदेशीर मापनशास्त्र (पॅकेज्ड कमोडिटीज) नियम, २०११ अंतर्गत तपासणी: एकूण ${total} पैकी ${verified} वैधानिक बाबी पडताळल्या गेल्या. सद्यस्थिती: ${inspection.status === "VIOLATION" ? "उल्लंघन (नोटीस आवश्यक)" : inspection.status === "UNCERTAIN" ? "पुनरावलोकन आवश्यक" : "अनुरूप"}. कोणतीही माहिती संपादित केल्यास नियम आपोआप पुन्हा तपासले जातील.`;
-    }
-    return `Statutory Inspection Summary for ${prod} under Legal Metrology (Packaged Commodities) Rules, 2011: ${verified} of ${total} mandatory declarations verified. Status evaluated as ${inspection.status}. ${inspection.status === "VIOLATION" ? "Statutory non-compliance identified under Rule 6; formal review notice recommended." : inspection.status === "UNCERTAIN" ? "Evidentiary ambiguity detected; officer confirmation required before registration." : "All observed declarations satisfy prescribed statutory thresholds."} Inline edits dynamically re-execute rule checks.`;
-  }, [resultLang, inspection, verified, total]);
 
   return (
     <>
@@ -1778,6 +1351,14 @@ function ResultView({
               <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{body}</p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
+              {/* A FRACTION, NOT A PERCENTAGE, AND DELIBERATELY SO.
+                  Two failure modes were rejected here. Showing verified-of-all
+                  as "11%" made a correct single-panel capture (1 field read, 8
+                  never visible in frame) look like a failing product. Showing
+                  verified-of-judgeable instead reported that same capture as
+                  "100%", which is worse -- it reads as "fully compliant" when
+                  8 checks never ran. A fraction carries its own denominator, so
+                  neither misreading is available. */}
               <div className="flex h-24 w-24 flex-col items-center justify-center rounded-full bg-card shadow-sm border border-border/60">
                 <span className={`text-2xl font-semibold ${style.text}`}>
                   {inspection.scoreBreakdown
@@ -1821,6 +1402,9 @@ function ResultView({
                   of {inspection.scoreBreakdown.applicableCount} applicable
                 </span>
               </div>
+              {/* When most checks could not be assessed, say so in words. The
+                  fraction alone still invites "1/9 = bad product" when the
+                  correct reading is "this frame did not show 8 of the panels". */}
               {inspection.scoreBreakdown.blockedCount > 0 &&
                 inspection.scoreBreakdown.blockedCount >= inspection.scoreBreakdown.judgeableCount && (
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -1845,44 +1429,6 @@ function ResultView({
           </div>
         </section>
 
-        {/* Dynamic Multilingual AI Inspection Analysis Block */}
-        <section className="rounded-2xl border border-brand/30 bg-gradient-to-br from-brand/5 via-card to-card p-5 shadow-sm">
-          <div className="flex items-center justify-between border-b border-border/60 pb-3 mb-2.5">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-brand" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                AI Grounded Inspection Summary
-              </h3>
-            </div>
-            <div className="inline-flex rounded-lg border border-border/70 bg-card p-0.5 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setResultLang("en")}
-                className={`rounded-md px-2 py-0.5 transition ${resultLang === "en" ? "bg-brand text-brand-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                onClick={() => setResultLang("hi")}
-                className={`rounded-md px-2 py-0.5 transition ${resultLang === "hi" ? "bg-brand text-brand-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                HI
-              </button>
-              <button
-                type="button"
-                onClick={() => setResultLang("mr")}
-                className={`rounded-md px-2 py-0.5 transition ${resultLang === "mr" ? "bg-brand text-brand-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                MR
-              </button>
-            </div>
-          </div>
-          <p className="text-xs leading-relaxed text-foreground/90 font-medium">
-            {resultAiSummary}
-          </p>
-        </section>
-
         <DisclaimerBanner text={inspection.disclaimer} />
 
         <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7">
@@ -1894,10 +1440,7 @@ function ResultView({
                   Ruleset: {inspection.declarations[0]?.ruleVersion || "IN-LMPC-2011:2011-consolidated"}
                 </span>
               </div>
-              <h3 className="mt-2 text-xl font-semibold tracking-[-.035em]">Extracted Information &amp; Inline Correction</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Edit any field below to trigger immediate, deterministic re-evaluation of statutory rules.
-              </p>
+              <h3 className="mt-2 text-xl font-semibold tracking-[-.035em]">Extracted information & Regulatory Intelligence</h3>
             </div>
             <div className="text-right">
               <span className="text-sm font-semibold text-muted-foreground">
@@ -1908,20 +1451,7 @@ function ResultView({
               )}
             </div>
           </div>
-          <div className="mt-4">
-            {inspection.declarations.map((declaration) => (
-              <DeclarationRow
-                key={declaration.field}
-                declaration={declaration}
-                inspectionId={inspection.id}
-                onFactUpdated={(_field, _val, refreshed) => {
-                  if (refreshed && onInspectionUpdated) {
-                    onInspectionUpdated(fromInspectionRow(refreshed));
-                  }
-                }}
-              />
-            ))}
-          </div>
+          <div className="mt-4">{inspection.declarations.map((declaration) => <DeclarationRow key={declaration.field} declaration={declaration} />)}</div>
         </section>
 
         {inspection.status !== "COMPLIANT" && inspection.status !== "EXEMPT" && (
@@ -2846,6 +2376,7 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
   );
 }
 
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
@@ -2883,7 +2414,7 @@ function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: ()
             <div>
               <div className="flex items-center gap-2 text-brand"><FileCheck2 className="h-5 w-5" /><span className="text-xs font-bold uppercase tracking-[.18em]">Legal metrology</span></div>
               <h2 className="mt-3 text-3xl font-semibold tracking-[-.05em]">Inspection report</h2>
-              <p className="mt-2 text-sm text-muted-foreground">Generated by LEXMETRA · Department of Consumer Affairs, Government of India</p>
+              <p className="mt-2 text-sm text-muted-foreground">Generated by THE INSPECTORS · SIH 2026</p>
             </div>
             <StatusBadge status={inspection.status} />
           </div>
@@ -2973,8 +2504,8 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (user: AuthedUser) => void }) {
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground"><ScanLine className="h-5 w-5" /></div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">DEPARTMENT OF CONSUMER AFFAIRS</p>
-            <h1 className="text-lg font-semibold tracking-[-.03em]">LexMetra Officer Sign In</h1>
+            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">THE INSPECTORS</p>
+            <h1 className="text-lg font-semibold tracking-[-.03em]">Sign in</h1>
           </div>
         </div>
         <p className="mt-4 text-sm text-muted-foreground">Every inspection action on this backend requires an authenticated inspector, reviewer, or admin account.</p>
@@ -3159,16 +2690,8 @@ export function InspectionApp() {
   }
 
   function handlePreprocessingDone(canonUrls: string[]) {
-    const urls = canonUrls.length > 0 ? canonUrls : pendingImages;
-    setCanonicalImages(urls);
-    // Directly submit inferred details into session processing (bypasses confirm details page per Req 8)
-    submitDetails({
-      saleType: "retail",
-      productCategory: "food_general",
-      isExportOnly: false,
-      retailBundleCount: 1,
-      isImported: false,
-    });
+    setCanonicalImages(canonUrls);
+    setView("scanDetails");
   }
 
   function handlePreprocessingError(message: string) {
@@ -3231,12 +2754,6 @@ export function InspectionApp() {
     setProcessingError(message);
   }
 
-  function handleInspectionUpdated(updated: Inspection) {
-    setSelected(updated);
-    setInspections((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-    setToast("Declaration updated & rules re-evaluated");
-  }
-
   async function saveAndRegister() {
     if (!selected) return;
     try {
@@ -3290,14 +2807,7 @@ export function InspectionApp() {
         <ProcessingRunner onRun={() => pendingRunRef.current()} onDone={handleProcessingDone} onError={handleProcessingError} />
       )
     ) : selected && (view === "result" || view === "detail") ? (
-      <ResultView
-        inspection={selected}
-        onSave={saveAndRegister}
-        onOpenEvidence={() => go("evidence")}
-        onOpenReport={() => go("report")}
-        onNew={() => go("scan")}
-        onInspectionUpdated={handleInspectionUpdated}
-      />
+      <ResultView inspection={selected} onSave={saveAndRegister} onOpenEvidence={() => go("evidence")} onOpenReport={() => go("report")} onNew={() => go("scan")} />
     ) : selected && view === "evidence" ? (
       <EvidenceView inspection={selected} onBack={() => go("result")} />
     ) : selected && view === "report" ? (
@@ -3306,21 +2816,6 @@ export function InspectionApp() {
       <RegulatoryIntelligenceDashboard onBack={() => go("home")} />
     ) : view === "authority" ? (
       <AuthorityDashboardView onBack={() => go("home")} />
-    ) : view === "customer" ? (
-      <CustomerDashboard
-        onBack={() => go("home")}
-        onOpenInspection={handleOpen}
-        onStartScan={() => go("scan")}
-        inspections={inspections}
-      />
-    ) : view === "seniorRegional" ? (
-      <SeniorRegionalDashboard
-        onBack={() => go("home")}
-        onOpenInspection={(id: string) => {
-          const item = inspections.find((x) => x.id === id);
-          if (item) handleOpen(item);
-        }}
-      />
     ) : (
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onNavigate={go} onOpen={handleOpen} />
     );
