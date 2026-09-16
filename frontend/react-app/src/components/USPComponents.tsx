@@ -386,26 +386,58 @@ export function ConsumerReportModal({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-semibold text-muted-foreground mb-1">Retailer / Store Name</label>
-              <input
-                type="text"
-                placeholder="e.g. Local Mart, Sector 14"
-                value={retailerName}
-                onChange={(e) => setRetailerName(e.target.value)}
-                className="h-9 w-full rounded-xl border border-border bg-background px-3 text-xs outline-none focus:border-brand"
-              />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-muted-foreground">Purchase / Retail Store Location *</label>
+              <span className="text-[10px] text-brand font-medium">Map Pin & Store Selector</span>
             </div>
-            <div>
-              <label className="block font-semibold text-muted-foreground mb-1">City / Location</label>
-              <input
-                type="text"
-                placeholder="e.g. Gurugram, Haryana"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="h-9 w-full rounded-xl border border-border bg-background px-3 text-xs outline-none focus:border-brand"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <input
+                  type="text"
+                  placeholder="Store name (e.g. D-Mart, Sector 14)"
+                  value={retailerName}
+                  onChange={(e) => setRetailerName(e.target.value)}
+                  className="h-9 w-full rounded-xl border border-border bg-background px-3 text-xs outline-none focus:border-brand"
+                />
+              </div>
+              <div>
+                <input
+                  type="text"
+                  placeholder="City / Area (e.g. Pune, Maharashtra)"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="h-9 w-full rounded-xl border border-border bg-background px-3 text-xs outline-none focus:border-brand"
+                />
+              </div>
+            </div>
+
+            {/* Quick Location & Map Pin Chips */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-[10px] text-muted-foreground">Quick Pin:</span>
+              {[
+                { name: "Pune, MH", lat: 18.5204, lng: 73.8567 },
+                { name: "Mumbai, MH", lat: 19.0760, lng: 72.8777 },
+                { name: "Gurugram, HR", lat: 28.4595, lng: 77.0266 },
+                { name: "Bengaluru, KA", lat: 12.9716, lng: 77.5946 },
+                { name: "Delhi NCT", lat: 28.6139, lng: 77.2090 },
+              ].map((pin) => (
+                <button
+                  key={pin.name}
+                  type="button"
+                  onClick={() => {
+                    setLocation(pin.name);
+                    if (!retailerName) setRetailerName("Local Retail Merchant");
+                  }}
+                  className={`rounded-lg px-2 py-0.5 text-[10px] font-medium border transition ${
+                    location === pin.name
+                      ? "border-brand bg-brand/10 text-brand"
+                      : "border-border/60 bg-muted/40 text-muted-foreground hover:border-border"
+                  }`}
+                >
+                  📍 {pin.name}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -938,13 +970,6 @@ export function MultilingualAssistantWidget({
     }
   }
 
-  const quickChips = [
-    { label: "Explain Violation", q: "Why is this package in violation?" },
-    { label: "Unit Sale Price (USP)", q: "What does Rule 6(11) Unit Sale Price require?" },
-    { label: "FSSAI License", q: "Is the FSSAI license verified for this food commodity?" },
-    { label: "Package Integrity", q: "Was any tampering or alteration detected on the packaging?" },
-  ];
-
   return (
     <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40">
       {!isOpen ? (
@@ -1007,14 +1032,32 @@ export function MultilingualAssistantWidget({
             </div>
           </div>
 
-          {/* Quick Context Chips */}
+          {/* Intuitive Action / Common Task Menu */}
           <div className="flex gap-1.5 overflow-x-auto border-b border-border/40 bg-muted/20 px-3 py-2 text-[10px] no-scrollbar">
-            {quickChips.map((chip, idx) => (
+            {[
+              { label: "Explain inspection", q: "Explain this inspection and its overall findings" },
+              { label: "Explain violation", q: "Explain the violations found on this package" },
+              { label: "Why uncertain?", q: "Why is this inspection or declaration marked uncertain?" },
+              { label: "Show evidence", q: "Show supporting evidence and localized polygon regions" },
+              { label: "Explain rule", q: "Explain the applicable Legal Metrology rules for MRP and Net Weight" },
+              { label: "Summarize", q: "Summarize findings for this package" },
+              { label: "Generate report", q: "Generate report for this inspection" },
+              { label: "🔊 Read aloud", q: "Read summary aloud" },
+            ].map((chip, idx) => (
               <button
                 key={idx}
                 type="button"
-                onClick={() => handleSend(chip.q)}
-                className="shrink-0 rounded-full border border-border/70 bg-card px-2.5 py-1 font-medium text-foreground hover:border-brand hover:text-brand transition"
+                onClick={() => {
+                  if (chip.label === "🔊 Read aloud") {
+                    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+                    if (lastAssistant) {
+                      speakText(lastAssistant.text);
+                      return;
+                    }
+                  }
+                  handleSend(chip.q);
+                }}
+                className="shrink-0 rounded-full border border-border/70 bg-card px-2.5 py-1 font-medium text-foreground hover:border-brand hover:text-brand transition shadow-2xs"
               >
                 {chip.label}
               </button>

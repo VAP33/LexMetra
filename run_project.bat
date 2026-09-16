@@ -46,8 +46,9 @@ if errorlevel 1 (
     )
 
     if defined PGCTL (
-        echo     Using pg_ctl: !PGCTL!
-        "%PGCTL%" start -D "%~dp0backend\db\data_local" -o "-p 5433" -l "%~dp0backend\db\data_local\logfile.txt" -s -w
+        set "PGCTL=!PGCTL:"=!"
+        echo     Using pg_ctl: "!PGCTL!"
+        "!PGCTL!" start -D "%~dp0backend\db\data_local" -o "-p 5433" -l "%~dp0backend\db\data_local\logfile.txt" -s -w
         if errorlevel 1 (
             echo [ERROR] pg_ctl failed to start PostgreSQL. Check logfile:
             echo         %~dp0backend\db\data_local\logfile.txt
