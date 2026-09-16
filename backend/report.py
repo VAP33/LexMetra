@@ -347,8 +347,16 @@ def build_inspection_report_pdf(
     story: list[Any] = []
 
     inspection_id = _get(inspection, "inspection_id", "unknown")
-    story.append(Paragraph("Legal Metrology Compliance Inspection Report", title_style))
-    story.append(Paragraph(f"Inspection ID: {inspection_id}", normal))
+    header_org_style = ParagraphStyle(
+        "GovHeader", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold",
+        textColor=colors.HexColor("#0f172a"), spaceAfter=2, alignment=1,
+    )
+    story.append(Paragraph("GOVERNMENT OF INDIA &bull; DEPARTMENT OF CONSUMER AFFAIRS", header_org_style))
+    story.append(Paragraph("Legal Metrology (Packaged Commodities) Division", ParagraphStyle(
+        "SubGovHeader", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#475569"), spaceAfter=4, alignment=1,
+    )))
+    story.append(Paragraph("LEXMETRA OFFICIAL INSPECTION &amp; EVIDENCE RECORD", title_style))
+    story.append(Paragraph(f"<b>Inspection &amp; Case Docket ID:</b> {inspection_id} &nbsp;|&nbsp; <b>Authority:</b> Department of Consumer Affairs", normal))
     story.append(Spacer(1, 4))
     story.append(Paragraph(DISCLAIMER, disclaimer_style))
     story.append(Spacer(1, 10))
@@ -501,8 +509,8 @@ def build_inspection_report_pdf(
         )
         table_rows = [[
             Paragraph(text, header_style)
-            for text in ("Rule / Field", "Rule version", "Status", "Reason",
-                         "Evidence", "Conf.")
+            for text in ("Rule / Field", "Rule version", "Status", "Reason & Legal Clause",
+                         "Evidence Region (Original px)")
         ]]
         for row in rows:
             table_rows.append([
@@ -511,12 +519,11 @@ def build_inspection_report_pdf(
                 row["status"],
                 Paragraph(row["reason"], small),
                 Paragraph(row["evidence"], small),
-                row["confidence"],
             ])
 
         findings_table = Table(
             table_rows,
-            colWidths=[34 * mm, 16 * mm, 20 * mm, 49 * mm, 45 * mm, 13 * mm],
+            colWidths=[36 * mm, 20 * mm, 22 * mm, 52 * mm, 47 * mm],
             repeatRows=1,
         )
         style_commands = [

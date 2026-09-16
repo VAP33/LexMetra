@@ -801,3 +801,67 @@ export async function askAssistant(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Inline Fact Editing with Dynamic Rule Re-evaluation
+// ---------------------------------------------------------------------------
+
+export async function updateInspectionFact(
+  inspectionId: string,
+  payload: {
+    field: string;
+    value: string;
+    unit?: string;
+    reviewer_notes?: string;
+  }
+): Promise<{
+  status: string;
+  inspection_id: string;
+  updated_field: string;
+  new_value: string;
+  new_overall_status: string;
+  refreshed_detail: any;
+}> {
+  return request(`/inspections/${encodeURIComponent(inspectionId)}/facts`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Regional Intelligence & Social Grievances
+// ---------------------------------------------------------------------------
+
+export async function getRegionalIntelligence(language: "en" | "hi" | "mr" = "en"): Promise<any> {
+  return request(`/regional/intelligence?language=${encodeURIComponent(language)}`);
+}
+
+export async function listSocialMentions(params?: {
+  domain?: string;
+  severity?: string;
+  status?: string;
+}): Promise<any[]> {
+  const q = new URLSearchParams();
+  if (params?.domain) q.set("domain", params.domain);
+  if (params?.severity) q.set("severity", params.severity);
+  if (params?.status) q.set("status", params.status);
+  const qs = q.toString();
+  return request<any[]>(`/social/mentions${qs ? `?${qs}` : ""}`);
+}
+
+export async function takeSocialMentionAction(
+  mentionId: string,
+  payload: {
+    new_status: string;
+    officer_notes?: string;
+    linked_case_id?: string;
+  }
+): Promise<any> {
+  return request(`/social/mentions/${encodeURIComponent(mentionId)}/action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+

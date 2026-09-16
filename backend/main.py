@@ -2852,6 +2852,166 @@ def get_product_history(
 
 
 # ---------------------------------------------------------------------------
+# Inline Declaration Editing with Dynamic Rule Re-evaluation (Req 8, 12)
+# ---------------------------------------------------------------------------
+
+class InlineFactUpdateInput(BaseModel):
+    field: str
+    value: str
+    unit: Optional[str] = None
+    reviewer_notes: Optional[str] = None
+
+
+@app.patch("/inspections/{inspection_id}/facts")
+def update_inspection_fact(
+    inspection_id: str,
+    req: InlineFactUpdateInput,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """
+    Inline correction on Inspection Results:
+    1. Updates the canonical fact value in persisted database.
+    2. Dynamically re-runs Arya's Rule Engine on updated facts.
+    3. Re-evaluates compliance status, findings, and score breakdown.
+    4. Records immutable audit event with reviewer identity.
+    """
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    insp_data = detail.get("inspection") or detail
+    declarations = insp_data.get("declarations") or []
+    facts = detail.get("facts") or []
+
+    # Update or add declaration
+    field_name = req.field.strip()
+    new_val = req.value.strip()
+
+    updated_field = False
+    for d in declarations:
+        if d.get("field") == field_name:
+            d["value"] = new_val
+            d["status"] = "VERIFIED"
+            d["reason"] = f"Manually verified and updated by Inspector @{current_user.username}. {req.reviewer_notes or ''}".strip()
+            updated_field = True
+            break
+
+    if not updated_field:
+        declarations.append({
+            "field": field_name,
+            "value": new_val,
+            "status": "VERIFIED",
+            "reason": f"Manually added by Inspector @{current_user.username}",
+        })
+
+    # Prepare extraction dictionary for rule re-evaluation
+    extractions_dict: Dict[str, Any] = {}
+    for d in declarations:
+        f = d.get("field")
+        if f:
+            extractions_dict[f] = {
+                "value": d.get("value"),
+                "status": d.get("status", "DETECTED"),
+                "raw_text": d.get("value"),
+            }
+
+    # Re-evaluate with Arya Regulatory Service
+    reg_service = RegulatoryService()
+    try:
+        qty_val = float(extractions_dict.get("net_quantity", {}).get("value", 0) or 0)
+    except Exception:
+        qty_val = None
+
+    try:
+        mrp_val = float(extractions_dict.get("mrp", {}).get("value", 0) or 0)
+    except Exception:
+        mrp_val = None
+
+    cat = insp_data.get("commodity_category") or insp_data.get("product_category") or "food"
+    sale_type = insp_data.get("sale_type") or "retail"
+
+    new_result = reg_service.evaluate(
+        inspection_id=inspection_id,
+        sale_type=sale_type,
+        product_category=cat,
+        net_quantity_value=qty_val,
+        net_quantity_unit="g",
+        mrp=mrp_val,
+        extractions=extractions_dict,
+    )
+
+    db.save_inspection(new_result, mrp=mrp_val)
+    db.record_audit_event(
+        action="fact_inline_updated",
+        actor_username=current_user.username,
+        resource_type="inspection_fact",
+        resource_id=f"{inspection_id}:{field_name}",
+        detail=f"Field '{field_name}' updated to '{new_val}' by {current_user.username}",
+    )
+
+    return {
+        "status": "ok",
+        "inspection_id": inspection_id,
+        "updated_field": field_name,
+        "new_value": new_val,
+        "new_overall_status": new_result.overall_status.value if hasattr(new_result.overall_status, "value") else str(new_result.overall_status),
+        "refreshed_detail": db.get_inspection_detail(inspection_id),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Regional Intelligence & Social Grievance Analytics (USP 5, 6)
+# ---------------------------------------------------------------------------
+
+import regional_analytics
+import social_intelligence
+
+@app.get("/regional/intelligence")
+def get_regional_intelligence(
+    language: str = "en",
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """Answers: WHERE ARE PROBLEMS OCCURRING across districts and retailers."""
+    return regional_analytics.get_regional_intelligence_summary(language=language)
+
+
+@app.get("/social/mentions")
+def get_social_mentions(
+    domain: Optional[str] = None,
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """Returns public social media & consumer grievance intelligence items."""
+    return social_intelligence.list_social_mentions(domain=domain, severity=severity, status=status)
+
+
+class SocialMentionStatusInput(BaseModel):
+    new_status: str
+    officer_notes: Optional[str] = None
+    linked_case_id: Optional[str] = None
+
+
+@app.post("/social/mentions/{mention_id}/action")
+def take_social_mention_action(
+    mention_id: str,
+    req: SocialMentionStatusInput,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """Officer converts public grievance into formal enforcement case or dismisses."""
+    res = social_intelligence.update_mention_status(
+        mention_id=mention_id,
+        new_status=req.new_status,
+        officer_notes=req.officer_notes,
+        linked_case_id=req.linked_case_id,
+    )
+    if not res:
+        raise HTTPException(status_code=404, detail="Social mention not found.")
+    return res
+
+
+
+# ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
 
