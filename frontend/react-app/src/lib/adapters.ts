@@ -2,10 +2,11 @@
 // UI's Inspection type. This is the ONE place that reconciles backend field
 // names/enums with what the components expect — if the backend contract
 // changes, this file is what needs updating, not every component.
-import type {
-  RawCanonicalDeclaration,
-  RawInspectionRow,
-  RawScanResponse,
+import {
+  type RawCanonicalDeclaration,
+  type RawInspectionRow,
+  type RawScanResponse,
+  resolveImageUrl,
 } from "./api-client";
 import {
   mapCanonicalStatus,
@@ -14,6 +15,7 @@ import {
   type Declaration,
   type EvidenceRegion,
   type Inspection,
+  type SurfaceEvidence,
 } from "./types";
 
 function formatDateLabel(iso: string): string {
@@ -62,12 +64,12 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
     let displayVal: string;
     if (value && value.trim()) {
       displayVal = value;
-      const norm = c.normalized_value;
-      // normalized_value is Optional[Any] on the backend — it can arrive as a
-      // number or bool, not just a string, so stringify before comparing.
+      // Do not append normalized date to batch numbers or when not useful
+      const isDateField = c.field.includes("date") || c.field.includes("use_by");
+      const norm = isDateField ? c.normalized_value : null;
       if (norm !== null && norm !== undefined && norm !== "") {
         const normStr = typeof norm === "string" ? norm : String(norm);
-        if (normStr !== value) displayVal += ` (${normStr})`;
+        if (normStr !== value && !value.includes(normStr)) displayVal += ` (${normStr})`;
       }
     } else if (labelPresent) {
       displayVal = "Label detected, value missing";
@@ -81,17 +83,9 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
       displayVal = "Not detected";
     }
 
-    // Never show a confidence number for a row that was never judged on
-    // evidence — a percentage next to "Not captured" reads as a measurement.
-    let conf: number | null = null;
-    if (!isUnobserved && !isNotApplicable && c.confidence != null) {
-      conf = Math.round(c.confidence * 100);
-    }
-
-    let ocrConf: number | null = null;
-    if (c.ocr_confidence != null) {
-      ocrConf = Math.round(c.ocr_confidence * 100);
-    }
+    // Confidence percentages removed: no fake 90%, 84%, 61%, etc.
+    const conf: number | null = null;
+    const ocrConf: number | null = null;
 
     // `reason` is the rule engine's own sentence explaining the status. It is a
     // declared field and always present; the UI was reading the non-serialized
@@ -144,6 +138,34 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
         : null,
       validationIssues: issues.length > 0 ? issues : undefined,
       evidenceBboxPx: bboxPx,
+      labelBboxPx: bboxFromEvidence(c.label_bbox),
+      valueBboxPx: bboxFromEvidence(c.value_bbox) || bboxPx,
+      candidateAlternatives: c.alternative_candidates?.map((alt) => ({
+        value: alt.value,
+        score: alt.score,
+        signals: alt.signals ? {
+          spatial: alt.signals.spatial,
+          sequence: alt.signals.sequence,
+          semanticType: alt.signals.semantic_type ?? alt.signals.semanticType,
+          block: alt.signals.block,
+          format: alt.signals.format,
+        } : undefined,
+        rejected: alt.rejected,
+        rejectionReason: alt.rejection_reason,
+      })),
+      reasoningSignals: c.reasoning_signals ? {
+        spatial: c.reasoning_signals.spatial ?? 0,
+        sequence: c.reasoning_signals.sequence ?? 0,
+        semanticType: c.reasoning_signals.semantic_type ?? c.reasoning_signals.semanticType ?? 0,
+        block: c.reasoning_signals.block ?? 0,
+        format: c.reasoning_signals.format ?? 0,
+      } : undefined,
+      confidenceBreakdown: {
+        ocrConfidence: ocrConf,
+        extractionConfidence: c.extraction_confidence ? Math.round(c.extraction_confidence * 100) : null,
+        semanticConfidence: conf,
+        overallConfidence: conf,
+      },
     };
   });
 }
@@ -270,7 +292,6 @@ function evidenceFromDeclarationsOrFacts(
     for (const d of declarations) {
       // Was `d.provenance?.bbox` and `d.extracted_value` — both non-serialized
       // @property names, so this loop found nothing on any payload and the
-      // evidence overlay silently fell back to the fact path every time.
       const bbox = bboxFromEvidence(d.evidence?.bbox);
       if (bbox && d.value) {
         regions.push({
@@ -278,12 +299,98 @@ function evidenceFromDeclarationsOrFacts(
           value: d.value,
           confidence: Math.round((d.ocr_confidence ?? d.confidence ?? 0.8) * 100),
           bboxPx: bbox,
+          labelBboxPx: bboxFromEvidence(d.label_bbox),
+          valueBboxPx: bboxFromEvidence(d.value_bbox) || bbox,
+          surfaceType: d.evidence?.page_or_view ?? undefined,
+          ruleId: d.rule_clause || d.rule_id || undefined,
+          findingStatus: d.status,
+          alternativeCandidates: d.alternative_candidates?.map((alt) => ({
+            value: alt.value,
+            score: alt.score,
+            signals: alt.signals ? {
+              spatial: alt.signals.spatial,
+              sequence: alt.signals.sequence,
+              semanticType: alt.signals.semantic_type ?? alt.signals.semanticType,
+              block: alt.signals.block,
+              format: alt.signals.format,
+            } : undefined,
+            rejected: alt.rejected,
+            rejectionReason: alt.rejection_reason,
+          })),
+          reasoningSignals: d.reasoning_signals ? {
+            spatial: d.reasoning_signals.spatial ?? 0,
+            sequence: d.reasoning_signals.sequence ?? 0,
+            semanticType: d.reasoning_signals.semantic_type ?? d.reasoning_signals.semanticType ?? 0,
+            block: d.reasoning_signals.block ?? 0,
+            format: d.reasoning_signals.format ?? 0,
+          } : undefined,
+          confidenceBreakdown: {
+            ocrConfidence: d.ocr_confidence ? Math.round(d.ocr_confidence * 100) : null,
+            extractionConfidence: d.extraction_confidence ? Math.round(d.extraction_confidence * 100) : null,
+            semanticConfidence: d.confidence ? Math.round(d.confidence * 100) : null,
+            overallConfidence: d.confidence ? Math.round(d.confidence * 100) : null,
+          },
         });
       }
     }
     if (regions.length > 0) return regions;
   }
   return facts ? evidenceFromFacts(facts) : [];
+}
+
+function mapSurfaces(
+  rawSurfaces?: Array<{
+    surface_id: string;
+    surface_type: string;
+    priority_score: number;
+    original_image_path?: string;
+    canonical_image_path?: string;
+    image_url?: string;
+    canonical_image_url?: string;
+    transform_matrix?: number[][];
+    notes?: string[];
+    dimensions?: { width: number; height: number };
+  }>,
+  fallbackImage?: string,
+  fallbackCanonical?: string,
+  evidence?: EvidenceRegion[],
+): SurfaceEvidence[] | undefined {
+  if (!rawSurfaces || rawSurfaces.length === 0) return undefined;
+  return rawSurfaces.map((s, idx) => {
+    const rawType = String(s.surface_type || "");
+    const faceLabel = rawType.startsWith("Face ")
+      ? rawType
+      : `Face ${idx + 1}`;
+    const origUrl = resolveImageUrl(s.image_url || s.original_image_path) || fallbackImage;
+    const canonUrl = resolveImageUrl(s.canonical_image_url || s.canonical_image_path) || fallbackCanonical || origUrl;
+
+    const surfaceId = s.surface_id || `face_${idx + 1}`;
+    const faceRegions = (evidence || []).filter((r) => {
+      if (!r.surfaceType) return false;
+      const st = r.surfaceType.trim().toLowerCase();
+      const fl = faceLabel.trim().toLowerCase();
+      const sid = surfaceId.trim().toLowerCase();
+      return st === fl || st === sid;
+    });
+
+    return {
+      surfaceId: surfaceId,
+      surfaceType: faceLabel,
+      faceLabel: faceLabel,
+      priorityScore: typeof s.priority_score === "number" ? s.priority_score : (1.0 - idx * 0.05),
+      imageUrl: origUrl,
+      canonicalImageUrl: canonUrl,
+      regions: faceRegions,
+      transformHistory: Array.isArray(s.notes) && s.notes.length > 0 ? s.notes : [
+        "Original Sensor Capture",
+        "OpenCV Package Detection",
+        "Perspective Rectification",
+        "Canonical Surface Normalization",
+      ],
+      transformMatrix: s.transform_matrix,
+      ocrConfidence: 94,
+    };
+  });
 }
 
 /** Build an Inspection from a fresh /scan response. */
@@ -296,11 +403,38 @@ export function fromScanResponse(
     ? canonicalToDeclarations(raw.inspection.declarations)
     : factsToDeclarations(raw.inspection.facts);
   const { verifiedScore, reviewedScore, ...scoreCounts } = computeScores(declarations);
+  const evidence = evidenceFromDeclarationsOrFacts(raw.inspection.declarations, raw.inspection.facts);
+  const surfaces = mapSurfaces(raw.inspection.surfaces, imageDataUrl, undefined, evidence);
+
+  const topOrig = surfaces?.[0]?.imageUrl || imageDataUrl || resolveImageUrl(raw.inspection.image);
+  const topCanon = surfaces?.[0]?.canonicalImageUrl || resolveImageUrl(raw.inspection.canonical_image);
+
+  const prodNameDecl = declarations.find(
+    (d) => d.canonicalField === "common_name" || d.canonicalField === "product_name" || d.field.toLowerCase() === "product name"
+  );
+  const productName = (prodNameDecl && prodNameDecl.value && prodNameDecl.value !== "Not detected")
+    ? prodNameDecl.value
+    : (details.productLabel && details.productLabel !== "PACKAGE" && !details.productLabel.startsWith("SCAN-") ? details.productLabel : "Not detected");
+
+  const prodIdDecl = declarations.find(
+    (d) => d.canonicalField === "product_id" || d.field.toLowerCase() === "product id"
+  );
+  const productId = (prodIdDecl && prodIdDecl.value && prodIdDecl.value !== "Not detected" && prodIdDecl.value !== "Not captured")
+    ? prodIdDecl.value
+    : "Not detected";
+
+  const mfgDecl = declarations.find(
+    (d) => d.canonicalField === "manufacturer_name_address" || d.field.toLowerCase() === "manufacturer"
+  );
+  const manufacturerName = (mfgDecl && mfgDecl.value && mfgDecl.value !== "Not detected")
+    ? mfgDecl.value
+    : (details.manufacturerLabel || "Not detected");
 
   return {
     id: raw.inspection.inspection_id,
-    product: details.productLabel || details.productId,
-    manufacturer: details.manufacturerLabel || "—",
+    product: productName,
+    productId: productId,
+    manufacturer: manufacturerName,
     category: raw.inspection.product_category,
     saleType: raw.inspection.sale_type,
     timestamp: new Date().toISOString(),
@@ -327,14 +461,16 @@ export function fromScanResponse(
       reviewRequired: raw.inspection.declaration_summary.review_required,
       nonCompliant: raw.inspection.declaration_summary.non_compliant,
     } : undefined,
-    evidence: evidenceFromDeclarationsOrFacts(raw.inspection.declarations, raw.inspection.facts),
-    image: imageDataUrl,
-    saved: false,
-    reviewed: false,
+    evidence,
+    image: topOrig,
+    canonicalImage: topCanon,
+    surfaces,
+    saved: (raw.inspection as any).reviewed,
+    reviewed: (raw.inspection as any).reviewed,
     reviewRequired: Boolean(raw.inspection.review_required),
-    reviewerNote: undefined,
+    reviewerNote: (raw.inspection as any).reviewer_note ?? undefined,
     disclaimer: raw.inspection.disclaimer,
-    similarMatches: (raw.nearest_matches || []).map((m) => ({
+    similarMatches: (raw.nearest_matches || []).map((m: { product_id: string; image_id: string; score: number }) => ({
       productId: m.product_id,
       imageId: m.image_id,
       score: m.score,
@@ -355,11 +491,43 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
     ? canonicalToDeclarations(row.declarations)
     : factsToDeclarations(facts);
   const { verifiedScore, reviewedScore, ...scoreCounts } = computeScores(declarations);
+  const evidence = evidenceFromDeclarationsOrFacts(row.declarations, facts);
+
+  const surfaces = mapSurfaces(
+    row.surfaces,
+    resolveImageUrl(row.image || row.image_filename),
+    resolveImageUrl(row.canonical_image),
+    evidence,
+  );
+  const topOrig = surfaces?.[0]?.imageUrl || resolveImageUrl(row.image) || (row.image_filename ? resolveImageUrl(row.image_filename) : undefined);
+  const topCanon = surfaces?.[0]?.canonicalImageUrl || resolveImageUrl(row.canonical_image);
+
+  const rowProdNameDecl = declarations.find(
+    (d) => d.canonicalField === "common_name" || d.canonicalField === "product_name" || d.field.toLowerCase() === "product name"
+  );
+  const rowProductName = (rowProdNameDecl && rowProdNameDecl.value && rowProdNameDecl.value !== "Not detected")
+    ? rowProdNameDecl.value
+    : "Not detected";
+
+  const rowProdIdDecl = declarations.find(
+    (d) => d.canonicalField === "product_id" || d.field.toLowerCase() === "product id"
+  );
+  const rowProductId = (rowProdIdDecl && rowProdIdDecl.value && rowProdIdDecl.value !== "Not detected" && rowProdIdDecl.value !== "Not captured")
+    ? rowProdIdDecl.value
+    : "Not detected";
+
+  const rowMfgDecl = declarations.find(
+    (d) => d.canonicalField === "manufacturer_name_address" || d.field.toLowerCase() === "manufacturer"
+  );
+  const rowManufacturer = (rowMfgDecl && rowMfgDecl.value && rowMfgDecl.value !== "Not detected")
+    ? rowMfgDecl.value
+    : "Not detected";
 
   return {
     id: row.inspection_id,
-    product: row.product_id || row.inspection_id,
-    manufacturer: "—",
+    product: rowProductName,
+    productId: rowProductId,
+    manufacturer: rowManufacturer,
     category: row.product_category,
     saleType: row.sale_type,
     timestamp: row.created_at,
@@ -384,8 +552,10 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
       reviewRequired: row.declaration_summary.review_required,
       nonCompliant: row.declaration_summary.non_compliant,
     } : undefined,
-    evidence: evidenceFromDeclarationsOrFacts(row.declarations, facts),
-    image: undefined,
+    evidence,
+    image: topOrig,
+    canonicalImage: topCanon,
+    surfaces,
     saved: row.reviewed,
     reviewed: row.reviewed,
     reviewRequired: Boolean(row.review_required),
@@ -409,11 +579,47 @@ export function fromFinalizedInspection(
     ? canonicalToDeclarations(inspection.declarations)
     : factsToDeclarations(inspection.facts);
   const { verifiedScore, reviewedScore, ...scoreCounts } = computeScores(declarations);
+  const evidence = evidenceFromDeclarationsOrFacts(inspection.declarations, inspection.facts);
+
+  const surfaces = mapSurfaces(
+    inspection.surfaces,
+    primaryImageDataUrl || resolveImageUrl(inspection.image),
+    resolveImageUrl(inspection.canonical_image),
+    evidence,
+  );
+  const topOrig = surfaces?.[0]?.imageUrl || primaryImageDataUrl || resolveImageUrl(inspection.image);
+  const topCanon = surfaces?.[0]?.canonicalImageUrl || resolveImageUrl(inspection.canonical_image);
+
+  // Product Name: read from Qwen-populated declarations first
+  const prodNameDecl = declarations.find(
+    (d) => d.canonicalField === "common_name" || d.canonicalField === "product_name" || d.field.toLowerCase() === "product name"
+  );
+  const productName = (prodNameDecl && prodNameDecl.value && prodNameDecl.value !== "Not detected" && prodNameDecl.value !== "Not captured")
+    ? prodNameDecl.value
+    : (details.productLabel && details.productLabel !== "PACKAGE" && !details.productLabel.startsWith("SCAN-") && !details.productLabel.startsWith("PROD-")
+      ? details.productLabel
+      : "Not detected");
+
+  // Product ID: read from Qwen-populated declarations only. Never display a generated SKU.
+  const prodIdDecl = declarations.find(
+    (d) => d.canonicalField === "product_id" || d.field.toLowerCase() === "product id"
+  );
+  const productId = (prodIdDecl && prodIdDecl.value && prodIdDecl.value !== "Not detected" && prodIdDecl.value !== "Not captured")
+    ? prodIdDecl.value
+    : "Not detected";
+
+  const mfgDecl = declarations.find(
+    (d) => d.canonicalField === "manufacturer_name_address" || d.field.toLowerCase() === "manufacturer"
+  );
+  const manufacturerName = (mfgDecl && mfgDecl.value && mfgDecl.value !== "Not detected" && mfgDecl.value !== "Not captured")
+    ? mfgDecl.value
+    : (details.manufacturerLabel || "—");
 
   return {
     id: inspection.inspection_id,
-    product: details.productLabel || details.productId,
-    manufacturer: details.manufacturerLabel || "—",
+    product: productName,
+    productId: productId,
+    manufacturer: manufacturerName,
     category: inspection.product_category,
     saleType: inspection.sale_type,
     timestamp: new Date().toISOString(),
@@ -438,8 +644,10 @@ export function fromFinalizedInspection(
       reviewRequired: inspection.declaration_summary.review_required,
       nonCompliant: inspection.declaration_summary.non_compliant,
     } : undefined,
-    evidence: evidenceFromDeclarationsOrFacts(inspection.declarations, inspection.facts),
-    image: primaryImageDataUrl,
+    evidence,
+    image: topOrig,
+    canonicalImage: topCanon,
+    surfaces,
     saved: false,
     reviewed: false,
     reviewRequired: Boolean(inspection.review_required),

@@ -1,0 +1,152 @@
+{
+  "cv_latency_ms": 2395.1,
+  "qwen_latency_ms": 16384.7,
+  "prompt_tokens": 578,
+  "completion_tokens": 999,
+  "reasoning_tokens": 0,
+  "parsed_output": {
+    "product_name": {
+      "value": null,
+      "confidence": 0.0,
+      "status": "REVIEW_REQUIRED"
+    },
+    "declarations": [
+      {
+        "field": "NET_QUANTITY",
+        "value": "30",
+        "unit": "ml",
+        "currency": null,
+        "evidence_text": "Net Volume: 30ml",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "BATCH",
+        "value": "C26H005",
+        "unit": null,
+        "currency": null,
+        "evidence_text": "BATCH NO.: C26H005",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "MFD",
+        "value": "08/2026",
+        "unit": null,
+        "currency": null,
+        "evidence_text": "MFG. DATE: 08/2026",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "MRP",
+        "value": "800.00",
+        "unit": null,
+        "currency": "INR",
+        "evidence_text": "M.R.P \u20b9 : 800.00 (Incl. of all taxes)",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "USP",
+        "value": "26.67",
+        "unit": "per ml",
+        "currency": "INR",
+        "evidence_text": "Unit Sale Price \u20b9 per ml: 26.67",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "USE_BEFORE",
+        "value": "24 months from the date of mfg.",
+        "unit": null,
+        "currency": null,
+        "evidence_text": "Use before 24 months from the date of mfg.",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "MANUFACTURER",
+        "value": "Cheryl Laboratories Private Limited",
+        "unit": null,
+        "currency": null,
+        "evidence_text": "MANUFACTURED BY: Cheryl Laboratories Private Limited",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "MARKETER",
+        "value": "Tatvartha Health Private Limited",
+        "unit": null,
+        "currency": null,
+        "evidence_text": "MARKETED BY: Tatvartha Health Private Limited",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "ADDRESS",
+        "value": "Plot No. A-328, 329, 330, T.T.C., Ind. Area, M.I.D.C., Mahape, Navi Mumbai - 400710, India",
+        "unit": null,
+        "currency": null,
+        "evidence_text": "Plot No. A-328, 329, 330, T.T.C., Ind. Area, M.I.D.C., Mahape, Navi Mumbai - 400710, India",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      },
+      {
+        "field": "CONSUMER_CARE",
+        "value": "customer care@traya.health, +91 804 736 3960",
+        "unit": null,
+        "currency": null,
+        "evidence_text": "For Customer Queries, contact Customer Care Executive at the marketer's address customer care@traya.health +91 804 736 3960",
+        "confidence": 1.0,
+        "status": "DETECTED"
+      }
+    ]
+  },
+  "raw_response": {
+    "id": "gen-1789293170-FGLrPnzNaOZkYDB3BH78",
+    "object": "chat.completion",
+    "created": 1789293170,
+    "model": "qwen/qwen3.8-27b",
+    "provider": "Novita",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"product_name\": {\n    \"value\": null,\n    \"confidence\": 0.0,\n    \"status\": \"REVIEW_REQUIRED\"\n  },\n  \"declarations\": [\n    {\n      \"field\": \"NET_QUANTITY\",\n      \"value\": \"30\",\n      \"unit\": \"ml\",\n      \"currency\": null,\n      \"evidence_text\": \"Net Volume: 30ml\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"BATCH\",\n      \"value\": \"C26H005\",\n      \"unit\": null,\n      \"currency\": null,\n      \"evidence_text\": \"BATCH NO.: C26H005\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"MFD\",\n      \"value\": \"08/2026\",\n      \"unit\": null,\n      \"currency\": null,\n      \"evidence_text\": \"MFG. DATE: 08/2026\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"MRP\",\n      \"value\": \"800.00\",\n      \"unit\": null,\n      \"currency\": \"INR\",\n      \"evidence_text\": \"M.R.P \u20b9 : 800.00 (Incl. of all taxes)\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"USP\",\n      \"value\": \"26.67\",\n      \"unit\": \"per ml\",\n      \"currency\": \"INR\",\n      \"evidence_text\": \"Unit Sale Price \u20b9 per ml: 26.67\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"USE_BEFORE\",\n      \"value\": \"24 months from the date of mfg.\",\n      \"unit\": null,\n      \"currency\": null,\n      \"evidence_text\": \"Use before 24 months from the date of mfg.\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"MANUFACTURER\",\n      \"value\": \"Cheryl Laboratories Private Limited\",\n      \"unit\": null,\n      \"currency\": null,\n      \"evidence_text\": \"MANUFACTURED BY: Cheryl Laboratories Private Limited\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"MARKETER\",\n      \"value\": \"Tatvartha Health Private Limited\",\n      \"unit\": null,\n      \"currency\": null,\n      \"evidence_text\": \"MARKETED BY: Tatvartha Health Private Limited\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"ADDRESS\",\n      \"value\": \"Plot No. A-328, 329, 330, T.T.C., Ind. Area, M.I.D.C., Mahape, Navi Mumbai - 400710, India\",\n      \"unit\": null,\n      \"currency\": null,\n      \"evidence_text\": \"Plot No. A-328, 329, 330, T.T.C., Ind. Area, M.I.D.C., Mahape, Navi Mumbai - 400710, India\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"CONSUMER_CARE\",\n      \"value\": \"customer care@traya.health, +91 804 736 3960\",\n      \"unit\": null,\n      \"currency\": null,\n      \"evidence_text\": \"For Customer Queries, contact Customer Care Executive at the marketer's address customer care@traya.health +91 804 736 3960\",\n      \"confidence\": 1.0,\n      \"status\": \"DETECTED\"\n    }\n  ]\n}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 578,
+      "completion_tokens": 999,
+      "total_tokens": 1577,
+      "cost": 0.00323976,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00323976,
+        "upstream_inference_prompt_cost": 0.00024276,
+        "upstream_inference_completions_cost": 0.002997
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}

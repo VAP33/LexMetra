@@ -18,24 +18,21 @@
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS frontend-builder
 
-ARG NODE_ENV=production
-ENV NODE_ENV=$NODE_ENV
-
 WORKDIR /frontend
 
-# Copy only package files first so Docker layer-caches the npm install
-# and only re-runs it when dependencies actually change.
+# Copy package files first for layer caching
 COPY frontend/react-app/package.json frontend/react-app/package-lock.json ./
 
-# Clean install — uses package-lock.json for exact, reproducible versions.
-# --ignore-scripts prevents any postinstall hooks from running as root.
-RUN npm ci --ignore-scripts
+# Install ALL deps including devDependencies (vite, typescript, etc. are dev deps)
+# NODE_ENV must NOT be production here or npm ci skips devDependencies
+RUN npm ci --include=dev
 
-# Copy the rest of the frontend source
-COPY frontend/react-app/ ./
+# Copy the rest of the frontend source AFTER install
+# so node_modules is never overwritten by the COPY
+COPY frontend/react-app/. .
 
-# Run TypeScript type-check then Vite production build.
-# Output lands in /frontend/dist
+# Build — use npm run build which calls "tsc && vite build"
+# PATH already includes node_modules/.bin via npm run
 RUN npm run build
 
 

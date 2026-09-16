@@ -1,0 +1,41 @@
+{
+  "source": "TRAYA BACK.jpg",
+  "boundary_detected": true,
+  "boundary_confidence": 0.92,
+  "perspective_corrected": true,
+  "original_dimensions": [
+    1856,
+    4096
+  ],
+  "final_dimensions": [
+    340,
+    1024
+  ],
+  "original_file_size_bytes": 1768969,
+  "final_file_size_bytes": 102048,
+  "glare_detected": false,
+  "glare_reduced": false,
+  "background_normalized": true,
+  "illumination_corrected": true,
+  "text_enhanced": true,
+  "fallback_used": false,
+  "preprocessing_time_ms": 1662.1,
+  "detected_corners": [
+    [
+      438.4,
+      263.5
+    ],
+    [
+      1545.9,
+      268.7
+    ],
+    [
+      1407.5,
+      3590.6
+    ],
+    [
+      459.0,
+      3596.7
+    ]
+  ]
+}

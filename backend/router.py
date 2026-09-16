@@ -79,3 +79,106 @@ async def ingest_knowledge(file:UploadFile=File(...),module:str=Form("lmpc"),
     return {"status":"INGESTED_PENDING_ACTIVATION","document_id":document_id,
             "document_version":document_version,"chunks":len(chunks),
             "activation":"human approval required"}
+
+
+# ---------------------------------------------------------------------------
+# Versioned Regulatory Management & Amendment Intelligence Endpoints
+# ---------------------------------------------------------------------------
+
+import regulatory_service
+from pydantic import BaseModel, Field
+
+
+class ReviewProposalRequest(BaseModel):
+    reviewed_deltas: list[dict] = Field(default_factory=list)
+
+
+class PublishProposalRequest(BaseModel):
+    auth_code: str
+
+
+@router.get("/versions")
+def get_rule_versions():
+    """Return all historical and active regulatory rule versions."""
+    return {"versions": regulatory_service.get_all_versions()}
+
+
+@router.get("/active-version")
+def get_active_rule_version():
+    """Return the current active regulatory rule version and its rule dataset."""
+    return regulatory_service.get_active_version()
+
+
+@router.post("/upload-amendment")
+async def upload_amendment(file: UploadFile = File(...)):
+    """
+    Ingest Gazette amendment notification (PDF or text), perform automated delta
+    analysis against the active regulation, and return proposed change cards.
+    """
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded amendment document is empty.")
+
+    extracted_text = regulatory_service.extract_text_from_pdf(payload)
+    proposal = regulatory_service.analyze_amendment_text(
+        extracted_text=extracted_text,
+        filename=file.filename or "Gazette_Amendment_Notification.pdf",
+    )
+    return proposal
+
+
+@router.get("/proposals/{proposal_id}")
+def get_amendment_proposal(proposal_id: str):
+    proposal = regulatory_service.get_proposal(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    return proposal
+
+
+@router.post("/proposals/{proposal_id}/review")
+def review_amendment_proposal(proposal_id: str, req: ReviewProposalRequest):
+    """Inspector approves or rejects changes within the proposed amendment."""
+    try:
+        updated = regulatory_service.review_proposal(
+            proposal_id=proposal_id,
+            reviewed_deltas=req.reviewed_deltas,
+        )
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/proposals/{proposal_id}/request-auth")
+def request_amendment_authorization(proposal_id: str):
+    """Generate 6-digit challenge code for Senior Inspector publishing verification."""
+    try:
+        return regulatory_service.request_auth_code(proposal_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/proposals/{proposal_id}/publish")
+def publish_amendment_proposal(proposal_id: str, req: PublishProposalRequest):
+    """
+    Verify 6-digit authorization code, promote proposal to active immutable rule
+    version (e.g. LM-2026.02), supersede previous version, and record in audit log.
+    """
+    try:
+        result = regulatory_service.publish_amendment(
+            proposal_id=proposal_id,
+            entered_code=req.auth_code,
+        )
+        try:
+            db.record_audit_event(
+                action="regulatory_version_published",
+                actor_username="inspector",
+                resource_type="regulatory_rule_version",
+                resource_id=result["new_version"]["version_id"],
+                detail=f"Enacted new immutable version from proposal {proposal_id}",
+            )
+        except Exception:
+            pass
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+

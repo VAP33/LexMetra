@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LMPC Compliance Dashboard</title>
+<style>
+  :root { --pass:#1a8a4a; --fail:#c62828; --uncertain:#b8860b; --exempt:#5b6b7a; --bg:#f7f7f5; --card:#fff; --border:#e2e2e0; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; margin:0; background:var(--bg); color:#1c1c1c; }
+  header { background:#14213d; color:#fff; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; }
+  header h1 { font-size:17px; margin:0; }
+  nav { display:flex; gap:4px; }
+  nav button { background:transparent; border:1px solid rgba(255,255,255,0.3); color:#fff; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
+  nav button.active { background:#fff; color:#14213d; font-weight:600; }
+  main { max-width:1000px; margin:20px auto; padding:0 16px 60px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  label { display:block; font-size:12px; color:#555; margin-bottom:3px; margin-top:10px; }
+  input, select { width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+  button.primary { margin-top:14px; background:#14213d; color:#fff; border:none; padding:10px 18px; border-radius:6px; cursor:pointer; font-size:13px; }
+  button.primary:disabled { opacity:0.5; cursor:not-allowed; }
+  button.ghost { background:transparent; border:1px solid var(--border); padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:600; color:#fff; }
+  .badge.PASS { background:var(--pass); }
+  .badge.FAIL { background:var(--fail); }
+  .badge.UNCERTAIN { background:var(--uncertain); }
+  .badge.EXEMPT { background:var(--exempt); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); }
+  th { color:#666; font-weight:600; font-size:11px; text-transform:uppercase; }
+  tr.clickable { cursor:pointer; }
+  tr.clickable:hover { background:#fafafa; }
+  .factrow.review { background:#fff8e6; }
+  .muted { color:#888; font-size:12px; }
+  .disclaimer { font-size:11px; color:#888; border-top:1px solid var(--border); margin-top:14px; padding-top:10px; }
+  .pill-list { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .pill { background:#eef1f6; border-radius:5px; padding:3px 8px; font-size:11px; }
+  #view { min-height:200px; }
+  .loading { color:#888; font-size:13px; padding:20px 0; }
+  .flag { background:#fff3cd; border:1px solid #ffe08a; border-radius:6px; padding:8px 10px; font-size:12px; margin-top:10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LMPC Compliance Dashboard</h1>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div id="authStatus" style="font-size:12px; color:#ddd; display:flex; align-items:center; gap:6px;">
+      <span id="authUserText">Guest</span>
+      <input type="text" id="authUserInput" placeholder="User" value="admin" style="width:70px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
+      <input type="password" id="authPassInput" placeholder="Pass" value="password123" style="width:80px; padding:3px 6px; font-size:11px; background:#223355; color:#fff; border:1px solid #445577; border-radius:4px;">
+      <button id="authLoginBtn" style="padding:3px 8px; font-size:11px; background:#4ade80; color:#14213d; font-weight:600; border:none; border-radius:4px; cursor:pointer;">Sign In</button>
+      <button id="authClearBtn" style="padding:3px 8px; font-size:11px; background:transparent; color:#ff8888; border:1px solid #ff8888; border-radius:4px; cursor:pointer;">Sign Out</button>
+    </div>
+    <nav>
+      <button data-view="scan" class="active">Scan</button>
+      <button data-view="inspections">Inspections</button>
+      <button data-view="review">Review Queue</button>
+    </nav>
+  </div>
+</header>
+<main><div id="view"></div></main>
+
+<script>
+const API = window.location.origin.includes(":8000") ? window.location.origin : "http://localhost:8000";
+let currentView = "scan";
+let authToken = localStorage.getItem("lmpc_token") || "";
+
+function updateAuthUI() {
+  const userText = document.getElementById("authUserText");
+  const userInput = document.getElementById("authUserInput");
+  const passInput = document.getElementById("authPassInput");
+  const loginBtn = document.getElementById("authLoginBtn");
+  const clearBtn = document.getElementById("authClearBtn");
+  const storedUser = localStorage.getItem("lmpc_username") || "admin";
+
+  if (authToken) {
+    userText.textContent = `✓ Signed in (${storedUser})`;
+    userText.style.color = "#4ade80";
+    userInput.style.display = "none";
+    passInput.style.display = "none";
+    loginBtn.style.display = "none";
+    clearBtn.style.display = "inline-block";
+  } else {
+    userText.textContent = "Guest";
+    userText.style.color = "#fbbf24";
+    userInput.style.display = "inline-block";
+    passInput.style.display = "inline-block";
+    loginBtn.style.display = "inline-block";
+    clearBtn.style.display = "none";
+  }
+}
+
+async function doLogin(u, p) {
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ username: u, password: p })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    authToken = data.access_token;
+    localStorage.setItem("lmpc_token", authToken);
+    localStorage.setItem("lmpc_username", u);
+    updateAuthUI();
+    return true;
+  } catch (e) {
+    console.error("Login error:", e);
+    return false;
+  }
+}
+
+document.getElementById("authLoginBtn").onclick = async () => {
+  const u = document.getElementById("authUserInput").value.trim();
+  const p = document.getElementById("authPassInput").value;
+  const ok = await doLogin(u, p);
+  if (!ok) alert("Login failed. Check server status and credentials.");
+};
+
+document.getElementById("authClearBtn").onclick = () => {
+  authToken = "";
+  localStorage.removeItem("lmpc_token");
+  localStorage.removeItem("lmpc_username");
+  updateAuthUI();
+};
+
+updateAuthUI();
+
+// Auto-login with default admin credentials if not logged in
+if (!authToken) {
+  doLogin("admin", "password123");
+}
+
+function authHeaders(headers = {}) {
+  const h = { ...headers };
+  if (authToken) {
+    h["Authorization"] = `Bearer ${authToken}`;
+  }
+  return h;
+}
+
+document.querySelectorAll("nav button").forEach(btn => {
+  btn.onclick = () => { setView(btn.dataset.view); };
+});
+
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === v));
+  if (v === "scan") renderScan();
+  if (v === "inspections") renderInspections();
+  if (v === "review") renderInspections(true);
+}
+
+function badge(status) { return `<span class="badge ${status}">${status}</span>`; }
+
+// ---------------- SCAN VIEW ----------------
+function renderScan() {
+  document.getElementById("view").innerHTML = `
+    <div class="card">
+      <h2>Scan a package</h2>
+      <p class="muted">Upload a photo (ideally the panel with all declarations, or run this once per panel).
+        The pipeline runs real OCR (Tesseract) + rule-based field classification — see the disclaimer below
+        the result for its known limits.</p>
+      <label>Package photo</label>
+      <input type="file" id="scanFile" accept="image/*">
+      <div class="row3">
+        <div><label>Product ID</label><input id="scanProductId" placeholder="e.g. TRAYA-VITAMIN-30CAP"></div>
+        <div><label>Sale type</label>
+          <select id="scanSaleType"><option value="retail">retail</option><option value="wholesale">wholesale</option>
+          <option value="industrial">industrial</option><option value="institutional">institutional</option></select></div>
+        <div><label>Category</label><input id="scanCategory" placeholder="e.g. personal_care"></div>
+      </div>
+      <div class="row3">
+        <div><label>Net quantity value</label><input id="scanQtyVal" type="number" placeholder="30"></div>
+        <div><label>Net quantity unit</label><input id="scanQtyUnit" placeholder="g / ml / number"></div>
+        <div><label>MRP (₹)</label><input id="scanMrp" type="number" placeholder="470"></div>
+      </div>
+      <button class="primary" id="scanSubmit">Run inspection</button>
+      <div id="scanResult"></div>
+    </div>`;
+
+  document.getElementById("scanSubmit").onclick = async () => {
+    const fileInput = document.getElementById("scanFile");
+    if (!fileInput.files[0]) { alert("Choose a photo first."); return; }
+    const btn = document.getElementById("scanSubmit");
+    btn.disabled = true; btn.textContent = "Running OCR + rule engine…";
+    const fd = new FormData();
+    fd.append("file", fileInput.files[0]);
+    fd.append("product_id", document.getElementById("scanProductId").value || "UNSPECIFIED");
+    fd.append("sale_type", document.getElementById("scanSaleType").value);
+    fd.append("product_category", document.getElementById("scanCategory").value || "food");
+    fd.append("net_quantity_value", document.getElementById("scanQtyVal").value || "0");
+    fd.append("net_quantity_unit", document.getElementById("scanQtyUnit").value || "g");
+    if (document.getElementById("scanMrp").value) fd.append("mrp", document.getElementById("scanMrp").value);
+
+    try {
+      const res = await fetch(`${API}/scan`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: fd
+      });
+      const data = await res.json();
+      btn.disabled = false; btn.textContent = "Run inspection";
+      if (!res.ok) { document.getElementById("scanResult").innerHTML = `<div class="flag">Error: ${JSON.stringify(data)}</div>`; return; }
+      renderScanResult(data);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "Run inspection";
+      document.getElementById("scanResult").innerHTML = `<div class="flag">Could not reach the API at ${API} — is uvicorn running? (${e.message})</div>`;
+    }
+  };
+}
+
+function renderScanResult(data) {
+  const insp = data.inspection;
+  let rows = insp.facts.map(f => `
+    <tr class="factrow ${f.review_required ? 'review' : ''}">
+      <td>${f.field}</td><td>${badge(f.status)}</td>
+      <td>${f.extracted_value ? f.extracted_value.slice(0,60) : '<span class="muted">—</span>'}</td>
+      <td class="muted">${f.reason}</td>
+    </tr>`).join("");
+
+  let matchesHtml = data.nearest_matches.length
+    ? `<div class="pill-list">${data.nearest_matches.map(m => `<span class="pill">${m.product_id} (${m.score})</span>`).join("")}</div>`
+    : `<p class="muted">No similar products in history yet.</p>`;
+
+  document.getElementById("scanResult").innerHTML = `
+    <div class="card" style="margin-top:16px;">
+      <h2>Result: ${badge(insp.overall_status)}</h2>
+      ${data.price_or_label_change_flag ? `<div class="flag">${data.price_or_label_change_flag}</div>` : ""}
+      <table><thead><tr><th>Field</th><th>Status</th><th>Extracted value</th><th>Reason</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <h2 style="margin-top:16px;">Similar products in history</h2>
+      ${matchesHtml}
+      <div class="disclaimer">${insp.disclaimer} OCR field extraction is regex/heuristic-based (no trained
+      layout model) and can mis-pair nearby values in cramped label columns — always sanity-check the
+      "Extracted value" column above against the photo before acting on a FAIL.</div>
+    </div>`;
+}
+
+// ---------------- INSPECTIONS / REVIEW QUEUE ----------------
+async function renderInspections(reviewOnly = false) {
+  document.getElementById("view").innerHTML = `<div class="card"><h2>${reviewOnly ? "Review queue" : "All inspections"}</h2><div class="loading">Loading…</div></div>`;
+  try {
+    const url = reviewOnly ? `${API}/inspections?needs_review=true&limit=100` : `${API}/inspections?limit=100`;
+    const res = await fetch(url, { headers: authHeaders() });
+    const rows = await res.json();
+    if (!rows.length) {
+      document.getElementById("view").innerHTML = `<div class="card"><h2>${reviewOnly ? "Review queue" : "All inspections"}</h2><p class="muted">Nothing here yet — run a scan first.</p></div>`;
+      return;
+    }
+    const trs = rows.map(r => `
+      <tr class="clickable" onclick="showDetail('${r.inspection_id}')">
+        <td>${r.inspection_id}</td><td>${r.product_id || '—'}</td><td>${badge(r.overall_status)}</td>
+        <td>${r.mrp ?? '—'}</td><td class="muted">${new Date(r.created_at).toLocaleString()}</td>
+        <td>${r.reviewed ? '✓' : ''}</td>
+      </tr>`).join("");
+    document.getElementById("view").innerHTML = `
+      <div class="card">
+        <h2>${reviewOnly ? "Review queue (flagged facts pending human review)" : "All inspections"}</h2>
+        <table><thead><tr><th>ID</th><th>Product</th><th>Status</th><th>MRP</th><th>Scanned</th><th>Reviewed</th></tr></thead>
+        <tbody>${trs}</tbody></table>
+      </div>
+      <div id="detailPane"></div>`;
+  } catch (e) {
+    document.getElementById("view").innerHTML = `<div class="card"><div class="flag">Could not reach the API at ${API} (${e.message})</div></div>`;
+  }
+}
+
+async function showDetail(id) {
+  const res = await fetch(`${API}/inspections/${encodeURIComponent(id)}`, { headers: authHeaders() });
+  const d = await res.json();
+  const rows = d.facts.map(f => `
+    <tr class="factrow ${f.review_required ? 'review' : ''}">
+      <td>${f.field}</td><td>${badge(f.status)}</td>
+      <td>${f.extracted_value ? f.extracted_value.slice(0,60) : '<span class="muted">—</span>'}</td>
+      <td class="muted">${f.reason || ''}</td>
+    </tr>`).join("");
+  document.getElementById("detailPane").innerHTML = `
+    <div class="card">
+      <h2>${d.inspection_id} — ${badge(d.overall_status)}</h2>
+      <table><thead><tr><th>Field</th><th>Status</th><th>Value</th><th>Reason</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      ${d.reviewed
+        ? `<p class="muted">Reviewed. Note: ${d.reviewer_note || '(none)'}</p>`
+        : `<label>Reviewer note</label><input id="reviewNote" placeholder="e.g. verified against physical package, MRP confirmed 470">
+           <button class="primary" onclick="markReviewed('${d.inspection_id}')">Mark reviewed</button>`}
+    </div>`;
+}
+
+async function markReviewed(id) {
+  const note = document.getElementById("reviewNote").value;
+  await fetch(`${API}/inspections/${encodeURIComponent(id)}/review`, {
+    method: "POST",
+    headers: authHeaders({"Content-Type": "application/json"}),
+    body: JSON.stringify({ note })
+  });
+  showDetail(id);
+}
+
+setView("scan");
+</script>
+</body>
+</html>

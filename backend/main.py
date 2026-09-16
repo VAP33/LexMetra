@@ -16,7 +16,7 @@ Design principles:
 """
 
 from __future__ import annotations
-
+import asyncio
 import io
 import logging
 import os
@@ -46,9 +46,20 @@ import config
 import auth
 import capture_session
 import image_quality as image_quality_module
-from schema import FactStatus, MeasurementMode, ProductInspection, SurfaceObservation
+from schema import (
+    FactStatus,
+    InspectionSurface,
+    MeasurementMode,
+    PackageStructure,
+    ProductInspection,
+    SurfaceObservation,
+    SurfaceType,
+)
 from rule_engine import RawExtraction, run_inspection
+
 from sticker_detection import detect_sticker_regions
+from geometry import CoordinateSpace, CoordinateTransform
+import qwen_perception
 from product_similarity import (
     detect_price_or_label_change,
     embed_image,
@@ -63,6 +74,7 @@ from report import build_inspection_report_pdf
 import barcode_decode
 import geometry
 import calibration
+import package_preprocessor
 from datetime import date
 from models import RegulatoryContext
 from rag_grounding import (
@@ -73,6 +85,10 @@ from rag_grounding import (
     get_canonical_rule_versions,
 )
 from router import router as regulatory_router
+from regulatory_service import RegulatoryService
+from localization.service import LocalizationService
+from localization.models import LocalizationSurface, LocalizedEvidence, LocalizationStatus
+
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +154,10 @@ if _REACT_DIST_DIR.exists():
 
 if _FRONTEND_DIR.exists():
     app.mount("/frontend", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
+
+if config.UPLOAD_DIR:
+    config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(config.UPLOAD_DIR)), name="uploads")
 
 
 @app.get("/", include_in_schema=False)
@@ -296,12 +316,12 @@ class ReviewRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    product_id: str = Field(min_length=1)
+    product_id: str = ""
     sale_type: str = "retail"
     product_category: str = "food"
 
-    net_quantity_value: float = Field(gt=0)
-    net_quantity_unit: str
+    net_quantity_value: Optional[float] = Field(default=None, gt=0)
+    net_quantity_unit: Optional[str] = None
 
     mrp: Optional[float] = Field(default=None, ge=0)
     pdp_area_cm2: Optional[float] = Field(default=None, gt=0)
@@ -459,10 +479,10 @@ def _resolve_mrp(
 
 
 def _resolve_quantity(
-    supplied_value: float,
-    supplied_unit: str,
+    supplied_value: Optional[float],
+    supplied_unit: Optional[str],
     classified: Dict[str, dict],
-) -> tuple[float, str, str]:
+) -> tuple[Optional[float], Optional[str], str]:
     """
     Prefer a clean OCR net-quantity extraction when available.
 
@@ -845,13 +865,38 @@ async def extract_preview(
     images_meta = []
     images_cv: List[Tuple[str, np.ndarray]] = []
     images_ocr_boxes: Dict[str, List[Tuple[int, int, int, int]]] = {}
+    faces_for_qwen: List[Tuple[str, np.ndarray, Any]] = []
 
+    # Step 1: Read + normalize all images first (needed to build faces_for_qwen)
+    uploads_decoded = []  # list of (image_id, img, pil_img, canon_pil or None, norm_result or None)
     for i, upload in enumerate(upload_list):
         raw_bytes, img, pil_img = await _read_image_upload(upload)
         image_id = _safe_filename(upload) or f"surface_{i+1}.jpg"
+        face_label = f"Face {i+1}"
         images_cv.append((image_id, img))
+        if i < 3:
+            norm_result = geometry.normalize_package_surface(img, source_name=image_id)
+            faces_for_qwen.append((face_label, norm_result.canonical_image, norm_result.inverse_transform))
+            canon_pil = Image.fromarray(cv2.cvtColor(norm_result.canonical_image, cv2.COLOR_BGR2RGB))
+            uploads_decoded.append((image_id, img, pil_img, canon_pil, norm_result))
+        else:
+            uploads_decoded.append((image_id, img, pil_img, None, None))
 
-        ocr_lines = run_ocr(pil_img)
+    # Step 2: Launch Qwen concurrently BEFORE OCR blocks the event loop
+    qwen_task = None
+    provider = qwen_perception.get_qwen_provider()
+    if provider.is_available() and faces_for_qwen:
+        qwen_task = asyncio.ensure_future(provider.perceive(faces_for_qwen))
+
+    # Step 3: Run OCR synchronously (blocking) — Qwen network call is in-flight concurrently
+    for i, (image_id, img, pil_img, canon_pil, norm_result) in enumerate(uploads_decoded):
+        if canon_pil is not None:
+            ocr_lines = run_ocr(canon_pil)
+            if not ocr_lines:
+                ocr_lines = run_ocr(pil_img)
+        else:
+            ocr_lines = run_ocr(pil_img)
+
         all_ocr_lines.extend(ocr_lines)
         images_ocr_boxes[image_id] = [l.bbox for l in ocr_lines]
 
@@ -859,9 +904,6 @@ async def extract_preview(
         surface_id = capture_session.new_surface_id()
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
 
-        # Build 02: visual recovery is evidence extraction only. It runs before
-        # legal evaluation, fills genuinely weak fields, and preserves any
-        # OCR/VLM disagreement as explicit conflicting evidence for review.
         if config.VLM_VERIFICATION_ENABLED:
             weak_fields = {
                 k: v for k, v in classified.items()
@@ -879,9 +921,6 @@ async def extract_preview(
                     )
                     classified = merge_visual_candidates(classified, visual_candidates)
                 except Exception:
-                    # Visual recovery is advisory evidence. OCR/CV and the
-                    # deterministic rule engine remain fully functional if the
-                    # model is unavailable, times out, or returns bad JSON.
                     pass
 
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
@@ -893,6 +932,43 @@ async def extract_preview(
             "height": img.shape[0],
             "lines_detected": len(ocr_lines),
         })
+
+    # Step 4: Await Qwen result and apply it as the authoritative source
+    if qwen_task is not None:
+        try:
+            perception_res = await qwen_task
+            qwen_fields = qwen_perception.perception_to_classified_fields(perception_res)
+            if qwen_fields:
+                for fld, fld_data in qwen_fields.items():
+                    if isinstance(fld_data, dict):
+                        tf = fld_data.get("face", "Face 1")
+                        for idx, (img_id, _) in enumerate(images_cv):
+                            if f"Face {idx+1}" == tf:
+                                fld_data["image_id"] = img_id
+                                fld_data["surface_id"] = f"face_{idx+1}"
+                                break
+                        else:
+                            fld_data["image_id"] = images_cv[0][0] if images_cv else "face_1"
+                            fld_data["surface_id"] = "face_1"
+
+                # Qwen is authoritative: directly overwrite OCR values
+                if qwen_fields.get("batch_code", {}).get("value") or qwen_fields.get("batch_no", {}).get("value"):
+                    for legacy_batch_key in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch", "batch_code", "batch_no"):
+                        accumulated_fields.pop(legacy_batch_key, None)
+
+                for fld, fld_data in qwen_fields.items():
+                    if isinstance(fld_data, dict) and fld_data.get("value"):
+                        accumulated_fields[fld] = fld_data
+
+                # Product ID: never generate or infer
+                if not qwen_fields.get("product_id", {}).get("value"):
+                    accumulated_fields.pop("product_id", None)
+
+                print(f"[+] [extract-preview] Qwen fields applied: {list(qwen_fields.keys())}", flush=True)
+        except Exception as e:
+            import traceback
+            logger.warning("Qwen perception failed in /extract-preview: %s\n%s", e, traceback.format_exc())
+            print(f"[!] [extract-preview] Qwen FAILED: {e}", flush=True)
 
     # 1. Barcode decoding across uploaded surfaces
     barcode_result = barcode_decode.decode_across_images(images_cv)
@@ -940,37 +1016,12 @@ async def extract_preview(
         except (ValueError, TypeError):
             mrp_val = None
 
-    # Suggested product ID: Barcode (primary) -> Common name -> Manufacturer -> Placeholder
-    c_name = accumulated_fields.get("common_name", {}).get("value")
-    m_name = accumulated_fields.get("manufacturer_name", {}).get("value") or accumulated_fields.get("manufacturer_name_address", {}).get("value")
-    suggested_pid = ""
-    pid_source = "unidentified-placeholder"
-    needs_manual_entry = False
+    # Product ID: ONLY from an actual Product ID detected on the label. Never substitute barcode/GTIN, common_name, or manufacturer.
+    detected_pid = accumulated_fields.get("product_id", {}).get("value")
+    suggested_pid = detected_pid if detected_pid else ""
+    pid_source = "label_detected" if detected_pid else "unidentified-placeholder"
+    needs_manual_entry = not bool(suggested_pid)
     barcode_needs_confirmation = False
-
-    if primary_symbol:
-        suggested_pid = primary_symbol.gtin13 or primary_symbol.payload
-        if primary_symbol.method == barcode_decode.ReadMethod.CV_BARS_DECODED:
-            pid_source = "barcode_machine_decoded"
-            barcode_needs_confirmation = False
-        else:
-            pid_source = "barcode_hri_checksum_verified"
-            barcode_needs_confirmation = bool(primary_symbol.needs_confirmation)
-    elif c_name:
-        clean_c = re.sub(r'[^a-zA-Z0-9]+', '-', c_name).strip('-')[:25]
-        if clean_c:
-            suggested_pid = f"PROD-{clean_c.upper()}"
-            pid_source = "ocr_common_name"
-    elif m_name:
-        clean_m = re.sub(r'[^a-zA-Z0-9]+', '-', m_name).strip('-')[:20]
-        if clean_m:
-            suggested_pid = f"PROD-{clean_m.upper()}"
-            pid_source = "ocr_manufacturer"
-
-    if not suggested_pid:
-        suggested_pid = f"PROD-{uuid.uuid4().hex[:6].upper()}"
-        pid_source = "unidentified-placeholder"
-        needs_manual_entry = True
 
     suggested_category = _infer_suggested_category(accumulated_fields, all_ocr_lines)
 
@@ -1022,6 +1073,93 @@ async def extract_preview(
 
 
 # ---------------------------------------------------------------------------
+# Parallel 3-Face Preprocessing endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/preprocess/parallel")
+async def preprocess_parallel_endpoint(
+    file: Optional[UploadFile] = File(default=None),
+    files: List[UploadFile] = File(default=[]),
+    product_id: Optional[str] = Form("PACKAGE"),
+    margin_pct: float = Form(0.06),
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """
+    Dedicated parallel preprocessing endpoint for up to 3 package faces.
+    Runs ThreadPoolExecutor(max_workers=3) concurrently on the frozen 9-stage CV pipeline.
+    Preserves Face 1/Face 2/Face 3 identities, boundaries, and individual CoordinateTransforms.
+    """
+    upload_list: List[UploadFile] = []
+    if files and isinstance(files, (list, tuple)):
+        upload_list.extend([f for f in files if hasattr(f, "filename") and f.filename])
+    elif files and hasattr(files, "filename") and files.filename:
+        upload_list.append(files)
+    if file and hasattr(file, "filename") and file.filename:
+        if file not in upload_list and getattr(file, "filename", None) not in [f.filename for f in upload_list]:
+            upload_list.append(file)
+    if not upload_list:
+        raise HTTPException(status_code=400, detail="At least one image file is required.")
+
+    uploaded_items = []
+    for i, upload in enumerate(upload_list[:3]):
+        raw_bytes, img, pil_img = await _read_image_upload(upload)
+        image_id = _safe_filename(upload)
+        face_label = f"Face {i+1}"
+        uploaded_items.append((face_label, img, image_id, raw_bytes))
+
+    t0 = time.perf_counter()
+    parallel_input = [(fl, img, iid, None) for fl, img, iid, _ in uploaded_items]
+    preprocessed_map = package_preprocessor.preprocess_three_faces_parallel(
+        faces_input=parallel_input,
+        product=product_id or "PACKAGE",
+        margin_pct=margin_pct,
+        max_workers=3,
+    )
+    wall_clock_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+    response_faces = {}
+    for face_label, img, image_id, raw_bytes in uploaded_items:
+        res = preprocessed_map[face_label]
+        stored_raw_name = f"{uuid.uuid4().hex}_{image_id}"
+        stored_raw_path = config.UPLOAD_DIR / stored_raw_name
+        try:
+            stored_raw_path.write_bytes(raw_bytes)
+        except OSError:
+            pass
+
+        stored_canon_name = f"canon_{uuid.uuid4().hex}_{image_id}.png"
+        stored_canon_path = config.UPLOAD_DIR / stored_canon_name
+        try:
+            canon_pil = Image.fromarray(cv2.cvtColor(res.final_bgr, cv2.COLOR_BGR2RGB))
+            canon_pil.save(stored_canon_path, format="PNG")
+        except OSError:
+            pass
+
+        response_faces[face_label] = {
+            "face": face_label,
+            "original_image_url": f"/uploads/{stored_raw_name}",
+            "canonical_image_url": f"/uploads/{stored_canon_name}",
+            "original_dimensions": res.metadata.get("original_dimensions"),
+            "final_dimensions": res.metadata.get("final_dimensions"),
+            "boundary_detected": res.metadata.get("boundary_detected"),
+            "boundary_method": res.metadata.get("boundary_method"),
+            "physical_boundary_confidence": res.metadata.get("physical_boundary_confidence"),
+            "evidence_safe_margin": res.metadata.get("boundary_margin_percent"),
+            "perspective_corrected": res.metadata.get("perspective_corrected"),
+            "latency_ms": res.metadata.get("preprocessing_latency_ms"),
+            "forward_transform_matrix": res.forward_transform.forward_matrix.tolist(),
+            "inverse_transform_matrix": res.inverse_transform.forward_matrix.tolist(),
+        }
+
+    return {
+        "status": "SUCCESS",
+        "faces": response_faces,
+        "wall_clock_ms": wall_clock_ms,
+        "face_count": len(response_faces),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Full scan endpoint
 # ---------------------------------------------------------------------------
 
@@ -1032,6 +1170,7 @@ async def scan(
     product_id: Optional[str] = Form(None),
     sale_type: str = Form("retail"),
     product_category: str = Form("food"),
+    package_structure: str = Form("SINGLE_UNIT"),
     net_quantity_value: Optional[float] = Form(None),
     net_quantity_unit: Optional[str] = Form(None),
     mrp: Optional[float] = Form(None),
@@ -1041,6 +1180,7 @@ async def scan(
     is_imported: Optional[bool] = Form(None),
     current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ):
+
     """
     Full package inspection supporting single or multi-image captures.
 
@@ -1056,7 +1196,9 @@ async def scan(
     product_id = product_id if isinstance(product_id, str) else None
     sale_type = sale_type if isinstance(sale_type, str) else "retail"
     product_category = product_category if isinstance(product_category, str) else "other"
+    package_structure = package_structure if isinstance(package_structure, str) else "SINGLE_UNIT"
     net_quantity_value = net_quantity_value if isinstance(net_quantity_value, (int, float)) else None
+
     net_quantity_unit = net_quantity_unit if isinstance(net_quantity_unit, str) else None
     mrp = mrp if isinstance(mrp, (int, float)) else None
     pdp_area_cm2 = pdp_area_cm2 if isinstance(pdp_area_cm2, (int, float)) else None
@@ -1106,7 +1248,9 @@ async def scan(
     accumulated_fields: Dict[str, dict] = {}
     all_suspects: list[Any] = []
     surface_observations: List[SurfaceObservation] = []
+    inspection_surfaces_list: List[InspectionSurface] = []
     first_pil_img: Optional[Image.Image] = None
+
     first_img_np: Optional[np.ndarray] = None
     first_image_id: Optional[str] = None
     first_stored_path: Optional[Path] = None
@@ -1115,11 +1259,47 @@ async def scan(
     images_ocr_lines: Dict[str, list] = {}
     image_id_owning_label: Dict[str, str] = {}
 
-    for i, upload in enumerate(upload_list):
+    first_stored_filename: Optional[str] = None
+    faces_for_qwen: List[Tuple[str, np.ndarray, Any]] = []
+
+    uploaded_items = []
+    for i, upload in enumerate(upload_list[:3]):
         raw_bytes, img, pil_img = await _read_image_upload(upload)
         image_id = _safe_filename(upload)
-        images_cv.append((image_id, img))
+        face_label = f"Face {i+1}"
+        surface_id = f"face_{i+1}"
+        uploaded_items.append({
+            "index": i,
+            "face_label": face_label,
+            "surface_id": surface_id,
+            "image_id": image_id,
+            "raw_bytes": raw_bytes,
+            "img": img,
+            "pil_img": pil_img,
+        })
 
+    # Parallel 3-face OpenCV preprocessing (+6% outward safe margin)
+    parallel_input = [
+        (item["face_label"], item["img"], item["image_id"], None)
+        for item in uploaded_items
+    ]
+    preprocessed_map = package_preprocessor.preprocess_three_faces_parallel(
+        faces_input=parallel_input,
+        product=resolved_product_id if "resolved_product_id" in locals() and resolved_product_id else "PACKAGE",
+        margin_pct=0.06,
+        max_workers=3,
+    )
+
+    for item in uploaded_items:
+        i = item["index"]
+        image_id = item["image_id"]
+        img = item["img"]
+        pil_img = item["pil_img"]
+        raw_bytes = item["raw_bytes"]
+        face_label = item["face_label"]
+        surface_id = item["surface_id"]
+
+        images_cv.append((image_id, img))
         if first_pil_img is None:
             first_pil_img = pil_img
             first_img_np = img
@@ -1132,48 +1312,38 @@ async def scan(
             stored_path.write_bytes(raw_bytes)
             if first_stored_path is None:
                 first_stored_path = stored_path
+                first_stored_filename = stored_filename
         except OSError:
             pass
 
-        # ------------------------- OCR / extraction -------------------------
-        ocr_lines = run_ocr(pil_img)
+        # ------------------------- Canonical normalization (from parallel CV) -
+        norm_result = preprocessed_map[face_label]
+        canon_bgr = norm_result.final_bgr
+        canon_pil = Image.fromarray(cv2.cvtColor(canon_bgr, cv2.COLOR_BGR2RGB))
+
+        stored_canon_filename = f"canon_{uuid.uuid4().hex}_{image_id}.png"
+        stored_canon_path = config.UPLOAD_DIR / stored_canon_filename
+        try:
+            canon_pil.save(stored_canon_path, format="PNG")
+        except OSError:
+            stored_canon_path = None
+
+        faces_for_qwen.append((face_label, canon_bgr, norm_result.inverse_transform))
+
+        # ------------------------- OCR / extraction fallback ----------------
+        ocr_lines = run_ocr(canon_pil)
+        if not ocr_lines:
+            ocr_lines = run_ocr(pil_img)
+
         all_ocr_lines.extend(ocr_lines)
         images_ocr_boxes[image_id] = [l.bbox for l in ocr_lines]
         images_ocr_lines[image_id] = ocr_lines
 
         classified = classify_fields(ocr_lines)
-        surface_id = capture_session.new_surface_id()
         classified = capture_session.stamp_provenance(classified, image_id=image_id, surface_id=surface_id)
         for fld, fld_data in classified.items():
             if isinstance(fld_data, dict) and fld_data.get("value"):
                 image_id_owning_label[fld] = image_id
-
-        # Build 02: visual recovery is evidence extraction only. It runs before
-        # legal evaluation, fills genuinely weak fields, and preserves any
-        # OCR/VLM disagreement as explicit conflicting evidence for review.
-        if config.VLM_VERIFICATION_ENABLED:
-            weak_fields = {
-                k: v for k, v in classified.items()
-                if k in {
-                    "common_name", "net_quantity", "mrp", "mfg_date",
-                    "expiry_date", "manufacturer_name", "packer_name",
-                    "importer_name", "consumer_care", "country_of_origin",
-                }
-                and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
-            }
-            if weak_fields:
-                try:
-                    visual_candidates = recover_fields_from_image(
-                        pil_img, weak_fields, image_id=image_id, surface_id=surface_id
-                    )
-                    classified = merge_visual_candidates(classified, visual_candidates)
-                except Exception:
-                    # Visual recovery is advisory evidence. OCR/CV and the
-                    # deterministic rule engine remain fully functional if the
-                    # model is unavailable, times out, or returns bad JSON.
-                    pass
-
-        accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
         # Quality & PDP
         quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines))
@@ -1183,13 +1353,48 @@ async def scan(
             image_height=img.shape[0],
         )
 
-        stype_name = "FRONT" if i == 0 else ("BACK" if i == 1 else "SIDE")
-        surface_type = capture_session.parse_surface_type(stype_name)
+        has_bc = False
+        try:
+            bc_res = barcode_decode.detect_barcodes(img)
+            has_bc = bool(bc_res)
+        except Exception:
+            pass
+
+        # Dynamic surface prioritization
+        p_score, d_density, inferred_type = capture_session.compute_surface_priority(
+            surface_type=SurfaceType.UNKNOWN,
+            ocr_lines=ocr_lines,
+            classified_fields=classified,
+            has_barcode=has_bc,
+            quality_score=float(getattr(quality, "overall_score", 0.8) or 0.8),
+        )
+
+        matrix_list = norm_result.forward_transform.forward_matrix.tolist() if norm_result.forward_transform else None
+        s_record = InspectionSurface(
+            surface_id=surface_id,
+            surface_type=face_label,
+            priority_score=round(1.0 - (i * 0.05), 2),
+            original_image_path=f"/uploads/{stored_filename}" if stored_path else None,
+            canonical_image_path=f"/uploads/{stored_canon_filename}" if stored_canon_path else None,
+            transform_matrix=matrix_list,
+            declaration_density=d_density,
+            dimensions={"width": int(canon_bgr.shape[1]), "height": int(canon_bgr.shape[0])},
+            notes=[
+                "Original Capture",
+                f"Boundary Locked (+{norm_result.metadata.get('boundary_margin_percent', 6.0)}% Safe Margin)",
+                "Perspective Rectified",
+                "Background Normalized",
+                "Illumination Balanced",
+                "Text Enhanced",
+            ],
+        )
+        inspection_surfaces_list.append(s_record)
+
         surface_obs = capture_session.build_surface_observation(
             image_id=image_id,
-            surface_type=surface_type,
+            surface_type=capture_session.parse_surface_type(face_label),
             image_quality=quality,
-            coverage=0.0,
+            coverage=round(min(1.0, d_density / 6.0), 2),
             pdp_bbox_px=pdp_bbox,
             surface_id=surface_id,
         )
@@ -1198,17 +1403,49 @@ async def scan(
         suspects = detect_sticker_regions(img)
         all_suspects.extend(suspects)
 
-    # 0. Split-field reconstruction across multi-surface captures (Claude 2 capability)
-    if len(images_ocr_lines) > 1:
-        reconstructed_split = capture_session.reconstruct_split_fields(
-            accumulated_fields,
-            image_id_owning_label,
-            images_ocr_lines,
-        )
-        for fld, rec_entry in reconstructed_split.items():
-            curr = accumulated_fields.get(fld, {})
-            if not curr.get("value") or capture_session._is_label_only(curr, fld):
-                accumulated_fields[fld] = rec_entry
+        accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
+
+    # ------------------------- Qwen Multimodal Perception ----------------
+    # Qwen reasons across all canonical faces together (Section 2, 5, 6)
+    provider = qwen_perception.get_qwen_provider()
+    if provider.is_available() and faces_for_qwen:
+        try:
+            perception_res = await provider.perceive(faces_for_qwen)
+            qwen_fields = qwen_perception.perception_to_classified_fields(perception_res)
+            if qwen_fields:
+                for fld, fld_data in qwen_fields.items():
+                    if isinstance(fld_data, dict):
+                        tf = fld_data.get("face", "Face 1")
+                        for idx, (img_id, _) in enumerate(images_cv):
+                            if f"Face {idx+1}" == tf:
+                                fld_data["image_id"] = img_id
+                                fld_data["surface_id"] = f"face_{idx+1}"
+                                image_id_owning_label[fld] = img_id
+                                break
+                # Qwen is the ONLY authoritative extraction source
+                accumulated_fields = qwen_fields
+                # Product ID: never generate or infer. If absent, remove any OCR-generated value.
+                if not qwen_fields.get("product_id", {}).get("value"):
+                    accumulated_fields.pop("product_id", None)
+                print(f"[+] [scan] Qwen fields applied ({len(qwen_fields)}): {list(qwen_fields.keys())}", flush=True)
+        except Exception as e:
+            import traceback as _tb
+            logger.warning("Qwen perception failed in /scan: %s\n%s", e, _tb.format_exc())
+            print(f"[!] [scan] Qwen FAILED — OCR fields will be used: {e}", flush=True)
+
+
+    # 0. Split-field reconstruction across multi-surface captures (only if Qwen was not used)
+    if "qwen_fields" not in locals() or not qwen_fields:
+        if len(images_ocr_lines) > 1:
+            reconstructed_split = capture_session.reconstruct_split_fields(
+                accumulated_fields,
+                image_id_owning_label,
+                images_ocr_lines,
+            )
+            for fld, rec_entry in reconstructed_split.items():
+                curr = accumulated_fields.get(fld, {})
+                if not curr.get("value") or capture_session._is_label_only(curr, fld):
+                    accumulated_fields[fld] = rec_entry
 
     # 1. Barcode decoding across uploaded surfaces
     barcode_result = barcode_decode.decode_across_images(images_cv)
@@ -1249,6 +1486,20 @@ async def scan(
     if pdp_area_cm2 is None and computed_pdp_area_cm2 is not None:
         pdp_area_cm2 = computed_pdp_area_cm2
 
+    if config.VLM_VERIFICATION_ENABLED and first_pil_img and ("qwen_fields" not in locals() or not qwen_fields):
+        weak_fields = {
+            k: v for k, v in accumulated_fields.items()
+            if isinstance(v, dict) and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
+        }
+        if weak_fields:
+            try:
+                visual_candidates = recover_fields_from_image(
+                    first_pil_img, weak_fields, image_id=first_image_id or "face_1", surface_id="face_1"
+                )
+                accumulated_fields = merge_visual_candidates(accumulated_fields, visual_candidates)
+            except Exception:
+                pass
+
     extractions = _prepare_extractions(accumulated_fields)
     if primary_symbol and "barcode" not in extractions:
         extractions["barcode"] = RawExtraction(
@@ -1258,24 +1509,15 @@ async def scan(
             confidence=float(primary_symbol.confidence),
         )
 
-    # Resolve product_id fallback: Barcode (primary) -> Common name -> Manufacturer -> Placeholder
-    resolved_product_id = product_id.strip() if (product_id and product_id.strip()) else ""
-    if not resolved_product_id:
-        if primary_symbol:
-            resolved_product_id = primary_symbol.gtin13 or primary_symbol.payload
-        else:
-            c_name = accumulated_fields.get("common_name", {}).get("value")
-            m_name = accumulated_fields.get("manufacturer_name", {}).get("value") or accumulated_fields.get("manufacturer_name_address", {}).get("value")
-            if c_name:
-                slug = re.sub(r'[^a-zA-Z0-9]+', '-', c_name).strip('-')[:25]
-                if slug:
-                    resolved_product_id = f"PROD-{slug.upper()}"
-            if not resolved_product_id and m_name:
-                slug = re.sub(r'[^a-zA-Z0-9]+', '-', m_name).strip('-')[:20]
-                if slug:
-                    resolved_product_id = f"PROD-{slug.upper()}"
-            if not resolved_product_id:
-                resolved_product_id = f"SCAN-{uuid.uuid4().hex[:8].upper()}"
+    # Product ID: extract from package label if present. Never fabricate or substitute.
+    label_product_id = accumulated_fields.get("product_id", {}).get("value")
+    if label_product_id and str(label_product_id).strip():
+        resolved_product_id = str(label_product_id).strip()
+    elif product_id and product_id.strip() and not product_id.strip().startswith("SCAN-") and product_id.strip() != "PACKAGE":
+        resolved_product_id = product_id.strip()
+    else:
+        # Relational DB primary key identifier only
+        resolved_product_id = f"SCAN-{uuid.uuid4().hex[:8].upper()}"
 
     # Resolve explicit numeric evidence. API values remain the fallback.
     qty_val, qty_unit, quantity_source = _resolve_quantity(
@@ -1347,21 +1589,27 @@ async def scan(
         inspection_date=date.today(),
         rule_versions=grounded_rule_versions,
         regulatory_module=regulatory_scope_info.get("primary_module", "lmpc"),
+        package_structure=package_structure,
     )
+    result.surfaces = sorted(
+        inspection_surfaces_list, key=lambda s: s.priority_score, reverse=True
+    )
+
 
     # ------------------------- Legal advisory VLM verification -----------
     vlm_notes = _apply_vlm_verification(result, first_pil_img) if first_pil_img is not None else []
 
     # ------------------------- Persistence ------------------------------
+    primary_image_rel = f"/uploads/{first_stored_filename}" if first_stored_filename else first_image_id
     db.save_inspection(
         result,
-        image_filename=first_image_id,
+        image_filename=primary_image_rel,
         mrp=resolved_mrp,
     )
     db.set_inspection_attribution(
         result.inspection_id,
         created_by=current_user.username,
-        image_path=str(first_stored_path) if first_stored_path else None,
+        image_path=primary_image_rel,
     )
     db.record_audit_event(
         action="inspection_created", actor_username=current_user.username,
@@ -1429,7 +1677,7 @@ def create_session(
     req: CreateSessionRequest,
     current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ):
-    session_id = f"{req.product_id}:session-{uuid.uuid4().hex[:10]}"
+    session_id = f"{req.product_id}:session-{uuid.uuid4().hex[:10]}" if req.product_id else f"session-{uuid.uuid4().hex[:12]}"
     db.create_session(
         session_id=session_id,
         product_id=req.product_id,
@@ -1492,28 +1740,15 @@ async def add_capture(
     raw_bytes, img, pil_img = await _read_image_upload(file)
     image_id = _safe_filename(file)
 
-    # ------------------------- Per-image OCR/CV --------------------------
-    ocr_lines = run_ocr(pil_img)
-    classified = classify_fields(ocr_lines)
+    previous_captures = db.list_session_captures(session_id)
+    face_idx = min(3, len(previous_captures) + 1)
+    face_label = f"Face {face_idx}"
+    surface_id = f"face_{face_idx}"
 
-    # Stamp provenance BEFORE the session merge. `merge_classified_fields`
-    # keeps whichever observation has the higher confidence, so in a
-    # multi-surface session the winning reading of `mrp` may come from a
-    # different photograph than the winning reading of `net_quantity`. Stamping
-    # per field means each surviving observation carries its own source image,
-    # rather than all of them inheriting the id of whichever capture happened
-    # to be last.
-    surface_id = capture_session.new_surface_id()
-    classified = capture_session.stamp_provenance(
-        classified, image_id=image_id, surface_id=surface_id
-    )
-
-    quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines))
-    pdp_bbox = image_quality_module.estimate_pdp_bbox(
-        [line.bbox for line in ocr_lines],
-        image_width=img.shape[1],
-        image_height=img.shape[0],
-    )
+    # ------------------------- Preprocessing & Canonical Normalization ----
+    norm_result = geometry.normalize_package_surface(img, source_name=image_id)
+    canon_bgr = norm_result.canonical_image
+    canon_pil = Image.fromarray(cv2.cvtColor(canon_bgr, cv2.COLOR_BGR2RGB))
 
     # ------------------------- Evidence retention -------------------------
     stored_filename = f"{uuid.uuid4().hex}_{image_id}"
@@ -1523,8 +1758,34 @@ async def add_capture(
     except OSError:
         stored_path = None
 
+    stored_canon_filename = f"canon_{uuid.uuid4().hex}_{image_id}.png"
+    stored_canon_path = config.UPLOAD_DIR / stored_canon_filename
+    try:
+        canon_pil.save(stored_canon_path, format="PNG")
+    except OSError:
+        stored_canon_path = None
+
+    # ------------------------- Fast Surface OCR for Capture Observation -----
+    # Individual captures run classical OCR for immediate responsiveness.
+    # Full multimodal Qwen perception is executed once at session finalization
+    # across ALL accumulated package faces simultaneously.
+    ocr_lines = run_ocr(canon_pil)
+    if not ocr_lines:
+        ocr_lines = run_ocr(pil_img)
+    classified = classify_fields(ocr_lines)
+
+    classified = capture_session.stamp_provenance(
+        classified, image_id=image_id, surface_id=surface_id
+    )
+
+    quality = image_quality_module.assess_image_quality(img, ocr_line_count=len(ocr_lines) if ocr_lines else 15)
+    pdp_bbox = image_quality_module.estimate_pdp_bbox(
+        [line.bbox for line in ocr_lines] if ocr_lines else [],
+        image_width=img.shape[1],
+        image_height=img.shape[0],
+    )
+
     # ------------------------- Merge into session evidence ---------------
-    previous_captures = db.list_session_captures(session_id)
     accumulated_fields: Dict[str, dict] = {}
     for cap in previous_captures:
         accumulated_fields = capture_session.merge_classified_fields(
@@ -1549,27 +1810,37 @@ async def add_capture(
 
     surface = capture_session.build_surface_observation(
         image_id=image_id or f"capture-{int(time.time())}",
-        surface_type=capture_session.parse_surface_type(surface_type),
+        surface_type=capture_session.parse_surface_type(face_label),
         image_quality=quality,
         coverage=coverage,
         pdp_bbox_px=pdp_bbox,
         surface_id=surface_id,
     )
 
+    obs_dict = surface.model_dump(mode="json")
+    obs_dict["canonical_image_path"] = str(stored_canon_path) if stored_canon_path else None
+    obs_dict["canonical_image_url"] = f"/uploads/{stored_canon_filename}" if stored_canon_path else None
+    obs_dict["original_image_url"] = f"/uploads/{stored_filename}" if stored_path else None
+    obs_dict["transform_matrix"] = norm_result.forward_transform.matrix if norm_result.forward_transform else None
+    obs_dict["inverse_transform_matrix"] = norm_result.inverse_transform.matrix if norm_result.inverse_transform else None
+    obs_dict["provenance_steps"] = norm_result.provenance_chain
+    obs_dict["face_label"] = face_label
+    obs_dict["dimensions"] = {"width": int(img.shape[1]), "height": int(img.shape[0])}
+
     db.add_session_capture(
         session_id=session_id,
         surface_id=surface.surface_id,
         image_id=surface.image_id,
         image_path=str(stored_path) if stored_path else None,
-        surface_type=surface.surface_type.value,
+        surface_type=face_label,
         ocr_fields=classified,
-        surface_observation=surface.model_dump(mode="json"),
+        surface_observation=obs_dict,
         evidence_coverage=coverage,
     )
     db.record_audit_event(
         action="session_capture_added", actor_username=current_user.username,
         resource_type="inspection_session", resource_id=session_id,
-        detail=f"surface={surface.surface_type.value}, coverage={coverage:.2f}",
+        detail=f"surface={face_label}, coverage={coverage:.2f}",
     )
 
     return {
@@ -1635,7 +1906,7 @@ def get_session_status(
 
 
 @app.post("/sessions/{session_id}/finalize", response_model=ProductInspection)
-def finalize_session(
+async def finalize_session(
     session_id: str,
     current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ) -> ProductInspection:
@@ -1655,19 +1926,93 @@ def finalize_session(
             detail="Cannot finalize a session with zero captures.",
         )
 
-    # ------------------------- Merge all surfaces -------------------------
+    # ------------------------- Merge all surfaces (classical baseline) ---
     accumulated_fields: Dict[str, dict] = {}
     for cap in captures:
         accumulated_fields = capture_session.merge_classified_fields(
             accumulated_fields, cap.get("ocr_fields") or {},
         )
-    extractions = _prepare_extractions(accumulated_fields)
 
-    qty_val, qty_unit, _ = _resolve_quantity(
-        float(session["net_quantity_value"]),
-        session["net_quantity_unit"],
+    # ------------------------- Cross-face Qwen perception ------------------
+    # Send ALL available faces (1, 2, or 3) in ONE multimodal Qwen request.
+    # Qwen is the ONLY authoritative extraction source — it directly overwrites
+    # OCR/CV values accumulated above.
+    provider = qwen_perception.get_qwen_provider()
+    if captures and provider.is_available():
+        faces_multi = []
+        for i, cap in enumerate(captures[:3]):
+            obs = cap.get("surface_observation") or {}
+            c_path = obs.get("canonical_image_path")
+            inv_m = obs.get("inverse_transform_matrix")
+            c_bgr = None
+            if c_path and os.path.exists(c_path):
+                c_bgr = cv2.imread(c_path)
+            if c_bgr is None:
+                orig_p = cap.get("image_path")
+                if orig_p and os.path.exists(orig_p):
+                    c_bgr = cv2.imread(orig_p)
+            if c_bgr is not None:
+                h, w = c_bgr.shape[:2]
+                t = CoordinateTransform(
+                    source_space=CoordinateSpace.CANONICAL_PIXEL,
+                    target_space=CoordinateSpace.ORIGINAL_PIXEL,
+                    matrix=inv_m if inv_m else [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                    source_dims=(w, h),
+                    target_dims=(w, h),
+                )
+                faces_multi.append((f"Face {i+1}", c_bgr, t))
+        if faces_multi:
+            try:
+                multi_res = await provider.perceive(faces_multi)
+                multi_fields = qwen_perception.perception_to_classified_fields(multi_res)
+                if multi_fields:
+                    for fld, fld_data in multi_fields.items():
+                        if isinstance(fld_data, dict):
+                            tf = fld_data.get("face", "Face 1")
+                            for idx, cap_item in enumerate(captures[:3]):
+                                if f"Face {idx+1}" == tf:
+                                    fld_data["image_id"] = cap_item.get("image_id", f"face_{idx+1}")
+                                    fld_data["surface_id"] = f"face_{idx+1}"
+                                    break
+                            else:
+                                fld_data["image_id"] = captures[0].get("image_id", "face_1") if captures else "face_1"
+                                fld_data["surface_id"] = "face_1"
+
+                    # Qwen is authoritative: directly overwrite OCR values for every
+                    # field Qwen detected. OCR values only survive for fields Qwen
+                    # did not observe at all.
+                    if multi_fields.get("batch_code", {}).get("value") or multi_fields.get("batch_no", {}).get("value"):
+                        for legacy_batch_key in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch", "batch_code", "batch_no"):
+                            accumulated_fields.pop(legacy_batch_key, None)
+
+                    for fld, fld_data in multi_fields.items():
+                        if isinstance(fld_data, dict) and fld_data.get("value"):
+                            accumulated_fields[fld] = fld_data
+
+                    # Product ID: never generate or infer
+                    if not multi_fields.get("product_id", {}).get("value"):
+                        accumulated_fields.pop("product_id", None)
+
+                    print(f"[+] [finalize_session] Qwen fields applied ({len(multi_fields)}): {list(multi_fields.keys())}", flush=True)
+            except Exception as e:
+                import traceback as _tb
+                logger.warning("Cross-face Qwen perception failed in finalize_session: %s\n%s", e, _tb.format_exc())
+                print(f"[!] [finalize_session] Qwen FAILED — OCR fields will be used: {e}", flush=True)
+    session_nqv = session.get("net_quantity_value")
+    session_nqu = session.get("net_quantity_unit")
+    supplied_qty = float(session_nqv) if session_nqv is not None else None
+    qty_val, qty_unit, quantity_source = _resolve_quantity(
+        supplied_qty if supplied_qty is not None else 0.0,
+        session_nqu or "",
         accumulated_fields,
     )
+    if supplied_qty is None and quantity_source == "request":
+        qty_val = None
+        qty_unit = None
+    elif qty_val is not None and qty_val <= 0:
+        qty_val = None
+        qty_unit = None
+
     resolved_mrp = _resolve_mrp(
         float(session["mrp"]) if session.get("mrp") is not None else None,
         accumulated_fields,
@@ -1687,6 +2032,16 @@ def finalize_session(
             except Exception:
                 continue
 
+    extractions = _prepare_extractions(accumulated_fields)
+    pid = (session.get("product_id") or "").strip()
+    if pid and pid.isdigit() and len(pid) in (8, 12, 13, 14) and "barcode" not in extractions:
+        extractions["barcode"] = RawExtraction(
+            field="barcode",
+            raw_text=pid,
+            value=pid,
+            confidence=1.0,
+        )
+
     # Grounded RAG & Regulatory Scope Integration
     c_type = (extractions.get("common_name") and extractions["common_name"].value) or session["product_category"]
     reg_context = RegulatoryContext(
@@ -1704,7 +2059,67 @@ def finalize_session(
 
     inspection_id = f"{session['product_id']}:scan-{uuid.uuid4().hex[:8]}"
 
-    result = run_inspection(
+    pkg_structure_str = session.get("package_structure") or "SINGLE_UNIT"
+    try:
+        pkg_structure = PackageStructure[pkg_structure_str] if hasattr(PackageStructure, pkg_structure_str) else PackageStructure.SINGLE_UNIT
+    except Exception:
+        pkg_structure = PackageStructure.SINGLE_UNIT
+
+    # ------------------------- Localization Subsystem -----------------------
+    # Build localization surfaces dictionary for each face
+    loc_surfaces: Dict[str, LocalizationSurface] = {}
+    for idx, cap in enumerate(captures[:3]):
+        face_id = f"face_{idx+1}"
+        obs = cap.get("surface_observation") or {}
+        c_path = obs.get("canonical_image_path")
+        orig_p = cap.get("image_path")
+        c_bgr = None
+        if c_path and os.path.exists(c_path):
+            c_bgr = cv2.imread(c_path)
+        elif orig_p and os.path.exists(orig_p):
+            c_bgr = cv2.imread(orig_p)
+
+        orig_w, orig_h = 1000, 1000
+        if orig_p and os.path.exists(orig_p):
+            try:
+                im_orig = Image.open(orig_p)
+                orig_w, orig_h = im_orig.size
+            except Exception:
+                pass
+
+        if c_bgr is not None:
+            c_h, c_w = c_bgr.shape[:2]
+            inv_m = obs.get("inverse_transform_matrix")
+            loc_surfaces[face_id] = LocalizationSurface(
+                face_id=face_id,
+                image_id=cap.get("image_id", face_id),
+                canonical_image=c_bgr,
+                canonical_width=c_w,
+                canonical_height=c_h,
+                original_width=orig_w,
+                original_height=orig_h,
+                forward_transform=obs.get("transform_matrix"),
+                inverse_transform=inv_m,
+            )
+
+    localizer_svc = LocalizationService()
+    localizer_mode = getattr(config, "EVIDENCE_LOCALIZER_MODE", "current")
+    localized_evidence_list: List[LocalizedEvidence] = []
+
+    if localizer_mode in ("shadow", "sanskruti"):
+        try:
+            localized_evidence_list = localizer_svc.localize_extractions(
+                inspection_id=inspection_id,
+                extractions=accumulated_fields,
+                surfaces=loc_surfaces,
+            )
+            print(f"[*] [finalize_session] Localized {len(localized_evidence_list)} evidence regions (mode={localizer_mode})", flush=True)
+        except Exception as e:
+            logger.warning("LocalizationService failed in finalize_session: %s", e, exc_info=True)
+
+    # ------------------------- Regulatory Decision Subsystem ----------------
+    reg_service = RegulatoryService()
+    result = reg_service.evaluate(
         inspection_id=inspection_id,
         sale_type=session["sale_type"],
         product_category=session["product_category"],
@@ -1719,16 +2134,44 @@ def finalize_session(
         best_before_applicable=best_before_applicable,
         is_imported=resolved_is_imported,
         inspection_date=date.today(),
-        rule_versions=grounded_rule_versions,
+        grounded_rule_versions=grounded_rule_versions,
         regulatory_module=regulatory_scope_info.get("primary_module", "lmpc"),
+        package_structure=pkg_structure,
+        localized_evidence=localized_evidence_list if localizer_mode == "sanskruti" else None,
     )
 
+
+    # ------------------------- Multi-surface persistence (Section 13) -----
+    inspection_surfaces_list: List[InspectionSurface] = []
+    for i, cap in enumerate(captures[:3]):
+        face_label = f"Face {i+1}"
+        obs = cap.get("surface_observation") or {}
+        orig_p = cap.get("image_path")
+        orig_url = obs.get("original_image_url") or (f"/uploads/{Path(orig_p).name}" if orig_p else None)
+        canon_p = obs.get("canonical_image_path")
+        canon_url = obs.get("canonical_image_url") or (f"/uploads/{Path(canon_p).name}" if canon_p else None)
+
+        s_record = InspectionSurface(
+            surface_id=f"face_{i+1}",
+            surface_type=face_label,
+            priority_score=round(1.0 - (i * 0.05), 2),
+            original_image_path=orig_url,
+            canonical_image_path=canon_url,
+            transform_matrix=obs.get("transform_matrix"),
+            declaration_density=float(cap.get("evidence_coverage") or 0.8),
+            dimensions=obs.get("dimensions"),
+            notes=obs.get("provenance_steps") or ["Original Capture", "Canonical Rectified Surface"],
+        )
+        inspection_surfaces_list.append(s_record)
+
+    result.surfaces = inspection_surfaces_list
+
     db.save_inspection(result, mrp=resolved_mrp)
-    latest_image_path = captures[-1].get("image_path") if captures else None
+    primary_image_path = inspection_surfaces_list[0].original_image_path if inspection_surfaces_list else (captures[-1].get("image_path") if captures else None)
     db.set_inspection_attribution(
         result.inspection_id,
         created_by=current_user.username,
-        image_path=latest_image_path,
+        image_path=primary_image_path,
     )
     db.finalize_session(session_id, result.inspection_id)
     db.record_audit_event(
@@ -1913,3 +2356,22 @@ def readiness():
             # outage is reported but does not alter inspection correctness.
             checks["redis"] = "unavailable"
     return {"status": "ready" if ready else "not_ready", "service": "lmpc-compliance-api", "checks": checks}
+
+
+@app.get("/logs/groq")
+def get_groq_logs(limit: int = 50):
+    """
+    Return recent Groq API request/response audit logs.
+    """
+    recent = qwen_perception.get_groq_recent_logs(limit)
+    log_dir = getattr(config, "LOG_DIR", Path(__file__).resolve().parent / "logs")
+    log_file = log_dir / "groq_api.log"
+    file_exists = log_file.exists()
+    file_size = log_file.stat().st_size if file_exists else 0
+    return {
+        "log_file": str(log_file),
+        "file_exists": file_exists,
+        "file_size_bytes": file_size,
+        "returned_count": len(recent),
+        "logs": recent,
+    }

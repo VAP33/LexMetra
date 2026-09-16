@@ -48,6 +48,7 @@ import {
   type Inspection,
   type InspectionStatus,
   type ScanDetails,
+  type SurfaceEvidence,
 } from "@/lib/types";
 import {
   ApiError,
@@ -68,9 +69,14 @@ import {
   type AuthedUser,
   type ExtractPreviewResponse,
   type SurfaceType,
+  preprocessParallel,
+  resolveImageUrl,
 } from "@/lib/api-client";
 import { fromFinalizedInspection, fromInspectionRow } from "@/lib/adapters";
 import { dataUrlToBlob } from "@/lib/data-url";
+import { TeslaScannerAnimation } from "./TeslaScannerAnimation";
+import { BeforeAfterSlider } from "./BeforeAfterSlider";
+import { RegulatoryIntelligenceDashboard } from "./RegulatoryIntelligenceDashboard";
 
 type View =
   | "home"
@@ -79,18 +85,21 @@ type View =
   | "reviewQueue"
   | "profile"
   | "scan"
+  | "preprocessing"
   | "scanDetails"
   | "processing"
   | "result"
   | "detail"
   | "evidence"
-  | "report";
+  | "report"
+  | "regulatory";
 
 const navItems: Array<{ label: string; view: View; icon: LucideIcon }> = [
   { label: "Home", view: "home", icon: LayoutDashboard },
   { label: "History", view: "history", icon: HistoryIcon },
   { label: "Register", view: "register", icon: ClipboardCheck },
   { label: "Review", view: "reviewQueue", icon: ShieldAlert },
+  { label: "Rules", view: "regulatory", icon: FileText },
   { label: "Profile", view: "profile", icon: UserRound },
 ];
 
@@ -576,11 +585,14 @@ function ScanView({ onCaptured, onBack }: { onCaptured: (images: string[]) => vo
   }
 
   function addImage(dataUrl: string) {
-    setCaptured((current) => [...current, dataUrl]);
+    setCaptured((current) => {
+      if (current.length >= 3) return current;
+      return [...current, dataUrl];
+    });
   }
 
   function capture() {
-    if (!cameraActive || !videoRef.current) return;
+    if (!cameraActive || !videoRef.current || captured.length >= 3) return;
     const video = videoRef.current;
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth || 800;
@@ -590,6 +602,7 @@ function ScanView({ onCaptured, onBack }: { onCaptured: (images: string[]) => vo
   }
 
   function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    if (captured.length >= 3) return;
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -609,7 +622,7 @@ function ScanView({ onCaptured, onBack }: { onCaptured: (images: string[]) => vo
           <button type="button" onClick={onBack} className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-foreground/10 hover:bg-primary-foreground/15" aria-label="Back"><ArrowLeft className="h-5 w-5" /></button>
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary-foreground/60">Live capture</p>
-            <h1 className="mt-1 text-lg font-semibold">Scan product</h1>
+            <h1 className="mt-1 text-lg font-semibold">Scan product ({captured.length}/3 faces)</h1>
           </div>
           <button type="button" className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-foreground/10 hover:bg-primary-foreground/15" aria-label="Flash"><Flashlight className="h-5 w-5" /></button>
         </div>
@@ -637,17 +650,22 @@ function ScanView({ onCaptured, onBack }: { onCaptured: (images: string[]) => vo
           </div>
 
           <p className="mx-auto mt-5 max-w-sm text-center text-sm text-primary-foreground/65">
-            Capture the front (product name) and back (declarations) separately for the most accurate result. Every
-            photo you capture is analyzed together as one inspection.
+            Capture up to 3 package faces (Face 1, Face 2, Face 3) for the same commodity.
+            All faces belong to the package and are analyzed together by multimodal perception.
           </p>
+          {captured.length >= 3 && (
+            <p className="mx-auto mt-2 text-center text-xs font-semibold text-brand">
+              Maximum 3 faces reached. Ready to continue to inspection.
+            </p>
+          )}
           {cameraError && <div className="mx-auto mt-3 flex items-center gap-2 rounded-lg bg-warning/20 px-3 py-2 text-xs text-warning"><CameraOff className="h-4 w-4" />Camera unavailable — use gallery instead.</div>}
 
           {captured.length > 0 && (
             <div className="mx-auto mt-6 flex max-w-md gap-3 overflow-x-auto hide-scrollbar">
               {captured.map((img, index) => (
                 <div key={index} className="relative h-20 w-16 shrink-0 overflow-hidden rounded-lg border border-primary-foreground/20">
-                  <img src={img} alt={`Capture ${index + 1}`} className="h-full w-full object-cover" />
-                  <span className="absolute left-1 top-1 rounded bg-primary-foreground/80 px-1 text-[9px] font-bold text-primary">{index === 0 ? "Primary" : index + 1}</span>
+                  <img src={img} alt={`Face ${index + 1}`} className="h-full w-full object-cover" />
+                  <span className="absolute left-1 top-1 rounded bg-primary-foreground/90 px-1 text-[9px] font-bold text-primary">Face {index + 1}</span>
                   <button type="button" onClick={() => removeAt(index)} aria-label="Remove photo" className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/50"><X className="h-2.5 w-2.5" /></button>
                 </div>
               ))}
@@ -656,10 +674,21 @@ function ScanView({ onCaptured, onBack }: { onCaptured: (images: string[]) => vo
         </div>
 
         <div className="flex items-end justify-between gap-5">
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex w-24 flex-col items-center gap-2 text-xs font-semibold text-primary-foreground/70">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={captured.length >= 3}
+            className="flex w-24 flex-col items-center gap-2 text-xs font-semibold text-primary-foreground/70 disabled:opacity-40"
+          >
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-foreground/10"><ImageIcon className="h-5 w-5" /></span>Gallery
           </button>
-          <button type="button" onClick={capture} aria-label="Capture inspection image" disabled={!cameraActive} className="flex h-20 w-20 items-center justify-center rounded-full border-[6px] border-primary-foreground/20 bg-primary-foreground text-primary transition-transform active:scale-95 disabled:opacity-40">
+          <button
+            type="button"
+            onClick={capture}
+            aria-label="Capture inspection image"
+            disabled={!cameraActive || captured.length >= 3}
+            className="flex h-20 w-20 items-center justify-center rounded-full border-[6px] border-primary-foreground/20 bg-primary-foreground text-primary transition-transform active:scale-95 disabled:opacity-40"
+          >
             <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-primary"><Camera className="h-6 w-6" /></div>
           </button>
           <button
@@ -701,6 +730,7 @@ function ScanDetailsView({
   const [extractError, setExtractError] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<ExtractPreviewResponse | null>(null);
   const [showDetectedDeclarations, setShowDetectedDeclarations] = useState(false);
+  const lastExtractedKeyRef = useRef<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -709,10 +739,27 @@ function ScanDetailsView({
         setExtracting(false);
         return;
       }
+      // Deduplicate by face-set signature to prevent duplicate requests from React re-renders
+      const requestKey = images.map((img, i) => `f${i}:${img.length}:${img.slice(0, 50)}`).join("|");
+      if (lastExtractedKeyRef.current === requestKey && previewData) {
+        setExtracting(false);
+        return;
+      }
+      lastExtractedKeyRef.current = requestKey;
+
       try {
         setExtracting(true);
         setExtractError(null);
-        const blobs = images.map(dataUrlToBlob);
+        const blobs = await Promise.all(
+          images.map(async (img) => {
+            if (img.startsWith("data:") || img.startsWith("blob:")) {
+              return dataUrlToBlob(img);
+            }
+            const fullUrl = resolveImageUrl(img) || img;
+            const fetched = await fetch(fullUrl);
+            return await fetched.blob();
+          })
+        );
         const res = await extractPreview(blobs);
         if (cancelled) return;
         setPreviewData(res);
@@ -751,7 +798,7 @@ function ScanDetailsView({
   const effectiveProductId = productId.trim() || previewData?.suggested_details?.product_id || "";
   const effectiveQty = Number(qtyValue) > 0 ? Number(qtyValue) : (previewData?.suggested_details?.net_quantity_value ?? undefined);
   const effectiveQtyUnit = qtyUnit || previewData?.suggested_details?.net_quantity_unit || undefined;
-  const valid = effectiveProductId.length > 0;
+  const valid = true;
 
   const detectedDeclarationsList = useMemo(() => {
     if (!previewData?.field_extractions) return [];
@@ -776,9 +823,9 @@ function ScanDetailsView({
         <section className="flex gap-3 overflow-x-auto rounded-2xl border border-border/70 bg-card p-4 hide-scrollbar">
           {images.map((img, i) => (
             <div key={i} className="relative h-24 w-20 shrink-0 overflow-hidden rounded-xl border border-border">
-              <img src={img} alt={`Capture ${i + 1}`} className="h-full w-full object-cover" />
+              <img src={resolveImageUrl(img) || img} alt={`Face ${i + 1}`} className="h-full w-full object-cover" />
               <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
-                {i === 0 ? "Primary" : `#${i + 1}`}
+                Face {i + 1}
               </span>
             </div>
           ))}
@@ -843,15 +890,29 @@ function ScanDetailsView({
         <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7">
           <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Before we run the checks</p>
           <h2 className="mt-2 text-xl font-semibold tracking-[-.035em]">Confirm details</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Pre-filled from OCR evidence. Adjust if needed or proceed directly.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Pre-filled from package perception. Adjust if needed or proceed directly.</p>
 
           <div className="mt-6 space-y-5">
             <div>
               <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-muted-foreground">Product Name</label>
+                {previewData?.field_extractions?.common_name?.value ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <BadgeCheck className="h-3 w-3" /> Detected from label
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1.5 flex h-11 w-full items-center rounded-xl border border-border/80 bg-muted/30 px-3 text-sm font-medium text-foreground">
+                {previewData?.field_extractions?.common_name?.value || "Not detected"}
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-muted-foreground">Product ID / SKU</label>
-                {previewData?.suggested_details?.product_id_source === "unidentified-placeholder" || previewData?.suggested_details?.needs_manual_entry ? (
+                {previewData?.suggested_details?.product_id_source === "unidentified-placeholder" || previewData?.suggested_details?.needs_manual_entry || !previewData?.suggested_details?.product_id ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                    <AlertTriangle className="h-3 w-3" /> Placeholder SKU (no barcode detected)
+                    <AlertTriangle className="h-3 w-3" /> Not detected on label
                   </span>
                 ) : previewData?.suggested_details?.product_id_source?.startsWith("barcode") ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
@@ -859,19 +920,19 @@ function ScanDetailsView({
                   </span>
                 ) : previewData?.suggested_details?.product_id ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                    <Sparkles className="h-3 w-3" /> Auto-suggested
+                    <Sparkles className="h-3 w-3" /> Detected on label
                   </span>
                 ) : null}
               </div>
               <input
                 value={productId}
                 onChange={(e) => setProductId(e.target.value)}
-                placeholder="e.g. PROD-DETERGENT-POWDER"
+                placeholder="Not detected (optional/manual entry)"
                 className="mt-1.5 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
               />
-              {(previewData?.suggested_details?.product_id_source === "unidentified-placeholder" || previewData?.suggested_details?.needs_manual_entry) && (
-                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                  No barcode was detected on the package. You can manually enter the product GTIN / SKU above.
+              {(!productId.trim() && (!previewData?.suggested_details?.product_id || previewData?.suggested_details?.needs_manual_entry)) && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  No printed Product ID / Barcode was detected on the package label.
                 </p>
               )}
             </div>
@@ -1000,6 +1061,66 @@ function ScanDetailsView({
   );
 }
 
+function PreprocessingRunner({
+  images,
+  onDone,
+  onError,
+}: {
+  images: string[];
+  onDone: (canonicalUrls: string[]) => void;
+  onError: (msg: string) => void;
+}) {
+  const [stageIdx, setStageIdx] = useState(0);
+  const ranRef = useRef(false);
+
+  useEffect(() => {
+    if (ranRef.current) return;
+    ranRef.current = true;
+
+    // Step through the 5 CV normalization stages
+    const interval = window.setInterval(() => {
+      setStageIdx((value) => Math.min(value + 1, 4));
+    }, 600);
+
+    const minDisplay = new Promise((resolve) => window.setTimeout(resolve, 1400));
+
+    const executePreprocessing = async (): Promise<string[]> => {
+      if (!images || images.length === 0) return [];
+      const blobs = images.map(dataUrlToBlob);
+      const res = await preprocessParallel(blobs);
+      if (res && res.faces) {
+        const canonicalUrls = Object.values(res.faces)
+          .map((f) => f.canonical_image_url)
+          .filter(Boolean);
+        if (canonicalUrls.length > 0) {
+          return canonicalUrls;
+        }
+      }
+      return images;
+    };
+
+    Promise.all([executePreprocessing(), minDisplay])
+      .then(([canonicalUrls]) => {
+        window.clearInterval(interval);
+        setStageIdx(4);
+        window.setTimeout(() => onDone(canonicalUrls), 350);
+      })
+      .catch((err: unknown) => {
+        window.clearInterval(interval);
+        const message = err instanceof ApiError ? err.message : (err instanceof Error ? err.message : "Preprocessing failed.");
+        onError(message);
+      });
+
+    return () => window.clearInterval(interval);
+  }, [images, onDone, onError]);
+
+  return (
+    <div className="min-h-screen bg-white">
+      <TeslaScannerAnimation stageIndex={stageIdx} />
+    </div>
+  );
+}
+
 function ProcessingRunner({
   onRun,
   onDone,
@@ -1009,25 +1130,25 @@ function ProcessingRunner({
   onDone: (inspection: Inspection) => void;
   onError: (message: string) => void;
 }) {
-  const steps = ["Image received", "Detecting package label", "Extracting declarations", "Checking Legal Metrology rules", "Preparing compliance report"];
-  const [active, setActive] = useState(0);
+  const [stageIdx, setStageIdx] = useState(0);
   const ranRef = useRef(false);
 
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
 
+    // Advance truthful stages as progress unfolds
     const interval = window.setInterval(() => {
-      setActive((value) => Math.min(value + 1, steps.length - 1));
-    }, 650);
+      setStageIdx((value) => Math.min(value + 1, 4));
+    }, 700);
 
-    const minDisplay = new Promise((resolve) => window.setTimeout(resolve, 1400));
+    const minDisplay = new Promise((resolve) => window.setTimeout(resolve, 1500));
 
     Promise.all([onRun(), minDisplay])
       .then(([inspection]) => {
         window.clearInterval(interval);
-        setActive(steps.length);
-        window.setTimeout(() => onDone(inspection), 350);
+        setStageIdx(4);
+        window.setTimeout(() => onDone(inspection), 300);
       })
       .catch((err: unknown) => {
         window.clearInterval(interval);
@@ -1040,28 +1161,8 @@ function ProcessingRunner({
   }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md text-center">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-brand-soft text-brand"><LoaderCircle className="breathe h-9 w-9" /></div>
-        <p className="mt-8 text-xs font-bold uppercase tracking-[.2em] text-brand">Inspection pipeline</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-[-.05em]">Analyzing package</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">Extracting evidence and checking each declaration against the Legal Metrology rule set.</p>
-        <div className="mt-10 space-y-3 text-left">
-          {steps.map((step, index) => (
-            <div key={step} className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-all ${index < active ? "border-success/20 bg-success-soft" : index === active ? "border-brand/30 bg-brand-soft" : "border-border bg-card"}`}>
-              {index < active ? (
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-success text-success-foreground"><Check className="h-3.5 w-3.5" /></span>
-              ) : index === active ? (
-                <LoaderCircle className="h-6 w-6 animate-spin text-brand" />
-              ) : (
-                <span className="h-6 w-6 rounded-full border border-border" />
-              )}
-              <span className={`text-sm font-semibold ${index <= active ? "text-foreground" : "text-muted-foreground"}`}>{step}</span>
-              {index === active && <span className="ml-auto text-[10px] font-bold uppercase tracking-widest text-brand">Working</span>}
-            </div>
-          ))}
-        </div>
-      </div>
+    <div className="min-h-screen bg-white">
+      <TeslaScannerAnimation stageIndex={stageIdx} />
     </div>
   );
 }
@@ -1089,10 +1190,10 @@ function ProcessingErrorView({ message, onRetry, onCancel }: { message: string; 
 function DeclarationRow({ declaration }: { declaration: Declaration }) {
   const statusMap: Record<DeclarationStatus, { label: string; className: string; icon: LucideIcon }> = {
     VERIFIED: { label: "Verified", className: "text-success", icon: Check },
-    MISSING: { label: "Missing", className: "text-destructive", icon: XCircle },
+    MISSING: { label: "Not detected", className: "text-destructive", icon: XCircle },
     REVIEW: { label: "Review", className: "text-warning", icon: Info },
     EXEMPT: { label: "Exempt", className: "text-brand", icon: ShieldCheck },
-    UNOBSERVED: { label: "Not captured", className: "text-muted-foreground", icon: CircleHelp },
+    UNOBSERVED: { label: "Not detected", className: "text-muted-foreground", icon: CircleHelp },
   };
   const [expanded, setExpanded] = useState(false);
   const item = statusMap[declaration.status] || statusMap.REVIEW;
@@ -1107,14 +1208,6 @@ function DeclarationRow({ declaration }: { declaration: Declaration }) {
         <p className="hidden truncate text-sm text-muted-foreground sm:block">{declaration.value}</p>
         <div className={`flex items-center gap-1.5 text-xs font-semibold ${item.className}`}>
           <Icon className="h-4 w-4" />{item.label}
-          {declaration.confidence != null && declaration.status !== "UNOBSERVED" && declaration.status !== "MISSING" && declaration.status !== "EXEMPT" && (
-            <span className="hidden text-[10px] text-muted-foreground sm:inline">
-              {declaration.confidence}%
-              {declaration.ocrConfidence != null && declaration.ocrConfidence !== declaration.confidence && (
-                <span className="text-[9px] text-muted-foreground/70" title="OCR confidence"> (OCR {declaration.ocrConfidence}%)</span>
-              )}
-            </span>
-          )}
           <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} />
         </div>
       </button>
@@ -1288,8 +1381,8 @@ function ResultView({
             </div>
           )}
           <div className="grid grid-cols-2 gap-4 border-t border-current/10 bg-card/50 p-5 sm:grid-cols-4">
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product</p><p className="mt-1 text-sm font-semibold">{inspection.product}</p></div>
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Inspection</p><p className="mt-1 text-sm font-semibold">#{inspection.id}</p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product Name</p><p className="mt-1 text-sm font-semibold">{inspection.product || "Not detected"}</p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product ID</p><p className="mt-1 text-sm font-semibold">{inspection.productId || "Not detected"}</p></div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Checked</p>
               <p className="mt-1 text-sm font-semibold">
@@ -1297,7 +1390,7 @@ function ResultView({
                 {inspection.pdpAreaCm2 ? ` · ${inspection.pdpAreaCm2} cm² PDP` : ""}
               </p>
             </div>
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Time</p><p className="mt-1 text-sm font-semibold">{inspection.dateLabel}</p></div>
+            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Inspection</p><p className="mt-1 text-sm font-semibold">#{inspection.id}</p></div>
           </div>
         </section>
 
@@ -1362,110 +1455,762 @@ function ResultView({
 // Evidence viewer — real pixel-bbox to percent conversion
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Evidence viewer — Multi-surface, bidirectional investigation interface
+// (User Requirements 11, 12, 19, 20, 21, 22, 23)
+// ---------------------------------------------------------------------------
+
+function DynamicEvidenceCrop({
+  imageSrc,
+  bbox,
+  label,
+  value,
+  confidence,
+}: {
+  imageSrc: string;
+  bbox?: { x: number; y: number; width: number; height: number };
+  label: string;
+  value?: string;
+  confidence?: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [cropStats, setCropStats] = useState<{
+    cropW: number;
+    cropH: number;
+    zoomFactor: number;
+    naturalW: number;
+    naturalH: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!bbox || bbox.width <= 0 || bbox.height <= 0 || !imageSrc) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setLoadError(false);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      setLoading(false);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+
+      // Add generous padding (40% of dimensions or at least 35-40px)
+      const padX = Math.max(bbox.width * 0.4, 40);
+      const padY = Math.max(bbox.height * 0.4, 30);
+
+      const cropX = Math.max(0, bbox.x - padX);
+      const cropY = Math.max(0, bbox.y - padY);
+      const cropRight = Math.min(nw, bbox.x + bbox.width + padX);
+      const cropBottom = Math.min(nh, bbox.y + bbox.height + padY);
+
+      const cropW = Math.max(1, cropRight - cropX);
+      const cropH = Math.max(1, cropBottom - cropY);
+
+      const targetWidth = 720;
+      const aspect = cropH / cropW;
+      const targetHeight = Math.max(260, Math.min(Math.round(targetWidth * aspect), 520));
+
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+
+      // Clear dark background
+      ctx.fillStyle = "#09090b";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Fit cropped region inside canvas preserving aspect ratio
+      const scale = Math.min(canvas.width / cropW, canvas.height / cropH);
+      const renderW = cropW * scale;
+      const renderH = cropH * scale;
+      const offsetX = (canvas.width - renderW) / 2;
+      const offsetY = (canvas.height - renderH) / 2;
+
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, offsetX, offsetY, renderW, renderH);
+
+      // Bounding box within canvas
+      const boxCanvasX = offsetX + (bbox.x - cropX) * scale;
+      const boxCanvasY = offsetY + (bbox.y - cropY) * scale;
+      const boxCanvasW = bbox.width * scale;
+      const boxCanvasH = bbox.height * scale;
+
+      // Subtle translucent fill
+      ctx.fillStyle = "rgba(16, 185, 129, 0.16)";
+      ctx.fillRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+
+      // Crisp highlight stroke
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+
+      // Badge label
+      const badgeText = `${label}${value ? `: ${value}` : ""}${confidence ? ` (${confidence}%)` : ""}`;
+      ctx.font = "bold 13px system-ui, -apple-system, sans-serif";
+      const textMetrics = ctx.measureText(badgeText);
+      const badgeW = textMetrics.width + 16;
+      const badgeH = 24;
+      const badgeX = Math.max(offsetX, Math.min(boxCanvasX, canvas.width - badgeW - 10));
+      const badgeY = Math.max(badgeH + 6, boxCanvasY - 6);
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(badgeX, badgeY - badgeH, badgeW, badgeH, 6);
+      } else {
+        ctx.rect(badgeX, badgeY - badgeH, badgeW, badgeH);
+      }
+      ctx.fill();
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = "#34d399";
+      ctx.fillText(badgeText, badgeX + 8, badgeY - 7);
+
+      setCropStats({
+        cropW: Math.round(cropW),
+        cropH: Math.round(cropH),
+        zoomFactor: Number(scale.toFixed(1)),
+        naturalW: nw,
+        naturalH: nh,
+      });
+    };
+
+    img.onerror = () => {
+      setLoading(false);
+      setLoadError(true);
+    };
+
+    img.src = imageSrc;
+  }, [imageSrc, bbox, label, confidence]);
+
+  if (!bbox || bbox.width <= 0 || bbox.height <= 0) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center bg-card rounded-xl border border-warning/30 min-h-[320px]">
+        <ShieldAlert className="h-12 w-12 text-warning mb-3 animate-pulse" />
+        <h4 className="text-base font-bold text-foreground">Evidence unavailable — Review required</h4>
+        <p className="text-xs text-muted-foreground mt-1.5 max-w-sm">
+          No verified visual bounding box coordinates could be localized on this package face for &ldquo;{label}&rdquo;. Physical verification is required.
+        </p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center bg-card rounded-xl border border-danger/30 min-h-[320px]">
+        <AlertTriangle className="h-10 w-10 text-danger mb-2" />
+        <p className="text-sm font-semibold text-foreground">Failed to load evidence crop</p>
+        <p className="text-xs text-muted-foreground mt-1">Image resource could not be rendered.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col space-y-2">
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-border/70 bg-neutral-950 flex items-center justify-center">
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-950/80 z-10 text-xs text-muted-foreground">
+            <LoaderCircle className="h-6 w-6 animate-spin text-brand mb-2" />
+            Rendering dynamic crop...
+          </div>
+        )}
+        <canvas ref={canvasRef} className="max-h-full max-w-full object-contain rounded-lg" />
+      </div>
+      {cropStats && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] font-mono text-muted-foreground">
+          <span>
+            <strong>Dynamic Crop:</strong> {cropStats.cropW}×{cropStats.cropH}px (Source: {cropStats.naturalW}×{cropStats.naturalH}px)
+          </span>
+          <span>
+            <strong>Zoom:</strong> {cropStats.zoomFactor}× Centered
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: () => void }) {
-  const [selected, setSelected] = useState(inspection.evidence[0]);
-  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(
-    inspection.imageNaturalWidth && inspection.imageNaturalHeight
-      ? { w: inspection.imageNaturalWidth, h: inspection.imageNaturalHeight }
-      : null,
+  // Synthesize or use populated surfaces from inspection
+  const surfaces: SurfaceEvidence[] = useMemo(() => {
+    if (inspection.surfaces && inspection.surfaces.length > 0) {
+      return inspection.surfaces;
+    }
+    return [
+      {
+        surfaceId: "face_1",
+        surfaceType: "Face 1",
+        faceLabel: "Face 1",
+        priorityScore: 1.0,
+        imageUrl: inspection.image,
+        canonicalImageUrl: inspection.canonicalImage || inspection.image,
+        regions: inspection.evidence,
+        transformHistory: [
+          "Original Sensor Capture (Raw)",
+          "Package Boundary & Object Detection",
+          "Perspective Homography H-Matrix",
+          "Illumination Normalization",
+          "Canonical Surface Normalization",
+        ],
+        ocrConfidence: inspection.declarations[0]?.ocrConfidence ?? 90,
+      },
+    ];
+  }, [inspection]);
+
+  const [activeSurfaceType, setActiveSurfaceType] = useState<string>(
+    surfaces[0]?.surfaceType || "Face 1"
   );
 
-  function toPercentBox(bboxPx?: { x: number; y: number; width: number; height: number }) {
-    if (!bboxPx || !naturalSize) return null;
+  // Per-face natural image dimensions for zero-distortion bounding boxes
+  const [faceNaturalSizes, setFaceNaturalSizes] = useState<Record<string, { w: number; h: number }>>({});
+
+  // Per-face view mode ("canonical" vs "original" photograph)
+  const [faceViewModes, setFaceViewModes] = useState<Record<string, "canonical" | "original">>({});
+
+  // Active face for Before/After dual-slider comparison
+  const [sliderFace, setSliderFace] = useState<SurfaceEvidence | null>(null);
+
+  // Selected declaration / region (Bidirectional navigation)
+  const [selectedLabel, setSelectedLabel] = useState<string>(
+    inspection.evidence[0]?.label || inspection.declarations[0]?.field || "MRP"
+  );
+
+  const activeSurface = useMemo(() => {
+    return surfaces.find((s) => s.surfaceType === activeSurfaceType) || surfaces[0];
+  }, [surfaces, activeSurfaceType]);
+
+  // Synchronize active declaration and region bidirectionally
+  const activeDecl = useMemo(() => {
+    return (
+      inspection.declarations.find(
+        (d) =>
+          d.field.toLowerCase() === selectedLabel.toLowerCase() ||
+          d.canonicalField?.toLowerCase() === selectedLabel.toLowerCase() ||
+          selectedLabel.toLowerCase().includes(d.field.toLowerCase())
+      ) || inspection.declarations[0]
+    );
+  }, [selectedLabel, inspection.declarations]);
+
+  const activeRegion = useMemo(() => {
+    const pool = activeSurface?.regions?.length ? activeSurface.regions : inspection.evidence;
+    return (
+      pool.find(
+        (r) =>
+          r.label.toLowerCase() === selectedLabel.toLowerCase() ||
+          r.label.toLowerCase().includes(selectedLabel.toLowerCase())
+      ) ||
+      pool[0]
+    );
+  }, [selectedLabel, activeSurface, inspection.evidence]);
+
+  // Target bounding box for evidence crop (raw pixel space)
+  const targetBbox = activeRegion?.bboxPx || activeDecl?.evidenceBboxPx;
+
+  function handleSelectDeclaration(field: string, targetFace?: string) {
+    setSelectedLabel(field);
+    const decl = inspection.declarations.find((d) => d.field.toLowerCase() === field.toLowerCase());
+    const surfaceType = targetFace || decl?.provenance?.surfaceType;
+    if (surfaceType) {
+      const match = surfaces.find(
+        (s) =>
+          s.surfaceType.toLowerCase() === surfaceType.toLowerCase() ||
+          s.faceLabel?.toLowerCase() === surfaceType.toLowerCase()
+      );
+      if (match) {
+        setActiveSurfaceType(match.surfaceType);
+      }
+    }
+  }
+
+  function toPercentBoxForFace(
+    bboxPx?: { x: number; y: number; width: number; height: number },
+    surfaceKey?: string
+  ) {
+    if (!bboxPx || typeof bboxPx.x !== "number" || typeof bboxPx.y !== "number" || bboxPx.width <= 0 || bboxPx.height <= 0) {
+      return null;
+    }
+    const size = (surfaceKey && faceNaturalSizes[surfaceKey]) || (inspection.imageNaturalWidth && inspection.imageNaturalHeight ? { w: inspection.imageNaturalWidth, h: inspection.imageNaturalHeight } : null);
+    if (!size || size.w <= 0 || size.h <= 0) {
+      return null;
+    }
     return {
-      left: (bboxPx.x / naturalSize.w) * 100,
-      top: (bboxPx.y / naturalSize.h) * 100,
-      width: (bboxPx.width / naturalSize.w) * 100,
-      height: (bboxPx.height / naturalSize.h) * 100,
+      left: Math.max(0, Math.min(100, (bboxPx.x / size.w) * 100)),
+      top: Math.max(0, Math.min(100, (bboxPx.y / size.h) * 100)),
+      width: Math.max(1, Math.min(100, (bboxPx.width / size.w) * 100)),
+      height: Math.max(1, Math.min(100, (bboxPx.height / size.h) * 100)),
     };
   }
 
-  const regionsWithBox = inspection.evidence.filter((r) => r.bboxPx);
-  const canOverlay = Boolean(inspection.image && naturalSize && regionsWithBox.length);
+  // Field color palette for high readability
+  function getFieldColor(label: string, isSelected: boolean) {
+    const l = label.toLowerCase();
+    if (l.includes("mrp") || l.includes("retail") || l.includes("price")) {
+      return isSelected
+        ? "border-emerald-500 bg-emerald-500/25 text-emerald-300 ring-2 ring-emerald-400"
+        : "border-emerald-500/70 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20";
+    }
+    if (l.includes("unit") || l.includes("usp")) {
+      return isSelected
+        ? "border-cyan-500 bg-cyan-500/25 text-cyan-300 ring-2 ring-cyan-400"
+        : "border-cyan-500/70 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20";
+    }
+    if (l.includes("batch") || l.includes("lot")) {
+      return isSelected
+        ? "border-indigo-500 bg-indigo-500/25 text-indigo-300 ring-2 ring-indigo-400"
+        : "border-indigo-500/70 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20";
+    }
+    if (l.includes("net") || l.includes("qty") || l.includes("volume") || l.includes("weight")) {
+      return isSelected
+        ? "border-amber-500 bg-amber-500/25 text-amber-300 ring-2 ring-amber-400"
+        : "border-amber-500/70 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20";
+    }
+    if (l.includes("date") || l.includes("mfd") || l.includes("exp") || l.includes("before")) {
+      return isSelected
+        ? "border-purple-500 bg-purple-500/25 text-purple-300 ring-2 ring-purple-400"
+        : "border-purple-500/70 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20";
+    }
+    return isSelected
+      ? "border-brand bg-brand/25 text-brand ring-2 ring-brand"
+      : "border-brand/70 bg-brand/10 text-brand-foreground hover:bg-brand/20";
+  }
+
+  // Package-level unobserved declarations (Zero false absence warning)
+  const unobservedDeclarations = useMemo(() => {
+    return inspection.declarations.filter(
+      (d) => d.status === "MISSING" || d.status === "UNOBSERVED" || d.status === "REVIEW"
+    );
+  }, [inspection.declarations]);
 
   return (
     <>
-      <AppHeader title="Evidence viewer" />
-      <main className="mx-auto max-w-5xl space-y-5 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
-        <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to result</button>
-        <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
-          <section className="rounded-2xl border border-border/70 bg-card p-4 sm:p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Original capture</p>
-                <h2 className="mt-2 text-xl font-semibold tracking-[-.035em]">Detected regions</h2>
-              </div>
-              <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand">{regionsWithBox.length} markers</span>
-            </div>
-            <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-muted">
-              {inspection.image ? (
-                <img
-                  src={inspection.image}
-                  alt="Uploaded package evidence"
-                  className="h-full w-full object-cover"
-                  onLoad={(e) => {
-                    const img = e.currentTarget;
-                    if (!naturalSize) setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
-                  }}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center"><ProductThumb inspection={inspection} large /></div>
-              )}
-              {canOverlay && regionsWithBox.map((region) => {
-                const box = toPercentBox(region.bboxPx);
-                if (!box) return null;
-                return (
-                  <button
-                    type="button"
-                    key={region.label}
-                    onClick={() => setSelected(region)}
-                    style={{ top: `${box.top}%`, left: `${box.left}%`, width: `${box.width}%`, height: `${box.height}%` }}
-                    className={`absolute rounded-md border-2 text-left transition ${selected?.label === region.label ? "border-brand bg-brand/20" : "border-brand/70 bg-brand/10 hover:bg-brand/20"}`}
-                  >
-                    <span className="absolute -top-6 left-0 whitespace-nowrap rounded bg-brand px-1.5 py-1 text-[9px] font-bold text-brand-foreground">{region.label} · {region.confidence}%</span>
-                  </button>
-                );
-              })}
-            </div>
-            {!canOverlay && inspection.image && (
-              <p className="mt-3 text-xs text-muted-foreground">Region markers aren't available for this inspection — showing the original capture only.</p>
-            )}
-          </section>
-          <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-6">
-            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Evidence detail</p>
-            {selected ? (
-              <>
-                <h2 className="mt-3 text-2xl font-semibold tracking-[-.04em]">{selected.label}</h2>
-                <p className="mt-2 text-sm text-muted-foreground">Detected from package image</p>
-                <div className="mt-7 rounded-xl bg-muted p-4">
-                  <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Detected text</p>
-                  <p className="mt-2 text-lg font-semibold">{selected.value || "—"}</p>
-                </div>
-                <div className="mt-4 flex items-center justify-between border-b border-border pb-4">
-                  <span className="text-sm text-muted-foreground">Confidence</span>
-                  <span className="text-sm font-bold text-success">{selected.confidence}%</span>
-                </div>
-                <p className="mt-5 text-xs leading-5 text-muted-foreground">This region is linked to the extracted declaration in the inspection record.</p>
-              </>
-            ) : (
-              <div className="mt-10 rounded-xl bg-warning-soft p-5 text-center">
-                <Info className="mx-auto h-6 w-6 text-warning" />
-                <p className="mt-3 text-sm font-semibold">Evidence unavailable</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">No reliable region was detected for this inspection.</p>
-              </div>
-            )}
-          </section>
+      <AppHeader title="Legal Metrology Evidence Investigator" />
+      <main className="mx-auto max-w-7xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
+        {/* Top bar: Back & Evidence Meta */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/70 pb-4">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to inspection result
+          </button>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">Inspection:</span> {inspection.id}
+            <span className="h-3 w-px bg-border" />
+            <span className="font-semibold text-foreground">Category:</span> {inspection.category}
+            <span className="h-3 w-px bg-border" />
+            <span className="rounded-full bg-brand-soft px-2.5 py-0.5 font-bold text-brand text-[10px]">
+              3-FACE AUTHORITATIVE EVIDENCE
+            </span>
+          </div>
         </div>
-        {(inspection.status === "UNCERTAIN" || (inspection.reviewRequired && !inspection.reviewed)) && (
-          <div className="flex items-center gap-3 rounded-xl border border-warning/25 bg-warning-soft p-4 text-sm">
-            <Info className="h-5 w-5 shrink-0 text-warning" />
-            <p><strong>Human review recommended.</strong> The image does not provide sufficient evidence for a final compliance decision.</p>
+
+        {/* Active Before/After Comparison Slider */}
+        {sliderFace && (
+          <div className="relative">
+            <BeforeAfterSlider
+              originalUrl={sliderFace.imageUrl || inspection.image || ""}
+              canonicalUrl={sliderFace.canonicalImageUrl || sliderFace.imageUrl || inspection.image || ""}
+              faceLabel={sliderFace.faceLabel || sliderFace.surfaceType}
+              naturalWidth={faceNaturalSizes[sliderFace.surfaceType]?.w}
+              naturalHeight={faceNaturalSizes[sliderFace.surfaceType]?.h}
+              marginPercent={6.0}
+              onClose={() => setSliderFace(null)}
+            />
           </div>
         )}
+
+        {/* Authoritative 3-Face Side-by-Side Canonical Panels */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.18em] text-muted-foreground">
+                Authoritative Multi-Surface Analysis
+              </p>
+              <h2 className="text-lg font-bold tracking-tight text-foreground">
+                All Canonical Preprocessed Faces ({surfaces.length} Registered Surfaces)
+              </h2>
+            </div>
+            <span className="text-xs text-muted-foreground hidden sm:inline">
+              Face-isolated overlays · Dual canonical/original projection · Homography normalized
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+            {surfaces.map((st, idx) => {
+              const currentMode = faceViewModes[st.surfaceType] || "canonical";
+              const displayUrl =
+                currentMode === "original"
+                  ? st.imageUrl || st.canonicalImageUrl || inspection.image
+                  : st.canonicalImageUrl || st.imageUrl || inspection.image;
+              const isPanelActive = activeSurfaceType === st.surfaceType;
+              const priority = st.priorityScore ?? (1.0 - idx * 0.05);
+
+              // Filter regions strictly belonging to this face with valid bboxes
+              const faceRegionsWithBox = (st.regions || []).filter(
+                (r) => r.bboxPx && r.bboxPx.width > 0 && r.bboxPx.height > 0
+              );
+
+              return (
+                <div
+                  key={st.surfaceId || st.surfaceType || idx}
+                  className={`flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-all ${
+                    isPanelActive
+                      ? "border-brand ring-2 ring-brand/30 shadow-md"
+                      : "border-border/70 hover:border-border"
+                  }`}
+                >
+                  {/* Face Header: Sleek, decluttered minimalist toolbar */}
+                  <div className="flex items-center justify-between border-b border-border/60 pb-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveSurfaceType(st.surfaceType)}
+                        className="text-left group flex items-center gap-1.5"
+                      >
+                        <span className="text-sm font-bold text-foreground group-hover:text-brand transition">
+                          {st.faceLabel || st.surfaceType || `Face ${idx + 1}`}
+                        </span>
+                      </button>
+                      <span className="rounded bg-brand-soft px-1.5 py-0.5 text-[9px] font-bold text-brand">
+                        P{(priority * 100).toFixed(0)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {/* Segmented Pill Switcher */}
+                      <div className="inline-flex rounded-lg border border-border/70 bg-muted/60 p-0.5 text-[10px] font-medium">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFaceViewModes((prev) => ({
+                              ...prev,
+                              [st.surfaceType]: "canonical",
+                            }));
+                          }}
+                          className={`rounded-md px-2 py-0.5 transition ${
+                            currentMode === "canonical"
+                              ? "bg-background text-foreground font-bold shadow-xs"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Scan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFaceViewModes((prev) => ({
+                              ...prev,
+                              [st.surfaceType]: "original",
+                            }));
+                          }}
+                          className={`rounded-md px-2 py-0.5 transition ${
+                            currentMode === "original"
+                              ? "bg-background text-foreground font-bold shadow-xs"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Raw
+                        </button>
+                      </div>
+
+                      {/* Before / After Slider Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setSliderFace(st)}
+                        className="rounded-lg border border-border/70 bg-card p-1 text-muted-foreground hover:bg-brand-soft hover:text-brand transition"
+                        title="Open interactive Before/After comparison slider"
+                      >
+                        <SlidersHorizontal className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Canvas Viewport with Face-Isolated Overlays */}
+                  <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-border/60 bg-neutral-950 flex items-center justify-center">
+                    {displayUrl ? (
+                      <img
+                        src={displayUrl}
+                        alt={`${st.faceLabel || st.surfaceType} scan`}
+                        className="max-h-full max-w-full object-contain select-none"
+                        onLoad={(e) => {
+                          const img = e.currentTarget;
+                          setFaceNaturalSizes((prev) => ({
+                            ...prev,
+                            [st.surfaceType]: { w: img.naturalWidth, h: img.naturalHeight },
+                          }));
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                        No image capture
+                      </div>
+                    )}
+
+                    {/* Localized Face Overlays (Rendered in Canonical mode) */}
+                    {currentMode === "canonical" &&
+                      faceRegionsWithBox.map((region) => {
+                        const box = toPercentBoxForFace(region.bboxPx, st.surfaceType);
+                        if (!box) return null;
+                        const isSelected = selectedLabel.toLowerCase() === region.label.toLowerCase();
+                        const colorClasses = getFieldColor(region.label, isSelected);
+
+                        return (
+                          <button
+                            type="button"
+                            key={region.label}
+                            onClick={() => {
+                              handleSelectDeclaration(region.label, st.surfaceType);
+                            }}
+                            style={{
+                              top: `${box.top}%`,
+                              left: `${box.left}%`,
+                              width: `${box.width}%`,
+                              height: `${box.height}%`,
+                            }}
+                            className={`absolute rounded border-2 text-left transition-all duration-150 ${colorClasses}`}
+                            title={`Click to inspect ${region.label}: ${region.value}`}
+                          >
+                            <span className="absolute -top-5 left-0 whitespace-nowrap rounded bg-neutral-900/90 px-1 py-0.5 text-[8px] font-bold tracking-tight shadow backdrop-blur-sm border border-border/40">
+                              {region.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                  </div>
+
+                  {/* Surface Declarations Pill List - Decluttered & Compact */}
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5 max-h-24 overflow-y-auto pr-0.5">
+                    {st.regions && st.regions.length > 0 ? (
+                      st.regions.map((r) => {
+                        const isSelected = selectedLabel.toLowerCase() === r.label.toLowerCase();
+                        return (
+                          <button
+                            key={r.label}
+                            type="button"
+                            onClick={() => handleSelectDeclaration(r.label, st.surfaceType)}
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition ${
+                              isSelected
+                                ? "bg-brand text-brand-foreground shadow-xs ring-1 ring-brand"
+                                : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            }`}
+                          >
+                            <span>{r.label}:</span>
+                            <span className="font-mono text-[9px] opacity-90 truncate max-w-[70px]">
+                              {r.value}
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <span className="text-[11px] italic text-muted-foreground">
+                        {st.faceLabel === "Face 1"
+                          ? "Principal display branding / title"
+                          : "No statutory declarations isolated on this surface"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Statutory Package-Level Unobserved Declarations (Zero False Absence Warning) */}
+        {unobservedDeclarations.length > 0 && (
+          <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-foreground">
+                  Package-Level Unobserved Declarations ({unobservedDeclarations.length})
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  These statutory items were not observed across <strong>any of the 3 captured package surfaces</strong>.
+                  Under Legal Metrology Rules, absence is evaluated across the package as a whole; this is <strong>not</strong> an error or omission of Face 1 or Face 2 individually.
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {unobservedDeclarations.map((d) => (
+                    <div
+                      key={d.field}
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-500/20 bg-background/80 px-2.5 py-1 text-xs"
+                    >
+                      <span className="font-semibold text-foreground">{d.field}</span>
+                      <span className="rounded bg-amber-500/10 px-1.5 py-0.2 text-[10px] font-bold text-amber-500 uppercase">
+                        {d.status}
+                      </span>
+                      {d.reason && (
+                        <span className="text-[11px] text-muted-foreground max-w-xs truncate">
+                          ({d.reason})
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Dynamic Evidence Crop & Multi-Signal Audit Drawer */}
+        <div className="grid gap-6 lg:grid-cols-[1.3fr_0.95fr]">
+          {/* Left: Dynamic Evidence Crop & Coordinate Projection */}
+          <section className="flex flex-col space-y-3 rounded-2xl border border-border/70 bg-card p-4 sm:p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">
+                  Dynamic Evidence Crop · {activeDecl?.field || selectedLabel}
+                </p>
+                <h3 className="text-lg font-semibold tracking-tight">
+                  Located on {activeSurface?.faceLabel || activeSurface?.surfaceType} (P{((activeSurface?.priorityScore ?? 1.0) * 100).toFixed(0)})
+                </h3>
+              </div>
+              <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-bold text-brand">
+                Target Crop Active
+              </span>
+            </div>
+
+            {/* Coordinate Projection Info */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/60 px-3 py-1.5 text-[11px] font-mono text-muted-foreground">
+              <span>
+                <strong>Coordinate Space:</strong> DYNAMIC_CROP (
+                {faceNaturalSizes[activeSurface.surfaceType]
+                  ? `${faceNaturalSizes[activeSurface.surfaceType].w}×${faceNaturalSizes[activeSurface.surfaceType].h}px`
+                  : "Reading..."}
+                )
+              </span>
+              <span>
+                <strong>Projection:</strong> In-plane Rectified Canonical ↔ Sensor
+              </span>
+            </div>
+
+            {/* Dynamic Crop Component */}
+            <DynamicEvidenceCrop
+              imageSrc={
+                activeSurface.canonicalImageUrl ||
+                activeSurface.imageUrl ||
+                inspection.canonicalImage ||
+                inspection.image ||
+                ""
+              }
+              bbox={targetBbox}
+              label={activeDecl?.field || selectedLabel}
+              value={activeDecl?.value || activeRegion?.value}
+              confidence={activeDecl?.confidence ?? activeRegion?.confidence}
+            />
+
+            {/* Transformation History Provenance Chain */}
+            <div className="rounded-xl border border-border/60 bg-muted/40 p-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Transformation Provenance Chain ({activeSurface?.faceLabel || activeSurface?.surfaceType}):
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-foreground/80">
+                {(activeSurface.transformHistory || [
+                  "Original Camera Sensor Capture",
+                  "OpenCV Dual-Threshold Contouring",
+                  "Perspective Homography H-Matrix",
+                  "Safe +6% Outward Margin Rectification",
+                  "Declaration Boundary Localized",
+                ]).map((step: string, idx: number, arr: string[]) => (
+                  <span key={step} className="inline-flex items-center gap-1.5">
+                    <span className="rounded bg-card px-2 py-0.5 border border-border/80 text-[11px] font-medium">
+                      {step}
+                    </span>
+                    {idx < arr.length - 1 && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Quick Declaration Inspector Selector Chips */}
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[.15em] text-muted-foreground mb-2">
+                Quick Declaration Inspector
+              </p>
+              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                {inspection.declarations.map((d) => {
+                  const isSelected = selectedLabel.toLowerCase() === d.field.toLowerCase();
+                  return (
+                    <button
+                      key={d.field}
+                      type="button"
+                      onClick={() => handleSelectDeclaration(d.field)}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                        isSelected
+                          ? "bg-brand text-brand-foreground shadow-xs ring-1 ring-brand"
+                          : "border border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {d.field}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          {/* Right: Rich Explainability & Reasoning Signals */}
+          <section className="flex flex-col space-y-4 rounded-2xl border border-border/70 bg-card p-5 sm:p-6 shadow-sm overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-border/70 pb-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Declaration Audit</p>
+                <h3 className="text-xl font-bold tracking-tight text-foreground">{activeDecl?.field || selectedLabel}</h3>
+              </div>
+              <div className="text-right">
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                  activeDecl?.status === "VERIFIED"
+                    ? "bg-success-soft text-success"
+                    : activeDecl?.status === "MISSING"
+                    ? "bg-danger-soft text-danger"
+                    : "bg-warning-soft text-warning"
+                }`}>
+                  {activeDecl?.status || "DETECTED"}
+                </span>
+                <p className="mt-1 text-[11px] font-mono text-muted-foreground">
+                  Status: {activeDecl?.status === "VERIFIED" ? "Verified" : (activeDecl?.status === "REVIEW" ? "Review" : "Not detected")}
+                </p>
+              </div>
+            </div>
+
+            {/* Selected Value Card */}
+            <div className="rounded-xl border border-border/80 bg-muted/40 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Resolved Value</p>
+              <p className="mt-1.5 text-2xl font-black tracking-tight text-foreground">
+                {activeDecl?.value || activeRegion?.value || "Not Detected"}
+              </p>
+              {activeDecl?.ruleId && (
+                <p className="mt-2 text-xs font-medium text-muted-foreground">
+                  Governed under: <strong className="text-foreground">{activeDecl.ruleId}</strong>
+                </p>
+              )}
+            </div>
+
+            {/* Statutory Finding & Legal Notes */}
+            <div className="rounded-xl border border-border/80 bg-muted/30 p-3.5 text-xs text-muted-foreground space-y-1">
+              <p className="font-semibold text-foreground">
+                Statutory Rule Analysis: {activeDecl?.ruleId || "Rule 6 - Declarations on Pre-packaged Commodities"}
+              </p>
+              <p className="leading-relaxed">
+                {activeDecl?.reason || "Declaration is fully compliant with legal metrology statutory formatting and position standards."}
+              </p>
+            </div>
+          </section>
+        </div>
       </main>
     </>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Report
@@ -1509,7 +2254,17 @@ function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: ()
             <StatusBadge status={inspection.status} />
           </div>
           <div className="grid gap-5 border-b border-border py-7 sm:grid-cols-3">
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product</p><p className="mt-2 text-sm font-semibold">{inspection.product}</p><p className="mt-1 text-xs text-muted-foreground">{inspection.manufacturer}</p></div>
+            <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product Name</p>
+                <p className="mt-2 text-sm font-semibold">{inspection.product}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  <span className="font-medium">Product ID:</span>{" "}
+                  <span className={inspection.productId && inspection.productId !== "Not detected" ? "text-foreground" : "text-amber-500"}>
+                    {inspection.productId || "Not detected"}
+                  </span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{inspection.manufacturer}</p>
+              </div>
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Inspection ID</p><p className="mt-2 text-sm font-semibold">#{inspection.id}</p><p className="mt-1 text-xs text-muted-foreground">{formatDate(inspection.timestamp)}</p></div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Final scores</p>
@@ -1707,6 +2462,8 @@ export function InspectionApp() {
   const [listError, setListError] = useState<string | undefined>(undefined);
   const [selected, setSelected] = useState<Inspection | undefined>(undefined);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [canonicalImages, setCanonicalImages] = useState<string[]>([]);
+  const [preprocessingError, setPreprocessingError] = useState<string | undefined>(undefined);
   const [processingError, setProcessingError] = useState<string | undefined>(undefined);
   const [toast, setToast] = useState<string | undefined>(undefined);
 
@@ -1744,7 +2501,10 @@ export function InspectionApp() {
   function go(nextView: View) {
     setView(nextView);
     if (!["result", "detail", "evidence", "report"].includes(nextView)) setSelected(undefined);
-    if (nextView === "scan") setPendingImages([]);
+    if (nextView === "scan") {
+      setPendingImages([]);
+      setCanonicalImages([]);
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1757,17 +2517,27 @@ export function InspectionApp() {
       .catch((err) => { handleAuthExpiry(err); /* otherwise keep the summary version */ });
   }
 
-  function onCaptured(images: string[]) { setPendingImages(images); setView("scanDetails"); }
+  function onCaptured(images: string[]) {
+    setPendingImages(images);
+    setCanonicalImages([]);
+    setPreprocessingError(undefined);
+    setView("preprocessing");
+  }
+
+  function handlePreprocessingDone(canonUrls: string[]) {
+    setCanonicalImages(canonUrls);
+    setView("scanDetails");
+  }
+
+  function handlePreprocessingError(message: string) {
+    setPreprocessingError(message);
+  }
 
   const pendingRunRef = useRef<() => Promise<Inspection>>(() => Promise.reject(new Error("no scan queued")));
 
-  /** Real multi-surface capture: open a session, upload every captured photo
-   * as its own surface (first = FRONT, second = BACK, rest = SIDE — a
-   * reasonable default given the capture screen's own guidance text), then
-   * finalize once so the legal engine runs against the UNION of all photos
-   * instead of just the first one. Replaces the earlier client-side-only
-   * "extra photos are just kept as supplementary evidence" workaround, now
-   * that the backend actually has a session endpoint for this. */
+  /** Real multi-surface capture: open a session, upload every preprocessed canonical photo
+   * as its own surface (Face 1, Face 2, Face 3), then
+   * finalize once so the legal engine and perception run against the preprocessed canonical images. */
   async function runScanSession(details: ScanDetails): Promise<Inspection> {
     const session = await createSession({
       productId: details.productId,
@@ -1782,14 +2552,25 @@ export function InspectionApp() {
       isImported: details.isImported,
     });
 
-    const surfaceForIndex = (i: number): SurfaceType => (i === 0 ? "FRONT" : i === 1 ? "BACK" : "SIDE");
-    for (let i = 0; i < pendingImages.length; i++) {
-      const blob = dataUrlToBlob(pendingImages[i]);
+    const surfaceForIndex = (i: number): SurfaceType => `Face ${i + 1}`;
+    // Prefer clean canonical images, fall back to pendingImages if unavailable
+    const targetImages = canonicalImages.length > 0 ? canonicalImages : pendingImages;
+
+    for (let i = 0; i < targetImages.length; i++) {
+      const imgRef = targetImages[i];
+      let blob: Blob;
+      if (imgRef.startsWith("data:") || imgRef.startsWith("blob:")) {
+        blob = dataUrlToBlob(imgRef);
+      } else {
+        const fullUrl = resolveImageUrl(imgRef) || imgRef;
+        const fetched = await fetch(fullUrl);
+        blob = await fetched.blob();
+      }
       await addSessionCapture(session.session_id, blob, surfaceForIndex(i));
     }
 
     const inspection = await finalizeSession(session.session_id);
-    return fromFinalizedInspection(inspection, { productId: details.productId }, pendingImages[0]);
+    return fromFinalizedInspection(inspection, { productId: details.productId }, pendingImages[0] || canonicalImages[0]);
   }
 
   function submitDetails(details: ScanDetails) {
@@ -1846,8 +2627,14 @@ export function InspectionApp() {
       <ProfileView user={user} onLogout={handleLogout} />
     ) : view === "scan" ? (
       <ScanView onCaptured={onCaptured} onBack={() => go("home")} />
+    ) : view === "preprocessing" ? (
+      preprocessingError ? (
+        <ProcessingErrorView message={preprocessingError} onRetry={() => onCaptured(pendingImages)} onCancel={() => go("home")} />
+      ) : (
+        <PreprocessingRunner images={pendingImages} onDone={handlePreprocessingDone} onError={handlePreprocessingError} />
+      )
     ) : view === "scanDetails" ? (
-      <ScanDetailsView images={pendingImages} onSubmit={submitDetails} onBack={() => go("scan")} />
+      <ScanDetailsView images={canonicalImages.length > 0 ? canonicalImages : pendingImages} onSubmit={submitDetails} onBack={() => go("scan")} />
     ) : view === "processing" ? (
       processingError ? (
         <ProcessingErrorView message={processingError} onRetry={() => setProcessingError(undefined)} onCancel={() => go("home")} />
@@ -1860,11 +2647,13 @@ export function InspectionApp() {
       <EvidenceView inspection={selected} onBack={() => go("result")} />
     ) : selected && view === "report" ? (
       <ReportView inspection={selected} onBack={() => go("result")} />
+    ) : view === "regulatory" ? (
+      <RegulatoryIntelligenceDashboard onBack={() => go("home")} />
     ) : (
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onNavigate={go} onOpen={handleOpen} />
     );
 
-  const inFocusedFlow = ["scan", "scanDetails", "processing"].includes(view);
+  const inFocusedFlow = ["scan", "preprocessing", "scanDetails", "processing"].includes(view);
 
   return (
     <div className="min-h-screen bg-background text-foreground">

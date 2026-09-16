@@ -1,0 +1,13 @@
+.git
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.coverage
+htmlcov
+backend/uploads
+backend/reports
+backend/.env
+.venv
+venv
+*.md
+!README.md

@@ -1,0 +1,367 @@
+{
+  "ruleset_id": "IN-LMPC-2011",
+  "ruleset_version": "2011-consolidated",
+  "description": "Legal Metrology (Packaged Commodities) Rules, 2011 (India) -- mandatory declarations, unit-price tolerance, and origin/best-before requirements, expressed as data for the generic rule engine. This file is regulation-specific DATA; the engine code that evaluates it (backend/engine/) contains no reference to Legal Metrology, MRP, or India.",
+  "rules": [
+    {
+      "rule_id": "LMPC-6-1-A-MANUFACTURER",
+      "name": "Manufacturer / Packer / Importer name & address declared",
+      "description": "Every pre-packaged commodity must declare the name and address of the manufacturer, or packer, or importer.",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(a)/(b)/(c)",
+      "version": "2011",
+      "effective_from": "2011-01-01",
+      "severity": "critical",
+      "priority": 90,
+      "applies_to": {"trade_type": ["retail", "ecommerce", "all"]},
+      "exemptions": [
+        {"id": "general-exemption", "description": "Product falls under a whole-of-declaration exemption (Rule 24/25/26 class).",
+         "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "exists", "field": "declared.manufacturer_name_address"},
+      "message_pass": "Manufacturer/packer/importer name and address is declared.",
+      "message_fail": "Manufacturer/packer/importer name and address is missing from the label.",
+      "message_uncertain": "Could not confirm presence of the manufacturer/packer/importer declaration from the available evidence."
+    },
+    {
+      "rule_id": "LMPC-6-1-B-COMMON-NAME",
+      "name": "Common / generic name of commodity declared",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(b)",
+      "version": "2011",
+      "severity": "major",
+      "priority": 70,
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "exists", "field": "declared.common_name"}
+    },
+    {
+      "rule_id": "LMPC-6-1-E-NET-QUANTITY",
+      "name": "Net quantity declared",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(e)",
+      "version": "2011",
+      "severity": "critical",
+      "priority": 95,
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "requirements": [
+        {"id": "value-present", "description": "Net quantity value is declared",
+         "condition": {"op": "exists", "field": "declared.net_quantity"}},
+        {"id": "unit-present", "description": "Net quantity carries a standard unit of weight/volume/count",
+         "condition": {"op": "exists", "field": "declared.net_quantity.unit"}}
+      ]
+    },
+    {
+      "rule_id": "LMPC-6-1-D-MFG-DATE",
+      "name": "Month & year of manufacture / packing declared",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(d)",
+      "version": "2011",
+      "severity": "major",
+      "priority": 70,
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "exists", "field": "declared.mfg_date"}
+    },
+    {
+      "rule_id": "LMPC-6-1-D-BEST-BEFORE",
+      "name": "Best before / use by / expiry date declared where required",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(d) proviso",
+      "version": "2011",
+      "severity": "major",
+      "priority": 60,
+      "applicability": {"op": "eq", "field": "context.category_requires_best_before", "value": true},
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "exists", "field": "declared.best_before_use_by"},
+      "message_not_applicable": "This product's category is not one of the categories the proviso requires a best-before/expiry date for."
+    },
+    {
+      "rule_id": "LMPC-6-1-DA-MRP",
+      "name": "Maximum Retail Price (MRP), inclusive of all taxes, declared",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(da)",
+      "version": "2011",
+      "severity": "critical",
+      "priority": 100,
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "requirements": [
+        {"id": "mrp-present", "description": "MRP value is declared",
+         "condition": {"op": "exists", "field": "declared.mrp"}},
+        {"id": "mrp-positive", "description": "Declared MRP is a positive amount",
+         "condition": {"op": "gt", "field": "declared.mrp", "value": 0}},
+        {"id": "mrp-inclusive-wording", "description": "Label states MRP is inclusive of all taxes",
+         "condition": {"op": "or", "args": [
+           {"op": "contains", "field": "declared.mrp.label_text", "value": "inclusive of all taxes"},
+           {"op": "contains", "field": "declared.mrp.label_text", "value": "incl. of all taxes"}
+         ]},
+         "severity": "minor",
+         "message_uncertain": "Could not confirm 'inclusive of all taxes' wording near the MRP declaration."}
+      ]
+    },
+    {
+      "rule_id": "LMPC-6-1-DA-F-CONSUMER-CARE",
+      "name": "Consumer care / grievance contact details declared",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(da)/(f)",
+      "version": "2011",
+      "severity": "normal",
+      "priority": 40,
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "exists", "field": "declared.consumer_care"}
+    },
+    {
+      "rule_id": "LMPC-6-1-A-COUNTRY-OF-ORIGIN",
+      "name": "Country of origin declared for imported commodities",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(1)(a) proviso",
+      "version": "2011",
+      "severity": "major",
+      "priority": 65,
+      "applicability": {"op": "eq", "field": "context.is_imported", "value": true},
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "exists", "field": "declared.country_of_origin"},
+      "message_not_applicable": "Product is not declared/detected as imported, so country-of-origin marking is not required by this proviso."
+    },
+    {
+      "rule_id": "LMPC-5-STANDARD-PACK-SIZE",
+      "name": "Net quantity conforms to a Second Schedule standard pack size",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 5 / Second Schedule",
+      "version": "2011",
+      "effective_from": "2011-04-01",
+      "effective_to": "2022-08-19",
+      "status": "superseded",
+      "severity": "normal",
+      "priority": 30,
+      "applicability": {"op": "eq", "field": "context.commodity_has_standard_pack_schedule", "value": true},
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "in_list", "field": "declared.net_quantity", "values_field": "context.standard_pack_sizes_for_commodity"},
+      "message_not_applicable": "This commodity category does not have a Second-Schedule standard-pack-size restriction, or none was supplied for comparison."
+    },
+    {
+      "rule_id": "LMPC-6-11-UNIT-PRICE",
+      "name": "Declared unit sale price matches MRP / net-quantity within tolerance",
+      "description": "Where a unit sale price is declared, it must be arithmetically consistent with MRP and net quantity within a small rounding tolerance.",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 6(11)",
+      "version": "2011",
+      "severity": "major",
+      "priority": 55,
+      "applicability": {"op": "exists", "field": "declared.unit_sale_price"},
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "derived": [
+        {"name": "unit_price_deviation_pct", "description": "Percentage deviation of the declared unit price from the value computed from MRP/net quantity.",
+         "expr": {"op": "percent_diff", "args": [
+           {"field": "declared.unit_sale_price"},
+           {"field": "computed.expected_unit_sale_price"}
+         ]}}
+      ],
+      "condition": {"op": "between", "field": "context.computed.unit_price_deviation_pct", "min": -5, "max": 5},
+      "message_pass": "Declared unit sale price is within +/-5% of the value computed from MRP and net quantity.",
+      "message_fail": "Declared unit sale price deviates by more than 5% from the value computed from MRP and net quantity.",
+      "message_uncertain": "Could not compute the expected unit sale price (MRP, net quantity, or declared unit price missing/unreadable)."
+    },
+    {
+      "rule_id": "LMPC-7-NUMERAL-HEIGHT",
+      "name": "Net-quantity numerals meet minimum height requirement",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 7 read with Rule 7(2) / Schedule",
+      "version": "2011",
+      "severity": "normal",
+      "priority": 35,
+      "applicability": {"op": "exists", "field": "measured.numeral_height_mm"},
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "condition": {"op": "gte", "field": "measured.numeral_height_mm", "value_field": "context.required_numeral_height_mm"},
+      "message_pass": "Measured net-quantity numeral height meets the minimum required for this pack's net-quantity band.",
+      "message_fail": "Measured net-quantity numeral height is below the minimum required for this pack's net-quantity band.",
+      "message_uncertain": "Numeral height could not be measured/compared (missing measurement or missing applicable threshold)."
+    },
+    {
+      "rule_id": "LMPC-4-MULTIPACK",
+      "name": "Declarations on multi-piece and combination packages",
+      "description": "Where a package contains one or more retail packages, mandatory declarations must appear on the outer package and individual inner packages.",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 4",
+      "version": "2011",
+      "effective_from": "2011-04-01",
+      "severity": "major",
+      "priority": 85,
+      "applicability": {
+        "op": "or",
+        "args": [
+          {"op": "eq", "field": "context.is_multipack", "value": true},
+          {"op": "gt", "field": "context.retail_bundle_count", "value": 1}
+        ]
+      },
+      "exemptions": [
+        {"id": "general-exemption", "condition": {"op": "eq", "field": "exemption.is_exempt", "value": true}}
+      ],
+      "requirements": [
+        {
+          "id": "multipack-inner-declarations",
+          "description": "Individual retail packages inside combination/group pack retain required declarations",
+          "condition": {"op": "exists", "field": "declared.multipack_inner_declarations"}
+        }
+      ],
+      "message_pass": "Multi-piece package contains required declarations on outer and inner packages.",
+      "message_fail": "Multi-piece package is missing required declarations on inner packages.",
+      "message_not_applicable": "Product is not a multi-piece or combination package.",
+      "message_uncertain": "Inner package declarations or multipack structure could not be established from available evidence."
+    },
+    {
+      "rule_id": "LMPC-25-EXPORT",
+      "name": "Export packages offered for sale in India",
+      "description": "Packages manufactured or packed for export must be repacked or relabelled in accordance with Chapter II before sale in India.",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 25",
+      "version": "2011",
+      "effective_from": "2011-04-01",
+      "severity": "critical",
+      "priority": 92,
+      "applicability": {
+        "op": "and",
+        "args": [
+          {"op": "eq", "field": "context.is_export_only", "value": true},
+          {"op": "in_list", "field": "context.trade_type", "values": ["retail", "wholesale", "domestic"]}
+        ]
+      },
+      "requirements": [
+        {
+          "id": "export-repack-relabel",
+          "description": "Export package sold domestically carries verified repacking/relabeling compliance declaration",
+          "condition": {"op": "exists", "field": "declared.export_repack_relabel_evidence"}
+        }
+      ],
+      "message_pass": "Export package offered for domestic sale has verified Chapter II compliance evidence.",
+      "message_fail": "Export package is offered for domestic sale without required Chapter II relabelling or repacking.",
+      "message_not_applicable": "Package is not an export-only package offered for domestic sale in India.",
+      "message_uncertain": "Domestic sale status or repacking compliance cannot be established from available evidence."
+    },
+    {
+      "rule_id": "LMPC-26-B-FAST-FOOD",
+      "name": "Exemption for fast food items packed by restaurant or hotel",
+      "description": "Packages containing fast food items packed by a restaurant, hotel or like establishment are exempt under Rule 26(b).",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 26(b)",
+      "version": "2011",
+      "effective_from": "2011-04-01",
+      "severity": "major",
+      "priority": 93,
+      "applies_to": {"product_category": ["fast_food"]},
+      "exemptions": [
+        {
+          "id": "fast-food-restaurant-exemption",
+          "description": "Fast food packed by restaurant or hotel is exempt under Rule 26(b)",
+          "condition": {"op": "in_list", "field": "context.packer_type", "values": ["restaurant", "hotel", "like_establishment"]}
+        }
+      ],
+      "condition": {"op": "always"},
+      "message_exempt": "Product is a fast food item packed by a restaurant or hotel and is exempt under Rule 26(b).",
+      "message_pass": "Fast food package complies with Rule 26(b).",
+      "message_not_applicable": "Product is not categorized as fast food under Rule 26(b)."
+    },
+    {
+      "rule_id": "LMPC-26-C-DRUG-FORMULATIONS",
+      "name": "Exemption for drug formulations covered under DPCO",
+      "description": "Scheduled or non-scheduled drug formulations covered by the Drugs (Prices Control) Order are exempt under Rule 26(c).",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 26(c)",
+      "version": "2011",
+      "effective_from": "2017-01-01",
+      "severity": "major",
+      "priority": 94,
+      "applies_to": {"product_category": ["drug_formulation", "drugs"]},
+      "exemptions": [
+        {
+          "id": "dpco-drug-exemption",
+          "description": "Drug formulation covered by applicable Drugs (Prices Control) Order is exempt under Rule 26(c)",
+          "condition": {"op": "eq", "field": "context.is_dpco_covered", "value": true}
+        }
+      ],
+      "condition": {"op": "always"},
+      "message_exempt": "Drug formulation covered under Drugs (Prices Control) Order is exempt under Rule 26(c).",
+      "message_pass": "Drug formulation complies with Rule 26(c).",
+      "message_not_applicable": "Product is not a drug formulation subject to Rule 26(c)."
+    },
+    {
+      "rule_id": "LMPC-27-REGISTRATION",
+      "name": "Registration of manufacturers, packers and importers",
+      "description": "Enterprise registration of manufacturer, packer or importer under Chapter VI (Rule 27).",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 27",
+      "version": "2011",
+      "effective_from": "2011-04-01",
+      "severity": "normal",
+      "priority": 20,
+      "applicability": {"op": "eq", "field": "context.inspection_includes_registration", "value": true},
+      "requirements": [
+        {
+          "id": "registration-record-present",
+          "description": "Enterprise registration number under Chapter VI is evidenced",
+          "condition": {"op": "exists", "field": "context.registration_number"}
+        }
+      ],
+      "message_pass": "Entity registration under Rule 27 is verified.",
+      "message_fail": "Required registration under Rule 27 is missing or unverified.",
+      "message_not_applicable": "Inspection target is a physical package label; enterprise registration under Rule 27 is outside the scope of package-surface declarations."
+    },
+    {
+      "rule_id": "LMPC-31-ADVERTISEMENT",
+      "name": "Declarations in advertisements mentioning retail sale price",
+      "description": "Where an advertisement mentions retail sale price, net quantity must also be prominently declared.",
+      "legal_source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "regulation": "IN-LMPC-2011",
+      "provision": "Rule 31",
+      "version": "2011",
+      "effective_from": "2011-04-01",
+      "severity": "normal",
+      "priority": 15,
+      "applicability": {"op": "eq", "field": "context.is_advertisement", "value": true},
+      "requirements": [
+        {
+          "id": "advertisement-net-quantity",
+          "description": "Advertisement mentioning retail sale price also declares net quantity",
+          "condition": {"op": "exists", "field": "declared.net_quantity"}
+        }
+      ],
+      "message_pass": "Advertisement declaring retail sale price includes net quantity declaration.",
+      "message_fail": "Advertisement mentions retail sale price but omits net quantity declaration.",
+      "message_not_applicable": "Inspection target is a product package label; advertisement declarations under Rule 31 apply only when inspecting advertisements."
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "product_name": "Hair Actives",
+  "product_id": null,
+  "declarations": [
+    {
+      "field": "NET_QUANTITY",
+      "value": "30",
+      "unit": "ml",
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "Net Volume: 30ml",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "BATCH",
+      "value": "C26H005",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "BATCH NO.: C26H005",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "MFD",
+      "value": "08/2026",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "MFG. DATE: 08/2026",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "MRP",
+      "value": "800.00",
+      "unit": null,
+      "currency": "INR",
+      "basis": "Incl. of all taxes",
+      "face": "Face 1",
+      "evidence_text": "M.R.P ₹: 800.00",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "USP",
+      "value": "26.67",
+      "unit": "₹/ml",
+      "currency": "INR",
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "Unit Sale Price ₹ per ml: 26.67",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "USE_BEFORE",
+      "value": "24 months from the date of mfg.",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "Use before 24 months from the date of mfg.",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "MANUFACTURER",
+      "value": "Cheryl Laboratories Private Limited",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "MANUFACTURED BY: Cheryl Laboratories Private Limited",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "ADDRESS",
+      "value": "Plot No. A-328, 329, 330, T.T.C. Ind. Area, M.I.D.C., Mahape, Navi Mumbai- 400710, India",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "Plot No. A-328, 329, 330, T.T.C. Ind. Area, M.I.D.C., Mahape, Navi Mumbai- 400710, India",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "MARKETER",
+      "value": "Tatvartha Health Private Limited",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "MARKETED BY: Tatvartha Health Private Limited",
+      "confidence": 0.9

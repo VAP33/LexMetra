@@ -1,0 +1,64 @@
+{
+  "product": "PRINGLES",
+  "face": "Face 3",
+  "original_dimensions": [
+    1080,
+    2392
+  ],
+  "original_file_size_bytes": 460621,
+  "boundary_detected": true,
+  "boundary_method": "HOUGH_EDGE_INTERSECTION",
+  "physical_boundary_confidence": 0.92,
+  "evidence_safe_boundary_used": true,
+  "boundary_margin_percent": 6.0,
+  "perspective_corrected": true,
+  "background_normalized": true,
+  "glare_detected": false,
+  "glare_reduced": false,
+  "illumination_corrected": true,
+  "text_enhanced": true,
+  "final_dimensions": [
+    351,
+    1024
+  ],
+  "final_file_size_bytes": 77773,
+  "fallback_used": false,
+  "failure_reason": null,
+  "preprocessing_latency_ms": 483.0,
+  "physical_corners": [
+    [
+      71.5,
+      304.5
+    ],
+    [
+      706.9,
+      349.0
+    ],
+    [
+      684.9,
+      2153.7
+    ],
+    [
+      234.5,
+      2153.7
+    ]
+  ],
+  "evidence_safe_corners": [
+    [
+      50.3,
+      248.4
+    ],
+    [
+      723.8,
+      295.5
+    ],
+    [
+      700.5,
+      2208.5
+    ],
+    [
+      223.1,
+      2208.5
+    ]
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "ruleset_id": "EXAMPLE-FOOD-ALLERGEN-LABEL",
+  "ruleset_version": "illustrative-1",
+  "description": "A small, illustrative packaged-food allergen/nutrition labeling ruleset for a completely different regulation and product category than IN-LMPC-2011, used only to prove that backend/engine/ needs zero code changes to support a new regulation -- everything here is DATA. Not a real jurisdiction's actual regulation; do not use for real compliance decisions.",
+  "rules": [
+    {
+      "rule_id": "FOOD-ALLERGEN-DECLARED",
+      "name": "Major allergens declared when present",
+      "description": "If any of the recognised major allergens is present among the ingredients, it must be called out separately in an allergen statement.",
+      "legal_source": "Illustrative Food Labeling Standard",
+      "regulation": "EXAMPLE-FOOD-ALLERGEN-LABEL",
+      "provision": "S.4.2",
+      "version": "1",
+      "severity": "critical",
+      "priority": 100,
+      "applies_to": {"category": ["packaged_food"]},
+      "applicability": {"op": "or", "args": [
+        {"op": "contains", "field": "ingredients_text", "value": "milk"},
+        {"op": "contains", "field": "ingredients_text", "value": "peanut"},
+        {"op": "contains", "field": "ingredients_text", "value": "soy"},
+        {"op": "contains", "field": "ingredients_text", "value": "wheat"}
+      ]},
+      "condition": {"op": "exists", "field": "allergen_statement"},
+      "message_pass": "An allergen present in the ingredient list is called out in a separate allergen statement.",
+      "message_fail": "An allergen appears in the ingredient list but no allergen statement was found.",
+      "message_not_applicable": "No recognised major allergen was found in the ingredient text."
+    },
+    {
+      "rule_id": "FOOD-NET-WEIGHT-METRIC",
+      "name": "Net weight declared in metric units",
+      "legal_source": "Illustrative Food Labeling Standard",
+      "regulation": "EXAMPLE-FOOD-ALLERGEN-LABEL",
+      "provision": "S.2.1",
+      "version": "1",
+      "severity": "major",
+      "priority": 80,
+      "applies_to": {"category": ["packaged_food"]},
+      "requirements": [
+        {"id": "value", "description": "Net weight value present", "condition": {"op": "exists", "field": "net_weight"}},
+        {"id": "unit", "description": "Unit is a recognised metric mass unit",
+         "condition": {"op": "in_list", "field": "net_weight.unit", "values": ["g", "kg"]}}
+      ]
+    },
+    {
+      "rule_id": "FOOD-CALORIE-DECLARATION-RANGE",
+      "name": "Declared calories per serving is a plausible, non-negative value",
+      "legal_source": "Illustrative Food Labeling Standard",
+      "regulation": "EXAMPLE-FOOD-ALLERGEN-LABEL",
+      "provision": "S.5.1",
+      "version": "1",
+      "severity": "normal",
+      "priority": 40,
+      "applies_to": {"category": ["packaged_food"]},
+      "condition": {"op": "between", "field": "calories_per_serving", "min": 0, "max": 900},
+      "message_fail": "Declared calories-per-serving is outside a plausible range for a single serving."
+    },
+    {
+      "rule_id": "FOOD-SERVING-SIZE-CROSS-CHECK",
+      "name": "Servings per package is consistent with net weight / serving size",
+      "description": "servings_per_package should equal net_weight / serving_size within 1 serving of rounding tolerance -- a cross-field, calculated rule.",
+      "legal_source": "Illustrative Food Labeling Standard",
+      "regulation": "EXAMPLE-FOOD-ALLERGEN-LABEL",
+      "provision": "S.5.4",
+      "version": "1",
+      "severity": "minor",
+      "priority": 20,
+      "applies_to": {"category": ["packaged_food"]},
+      "depends_on": ["FOOD-NET-WEIGHT-METRIC"],
+      "applicability": {"op": "eq", "field": "context.rule_results.FOOD-NET-WEIGHT-METRIC.status", "value": "PASS"},
+      "derived": [
+        {"name": "expected_servings", "expr": {"op": "div", "args": [
+          {"field": "net_weight"}, {"field": "serving_size"}
+        ]}}
+      ],
+      "condition": {"op": "eq", "field": "servings_per_package", "value_field": "context.computed.expected_servings", "tolerance": 1},
+      "message_not_applicable": "Skipped because net-weight/unit could not first be confirmed."
+    }
+  ]
+}

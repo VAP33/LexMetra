@@ -1,0 +1,50 @@
+{
+  "status_code": 200,
+  "latency_ms": 34504.6,
+  "raw_response": {
+    "id": "gen-1789547969-qfSNbzDpu1Tg53Ne0upb",
+    "object": "chat.completion",
+    "created": 1789547969,
+    "model": "qwen/qwen3.8-27b",
+    "provider": "CoreWeave",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"product_name\": {\n    \"value\": \"Cadbury GEMS SURPRISE Doraemon\",\n    \"face\": \"Face 1\",\n    \"evidence_text\": \"Cadbury GEMS SURPRISE Doraemon\",\n    \"bbox\": [\n      250,\n      490,\n      450,\n      220\n    ],\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n  },\n  \"product_id\": {\n    \"value\": null,\n    \"face\": null,\n    \"evidence_text\": \"\",\n    \"bbox\": [],\n    \"confidence\": 0.0,\n    \"status\": \"REVIEW_REQUIRED\"\n  },\n  \"product_category\": {\n    \"value\": \"Confectionery\",\n    \"face\": \"Face 3\",\n    \"evidence_text\": \"Confectionery\",\n    \"bbox\": [\n      550,\n      440,\n      150,\n      30\n    ],\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n  },\n  \"declarations\": [\n    {\n      \"field\": \"MRP\",\n      \"value\": \"45.00\",\n      \"unit\": null,\n      \"currency\": \"INR\",\n      \"basis\": null,\n      \"face\": \"Face 2\",\n      \"evidence_text\": \"MRP Rs. 45.00\",\n      \"bbox\": [\n      800,\n      590,\n      180,\n      40\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.9,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"USP\",\n      \"value\": \"3.06\",\n      \"unit\": \"g\",\n      \"currency\": \"INR\",\n      \"basis\": \"per g\",\n      \"face\": \"Face 2\",\n      \"evidence_text\": \"Rs. 3.06 per g\",\n      \"bbox\": [\n      800,\n      560,\n      180,\n      30\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"NET_QUANTITY\",\n      \"value\": \"14.69\",\n      \"unit\": \"g\",\n      \"currency\": null,\n      \"basis\": null,\n      \"face\": \"Face 3\",\n      \"evidence_text\": \"14.69 g\",\n      \"bbox\": [\n      0,\n      680,\n      100,\n      40\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"MFD\",\n      \"value\": \"24/07/24\",\n      \"unit\": null,\n      \"currency\": null,\n      \"basis\": null,\n      \"face\": \"Face 3\",\n      \"evidence_text\": \"Pkd. 24/07/24\",\n      \"bbox\": [\n      150,\n      650,\n      200,\n      40\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"USE_BEFORE\",\n      \"value\": \"24/07/27\",\n      \"unit\": null,\n      \"currency\": null,\n      \"basis\": null,\n      \"face\": \"Face 3\",\n      \"evidence_text\": \"USE BY: 24/07/27\",\n      \"bbox\": [\n      150,\n      720,\n      200,\n      40\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"BATCH\",\n      \"value\": \"Y60724 A26\",\n      \"unit\": null,\n      \"currency\": null,\n      \"basis\": null,\n      \"face\": \"Face 3\",\n      \"evidence_text\": \"Code Y60724 A26\",\n      \"bbox\": [\n      150,\n      680,\n      250,\n      40\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"MANUFACTURER\",\n      \"value\": \"Mondelez India Foods Private Limited\",\n      \"unit\": null,\n      \"currency\": null,\n      \"basis\": null,\n      \"face\": \"Face 2\",\n      \"evidence_text\": \"Mfd. By: Mondelez India Foods Private Limited\",\n      \"bbox\": [\n      100,\n      500,\n      500,\n      40\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"ADDRESS\",\n      \"value\": \"Unit No. 2001, 20th Floor, Tower - 3 (Wing C), One International Center, Parel, Mumbai - 400 013\",\n      \"unit\": null,\n      \"currency\": null,\n      \"basis\": null,\n      \"face\": \"Face 2\",\n      \"evidence_text\": \"Unit No. 2001, 20th Floor, Tower - 3 (Wing C), One International Center, Parel, Mumbai - 400 013\",\n      \"bbox\": [\n      100,\n      510,\n      600,\n      60\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    },\n    {\n      \"field\": \"CONSUMER_CARE\",\n      \"value\": \"1800 227080 / email: suggestions@mdlzindia.com\",\n      \"unit\": null,\n      \"currency\": null,\n      \"basis\": null,\n      \"face\": \"Face 2\",\n      \"evidence_text\": \"1800 227080 / email: suggestions@mdlzindia.com\",\n      \"bbox\": [\n      100,\n      720,\n      600,\n      40\n    ],\n    \"coordinate_space\": \"CANONICAL\",\n    \"confidence\": 0.95,\n    \"status\": \"DETECTED\"\n    }\n  ],\n  \"face_metadata\": {\n    \"Face 1\": {\n      \"inferred_surface_hypothesis\": \"Front label\"\n    },\n    \"Face 2\": {\n      \"inferred_surface_hypothesis\": \"Back label with ingredients and manufacturer details\"\n    },\n    \"Face 3\": {\n      \"inferred_surface_hypothesis\": \"Side label with barcode and dates\"\n    }\n  }\n}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 8675,
+      "completion_tokens": 1776,
+      "total_tokens": 10451,
+      "cost": 0.008798,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.008798,
+        "upstream_inference_prompt_cost": 0.00347,
+        "upstream_inference_completions_cost": 0.005328
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}

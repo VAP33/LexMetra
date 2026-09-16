@@ -15,6 +15,7 @@ Design goals:
 
 from __future__ import annotations
 
+from enum import Enum
 import json
 import os
 from contextlib import contextmanager
@@ -364,6 +365,86 @@ def hydrate_finding_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return finding
 
 
+#: Column order used by both INSERT and `build_surface_row` for inspection_surfaces.
+SURFACE_COLUMNS = (
+    "inspection_id",
+    "surface_id",
+    "surface_type",
+    "priority_score",
+    "original_image_path",
+    "canonical_image_path",
+    "transform_matrix_json",
+    "declaration_density",
+    "dimensions_json",
+    "notes_json",
+)
+
+
+def build_surface_row(inspection_id: str, surface: Any) -> Dict[str, Any]:
+    """
+    Flatten one InspectionSurface into the `inspection_surfaces` column set.
+    """
+    priority_score = getattr(surface, "priority_score", 0.0)
+    try:
+        priority_score = float(priority_score) if priority_score is not None else 0.0
+    except (TypeError, ValueError):
+        priority_score = 0.0
+
+    declaration_density = getattr(surface, "declaration_density", 0.0)
+    try:
+        declaration_density = (
+            float(declaration_density) if declaration_density is not None else 0.0
+        )
+    except (TypeError, ValueError):
+        declaration_density = 0.0
+
+    transform_matrix = getattr(surface, "transform_matrix", None)
+    dimensions = getattr(surface, "dimensions", None)
+    notes = getattr(surface, "notes", None)
+
+    return {
+        "inspection_id": inspection_id,
+        "surface_id": str(getattr(surface, "surface_id", "") or "surface_0"),
+        "surface_type": _enum_value(getattr(surface, "surface_type", "UNKNOWN")),
+        "priority_score": priority_score,
+        "original_image_path": getattr(surface, "original_image_path", None),
+        "canonical_image_path": getattr(surface, "canonical_image_path", None),
+        "transform_matrix_json": _json_or_none(transform_matrix),
+        "declaration_density": declaration_density,
+        "dimensions_json": _json_or_none(dimensions),
+        "notes_json": _json_or_none(notes),
+    }
+
+
+def hydrate_surface_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Hydrate a database row from inspection_surfaces into a dictionary.
+    """
+    out = dict(row)
+    out["transform_matrix"] = decode_json_column(row.get("transform_matrix_json"))
+    out["dimensions"] = decode_json_column(row.get("dimensions_json"))
+    out["notes"] = decode_json_column(row.get("notes_json")) or []
+    if "priority_score" in out and out["priority_score"] is not None:
+        out["priority_score"] = float(out["priority_score"])
+    if "declaration_density" in out and out["declaration_density"] is not None:
+        out["declaration_density"] = float(out["declaration_density"])
+
+    orig_p = out.get("original_image_path")
+    if orig_p:
+        fn = Path(orig_p).name
+        out["original_image_path"] = f"/uploads/{fn}"
+        out["image_url"] = f"/uploads/{fn}"
+
+    canon_p = out.get("canonical_image_path")
+    if canon_p:
+        fn = Path(canon_p).name
+        out["canonical_image_path"] = f"/uploads/{fn}"
+        out["canonical_image_url"] = f"/uploads/{fn}"
+
+    return out
+
+
+
 # ---------------------------------------------------------------------------
 # Save
 # ---------------------------------------------------------------------------
@@ -609,6 +690,36 @@ def save_inspection(
                         tuple(row[name] for name in FINDING_COLUMNS),
                     )
 
+            # ---------------- Surfaces ----------------
+            cur.execute(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'inspection_surfaces'
+                """
+            )
+            has_surfaces_table = cur.fetchone() is not None
+
+            if has_surfaces_table:
+                cur.execute(
+                    "DELETE FROM inspection_surfaces WHERE inspection_id = %s",
+                    (inspection_id,),
+                )
+
+                surfaces = getattr(inspection, "surfaces", []) or []
+                s_placeholders = ", ".join(["%s"] * len(SURFACE_COLUMNS))
+                s_columns = ", ".join(SURFACE_COLUMNS)
+
+                for surface in surfaces:
+                    s_row = build_surface_row(inspection_id, surface)
+                    cur.execute(
+                        f"INSERT INTO inspection_surfaces ({s_columns}) "
+                        f"VALUES ({s_placeholders})",
+                        tuple(s_row[name] for name in SURFACE_COLUMNS),
+                    )
+
+
 
 # ---------------------------------------------------------------------------
 # Read/list
@@ -739,7 +850,71 @@ def get_inspection_detail(inspection_id: str) -> Optional[dict]:
                 inspection["findings"] = []
                 inspection["findings_unavailable"] = True
 
+            # Surfaces: multi-surface evidence records.
+            try:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM inspection_surfaces
+                    WHERE inspection_id = %s
+                    ORDER BY priority_score DESC, id ASC
+                    """,
+                    (inspection_id,),
+                )
+                inspection["surfaces"] = [
+                    hydrate_surface_row(dict(row)) for row in cur.fetchall()
+                ]
+            except _DRIVER_ERROR:
+                conn.rollback()
+                inspection["surfaces"] = []
+
+            # Populate web image URLs for the inspection
+            img_ref = inspection.get("image_path") or inspection.get("image_filename")
+            if img_ref:
+                fn = Path(img_ref).name
+                inspection["image"] = f"/uploads/{fn}"
+
+            # If surfaces exist, use the top-priority surface's images
+            if inspection.get("surfaces"):
+                top_s = inspection["surfaces"][0]
+                if top_s.get("image_url") and not inspection.get("image"):
+                    inspection["image"] = top_s["image_url"]
+                if top_s.get("canonical_image_url"):
+                    inspection["canonicalImage"] = top_s["canonical_image_url"]
+
             return dict(inspection)
+
+
+def save_inspection_surfaces(inspection_id: str, surfaces: Sequence[Any]) -> None:
+    """
+    Persist or update surface evidence records for an existing inspection.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'inspection_surfaces'
+                """
+            )
+            if cur.fetchone() is None:
+                return
+
+            cur.execute(
+                "DELETE FROM inspection_surfaces WHERE inspection_id = %s",
+                (inspection_id,),
+            )
+            placeholders = ", ".join(["%s"] * len(SURFACE_COLUMNS))
+            columns = ", ".join(SURFACE_COLUMNS)
+            for surface in surfaces:
+                s_row = build_surface_row(inspection_id, surface)
+                cur.execute(
+                    f"INSERT INTO inspection_surfaces ({columns}) VALUES ({placeholders})",
+                    tuple(s_row[name] for name in SURFACE_COLUMNS),
+                )
+
 
 
 # ---------------------------------------------------------------------------

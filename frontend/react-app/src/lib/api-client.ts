@@ -6,12 +6,23 @@
 // at build time); defaults to the local dev backend from SETUP.md.
 import type { ScanDetails } from "./types";
 
-const API_BASE: string =
+export const API_BASE: string =
   (typeof import.meta !== "undefined" &&
     (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.location?.hostname
     ? `${window.location.protocol}//${window.location.hostname}:8000`
     : "http://localhost:8000");
+
+export function resolveImageUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  if (url.startsWith("/")) {
+    return `${API_BASE}${url}`;
+  }
+  return `${API_BASE}/${url}`;
+}
 
 const TOKEN_STORAGE_KEY = "lmpc_access_token";
 const USER_STORAGE_KEY = "lmpc_user";
@@ -202,6 +213,17 @@ export interface RawCanonicalDeclaration {
   reason?: string | null;
   rule_id?: string | null;
   rule_clause?: string | null;
+  alternative_candidates?: Array<{
+    value: string;
+    score: number;
+    signals?: Record<string, number>;
+    rejected?: boolean;
+    rejection_reason?: string;
+  }> | null;
+  reasoning_signals?: Record<string, number> | null;
+  rejection_reasons?: Record<string, string> | null;
+  label_bbox?: number[] | null;
+  value_bbox?: number[] | null;
 }
 
 export interface RawDeclarationSummary {
@@ -241,6 +263,20 @@ export interface RawScanResponse {
     }>;
     declarations?: RawCanonicalDeclaration[];
     declaration_summary?: RawDeclarationSummary;
+    image?: string | null;
+    canonical_image?: string | null;
+    surfaces?: Array<{
+      surface_id: string;
+      surface_type: string;
+      priority_score: number;
+      original_image_path?: string;
+      canonical_image_path?: string;
+      image_url?: string;
+      canonical_image_url?: string;
+      transform_matrix?: number[][];
+      notes?: string[];
+      dimensions?: { width: number; height: number };
+    }>;
   };
   raw_ocr_fields?: Record<string, { value?: string; confidence?: number }>;
   resolved_inputs?: {
@@ -275,6 +311,20 @@ export interface RawInspectionRow {
   overall_status: "PASS" | "FAIL" | "UNCERTAIN" | "EXEMPT";
   exempt_reason?: string | null;
   image_filename?: string | null;
+  image?: string | null;
+  canonical_image?: string | null;
+  surfaces?: Array<{
+    surface_id: string;
+    surface_type: string;
+    priority_score: number;
+    original_image_path?: string;
+    canonical_image_path?: string;
+    image_url?: string;
+    canonical_image_url?: string;
+    transform_matrix?: number[][];
+    notes?: string[];
+    dimensions?: { width: number; height: number };
+  }>;
   created_at: string;
   reviewed: boolean;
   reviewer_note?: string | null;
@@ -342,6 +392,47 @@ export interface ExtractPreviewResponse {
   raw_ocr_fields: Record<string, any>;
 }
 
+export interface PreprocessParallelFace {
+  face: string;
+  original_image_url: string;
+  canonical_image_url: string;
+  original_dimensions?: [number, number];
+  final_dimensions?: [number, number];
+  boundary_detected?: boolean;
+  boundary_method?: string;
+  physical_boundary_confidence?: number;
+  evidence_safe_margin?: number;
+  perspective_corrected?: boolean;
+  latency_ms?: number;
+  forward_transform_matrix?: number[][];
+  inverse_transform_matrix?: number[][];
+}
+
+export interface PreprocessParallelResponse {
+  status: string;
+  faces: Record<string, PreprocessParallelFace>;
+  wall_clock_ms: number;
+  face_count: number;
+}
+
+export async function preprocessParallel(
+  images: Blob[],
+  productId?: string,
+  marginPct?: number
+): Promise<PreprocessParallelResponse> {
+  const form = new FormData();
+  images.forEach((img, idx) => {
+    form.append("files", img, `face_${idx + 1}.jpg`);
+  });
+  if (productId) form.append("product_id", productId);
+  if (marginPct !== undefined) form.append("margin_pct", String(marginPct));
+
+  return request<PreprocessParallelResponse>("/preprocess/parallel", {
+    method: "POST",
+    body: form,
+  });
+}
+
 /**
  * Lightweight OCR extraction preview for the capture -> confirm flow.
  * Runs OCR across surfaces to pre-fill the confirmation form and give the inspector
@@ -401,7 +492,7 @@ export async function createSession(req: CreateSessionRequest): Promise<CreateSe
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      product_id: req.productId,
+      product_id: req.productId ?? "",
       sale_type: req.saleType,
       product_category: req.productCategory,
       ...(req.netQuantityValue !== undefined ? { net_quantity_value: req.netQuantityValue } : {}),
@@ -426,7 +517,18 @@ export interface AddCaptureResponse {
   total_captures: number;
 }
 
-export type SurfaceType = "FRONT" | "BACK" | "SIDE" | "LABEL" | "TOP" | "BOTTOM" | "UNKNOWN";
+export type SurfaceType =
+  | "Face 1"
+  | "Face 2"
+  | "Face 3"
+  | "FRONT"
+  | "BACK"
+  | "SIDE"
+  | "LABEL"
+  | "TOP"
+  | "BOTTOM"
+  | "UNKNOWN"
+  | string;
 
 export async function addSessionCapture(
   sessionId: string,

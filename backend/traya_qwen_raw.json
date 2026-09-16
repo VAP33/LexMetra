@@ -1,0 +1,149 @@
+{
+  "product_name": {
+    "value": "Hair Actives",
+    "face": "Face 1",
+    "evidence_text": "Hair Actives is a blend of proven, plant based hair growth actives like Redensyl, Hairgenyl and Procapil that helps to control hair fall and makes hair & scalp healthy from the root.",
+    "bbox": [
+      180,
+      100,
+      580,
+      220
+    ],
+    "confidence": 0.95,
+    "status": "DETECTED"
+  },
+  "declarations": [
+    {
+      "field": "PRODUCT_NAME",
+      "value": "Hair Actives",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "Hair Actives is a blend of proven, plant based hair growth actives like Redensyl, Hairgenyl and Procapil that helps to control hair fall and makes hair & scalp healthy from the root.",
+      "bbox": [
+        180,
+        100,
+        580,
+        220
+      ],
+      "coordinate_space": "CANONICAL",
+      "confidence": 0.95,
+      "status": "DETECTED"
+    },
+    {
+      "field": "NET_QUANTITY",
+      "value": "30",
+      "unit": "ml",
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "Net Volume: 30ml",
+      "bbox": [
+        180,
+        1180,
+        450,
+        60
+      ],
+      "coordinate_space": "CANONICAL",
+      "confidence": 0.98,
+      "status": "DETECTED"
+    },
+    {
+      "field": "BATCH",
+      "value": "C26H005",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "BATCH NO.: C26H005",
+      "bbox": [
+        180,
+        1260,
+        450,
+        50
+      ],
+      "coordinate_space": "CANONICAL",
+      "confidence": 0.98,
+      "status": "DETECTED"
+    },
+    {
+      "field": "MFD",
+      "value": "08/2026",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "MFG. DATE: 08/2026",
+      "bbox": [
+        180,
+        1310,
+        450,
+        50
+      ],
+      "coordinate_space": "CANONICAL",
+      "confidence": 0.98,
+      "status": "DETECTED"
+    },
+    {
+      "field": "MRP",
+      "value": "26.67",
+      "unit": null,
+      "currency": "₹",
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "M.R.P ₹ : 26.67 (Incl. of all taxes)",
+      "bbox": [
+        180,
+        1410,
+        450,
+        80
+      ],
+      "coordinate_space": "CANONICAL",
+      "confidence": 0.98,
+      "status": "DETECTED"
+    },
+    {
+      "field": "USP",
+      "value": "800.00",
+      "unit": "ml",
+      "currency": "₹",
+      "basis": "per ml",
+      "face": "Face 1",
+      "evidence_text": "Unit Sale Price ₹ per ml: 800.00",
+      "bbox": [
+        180,
+        1490,
+        450,
+        80
+      ],
+      "coordinate_space": "CANONICAL",
+      "confidence": 0.98,
+      "status": "DETECTED"
+    },
+    {
+      "field": "USE_BEFORE",
+      "value": "24 months from the date of mfg.",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "Use before 24 months from the date of mfg.",
+      "bbox": [
+        180,
+        1580,
+        550,
+        80
+      ],
+      "coordinate_space": "CANONICAL",
+      "confidence": 0.98,
+      "status": "DETECTED"
+    },
+    {
+      "field": "MANUFACTURER",
+      "value": "Cheryl Laboratories Private Limited",
+      "unit": null,
+      "currency": null,
+      "basis": null,
+      "face": "Face 1",
+      "evidence_text": "MANUFACT

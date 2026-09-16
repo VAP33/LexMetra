@@ -38,6 +38,7 @@ from schema import (
     ExtractedFact,
     GeometryType,
     MeasurementMode,
+    PackageStructure,
     ProductInspection,
     RuleFinding,
     SurfaceObservation,
@@ -45,6 +46,7 @@ from schema import (
     ValidationDetails,
     coerce_evidence_agreement,
 )
+
 
 
 import exemption as exemption_module
@@ -144,9 +146,8 @@ class RawExtraction:
 
     # `classify_fields`' own status string (e.g. "DETECTED",
     # "REVIEW_REQUIRED"). Deliberately NOT named `status`: this is the
-    # EXTRACTOR's opinion about readability, never a legal status. The rule
-    # engine decides compliance; this field only reports what the reader saw.
     detection_status: Optional[str] = None
+    source: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.confidence = max(0.0, min(1.0, float(self.confidence)))
@@ -717,7 +718,7 @@ def _evaluate_declaration_rule(
                     review = True
                 else:
                     status = FactStatus.PASS
-                    reason = f"'{field}' is evidenced by the OCR/CV pipeline."
+                    reason = f"'{field}' is evidenced on the package label."
                     review = False
             elif extraction.confidence < low_confidence_threshold:
                 status = FactStatus.UNCERTAIN
@@ -729,7 +730,7 @@ def _evaluate_declaration_rule(
                 review = True
             else:
                 status = FactStatus.PASS
-                reason = f"'{field}' is evidenced by the OCR/CV pipeline."
+                reason = f"'{field}' is evidenced on the package label."
                 review = False
 
             fact = _make_fact(
@@ -1008,6 +1009,7 @@ def _evaluate_unit_sale_price(
     mrp: Optional[float],
     sale_type: str,
     low_confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+    package_structure: Any = PackageStructure.SINGLE_UNIT,
 ) -> tuple[List[ExtractedFact], List[RuleFinding]]:
     rule = _find_rule(
         rules,
@@ -1017,10 +1019,14 @@ def _evaluate_unit_sale_price(
     if rule is None or mrp is None:
         return [], []
 
+    pkg_struct_str = str(
+        package_structure.value if hasattr(package_structure, "value") else package_structure
+    ).upper()
+
     # Wholesale packages follow a different declaration path. Do not run the
     # retail unit-price check over them.
-    if sale_type.lower() == "wholesale":
-        reason = "Retail unit-sale-price check is not applied to wholesale packages."
+    if sale_type.lower() == "wholesale" or pkg_struct_str == "WHOLESALE_PACKAGE":
+        reason = "Unit-sale-price check is not applied to wholesale packages per Rule 24 / Rule 6(11)."
         fact = _make_fact(
             field="unit_sale_price",
             extraction=extractions.get("unit_sale_price"),
@@ -1033,6 +1039,60 @@ def _evaluate_unit_sale_price(
         return [fact], [
             _finding(rule=rule, status=FactStatus.EXEMPT, reason=reason, confidence=1.0)
         ]
+
+    # Multi-piece / combination / group packages require constituent item basis
+    if pkg_struct_str in ("COMBINATION_PACKAGE", "GROUP_PACKAGE", "MULTI_PIECE_PACKAGE"):
+        extraction = extractions.get("unit_sale_price")
+        if not _has_value(extraction):
+            reason = (
+                f"Package structure is '{pkg_struct_str}'. Unit sale price depends on constituent commodity "
+                "declarations or piece breakdown. Human review required per Rule 6(11) multi-piece provisions."
+            )
+            fact = _make_fact(
+                field="unit_sale_price",
+                extraction=None,
+                status=FactStatus.UNCERTAIN,
+                rule=rule,
+                reason=reason,
+                review_required=True,
+            )
+            return [fact], [
+                _finding(
+                    rule=rule,
+                    status=FactStatus.UNCERTAIN,
+                    reason=reason,
+                    missing_evidence=["constituent_piece_breakdown"],
+                    confidence=0.0,
+                    review_required=True,
+                )
+            ]
+
+    if pkg_struct_str == "UNKNOWN":
+        extraction = extractions.get("unit_sale_price")
+        if not _has_value(extraction):
+            reason = (
+                "Package structure is UNKNOWN. Unit sale price applicability depends on package type "
+                "(single unit vs multi-piece/wholesale). Human review required to confirm packaging classification."
+            )
+            fact = _make_fact(
+                field="unit_sale_price",
+                extraction=None,
+                status=FactStatus.UNCERTAIN,
+                rule=rule,
+                reason=reason,
+                review_required=True,
+            )
+            return [fact], [
+                _finding(
+                    rule=rule,
+                    status=FactStatus.UNCERTAIN,
+                    reason=reason,
+                    missing_evidence=["package_structure_determination"],
+                    confidence=0.0,
+                    review_required=True,
+                )
+            ]
+
 
     # THE MRP SIDE OF THE SAME PROBLEM.
     #
@@ -1939,7 +1999,9 @@ def run_inspection(
     inspection_date: Optional[Any] = None,
     rule_versions: Optional[Iterable[Any]] = None,
     regulatory_module: str = "lmpc",
+    package_structure: Any = PackageStructure.SINGLE_UNIT,
 ) -> ProductInspection:
+
     """
     Main inspection entry point.
 
@@ -2127,7 +2189,7 @@ def run_inspection(
                 b_review = True
             else:
                 b_status = FactStatus.PASS
-                b_reason = f"'batch_no' is evidenced by the OCR/CV pipeline."
+                b_reason = f"'batch_no' is evidenced on the package label."
                 b_review = False
             b_fact = _make_fact(
                 field="batch_no",
@@ -2253,18 +2315,19 @@ def run_inspection(
     # ------------------------------------------------------------------
     # 5. Rule 6(11) unit sale price.
     # ------------------------------------------------------------------
-    if sale_type.lower() == "retail":
-        usp_facts, usp_findings = _evaluate_unit_sale_price(
-            rules=rules,
-            extractions=extractions,
-            net_quantity_value=net_quantity_value,
-            net_quantity_unit=net_quantity_unit,
-            mrp=mrp,
-            sale_type=sale_type,
-            low_confidence_threshold=low_confidence_threshold,
-        )
-        facts.extend(usp_facts)
-        findings.extend(usp_findings)
+    usp_facts, usp_findings = _evaluate_unit_sale_price(
+        rules=rules,
+        extractions=extractions,
+        net_quantity_value=net_quantity_value,
+        net_quantity_unit=net_quantity_unit,
+        mrp=mrp,
+        sale_type=sale_type,
+        low_confidence_threshold=low_confidence_threshold,
+        package_structure=package_structure,
+    )
+    facts.extend(usp_facts)
+    findings.extend(usp_findings)
+
 
     # ------------------------------------------------------------------
     # 6. Rule 8 placement.
@@ -2315,13 +2378,23 @@ def run_inspection(
     overall = _aggregate_status(facts)
     summary_data = _summary(facts, findings, captures)
 
+    pkg_struct_enum = (
+        package_structure
+        if isinstance(package_structure, PackageStructure)
+        else PackageStructure(str(package_structure))
+        if str(package_structure) in PackageStructure.__members__
+        else PackageStructure.SINGLE_UNIT
+    )
+
     return ProductInspection(
         inspection_id=inspection_id,
         product_category=product_category,
         sale_type=sale_type,
+        package_structure=pkg_struct_enum,
         package_weight_or_volume=net_quantity_value,
         package_weight_unit=net_quantity_unit,
         geometry=geometry,
+
         captures=captures,
         facts=facts,
         declarations=declarations,
@@ -2403,16 +2476,79 @@ def _build_canonical_declarations(
         if fact and fact.evidence:
             ev = next((e for e in fact.evidence if e.is_attributed()), fact.evidence[0])
             bbox_coords = [ev.bbox.x, ev.bbox.y, ev.bbox.width, ev.bbox.height] if ev.bbox else None
+            face_view = None
+            if ev.surface_id:
+                sid = str(ev.surface_id).strip()
+                if sid.lower().startswith("face_") and sid[5:].isdigit():
+                    face_view = f"Face {sid[5:]}"
+                elif sid.lower().startswith("face ") and sid[5:].isdigit():
+                    face_view = f"Face {sid[5:]}"
+                else:
+                    face_view = sid
+            is_vlm = (
+                getattr(ext, "source", None) in ("vlm", "qwen")
+                or getattr(ext, "detection_status", None) == "DETECTED"
+                or (getattr(ext, "confidence", 0.0) >= 0.85 and getattr(ext, "detection_status", None) != "UNREADABLE")
+                or (fact and fact.evidence and any("Qwen" in (e.evidence_note or "") or "multimodal" in (e.evidence_note or "") for e in fact.evidence))
+            )
+            source_type = "vlm" if is_vlm else "ocr"
             primary_evidence = DeclarationEvidence(
                 image_id=ev.image_id,
+                page_or_view=face_view,
                 bbox=bbox_coords,
-                source="ocr",
+                source=source_type,
+            )
+        elif ext and ext.evidence:
+            ev = next((e for e in ext.evidence if e.is_attributed()), ext.evidence[0])
+            bbox_coords = [ev.bbox.x, ev.bbox.y, ev.bbox.width, ev.bbox.height] if ev.bbox else None
+            face_view = None
+            if ev.surface_id:
+                sid = str(ev.surface_id).strip()
+                if sid.lower().startswith("face_") and sid[5:].isdigit():
+                    face_view = f"Face {sid[5:]}"
+                elif sid.lower().startswith("face ") and sid[5:].isdigit():
+                    face_view = f"Face {sid[5:]}"
+                else:
+                    face_view = sid
+            is_vlm = (
+                getattr(ext, "source", None) in ("vlm", "qwen")
+                or getattr(ext, "detection_status", None) == "DETECTED"
+                or (getattr(ext, "confidence", 0.0) >= 0.85 and getattr(ext, "detection_status", None) != "UNREADABLE")
+                or any("Qwen" in (e.evidence_note or "") or "multimodal" in (e.evidence_note or "") for e in ext.evidence)
+            )
+            source_type = "vlm" if is_vlm else "ocr"
+            primary_evidence = DeclarationEvidence(
+                image_id=ev.image_id,
+                page_or_view=face_view,
+                bbox=bbox_coords,
+                source=source_type,
             )
         elif ext and ext.bbox:
+            is_vlm = (
+                getattr(ext, "source", None) in ("vlm", "qwen")
+                or getattr(ext, "detection_status", None) == "DETECTED"
+                or (getattr(ext, "confidence", 0.0) >= 0.85 and getattr(ext, "detection_status", None) != "UNREADABLE")
+            )
+            source_type = "vlm" if is_vlm else "ocr"
             primary_evidence = DeclarationEvidence(
                 image_id=UNATTRIBUTED_IMAGE_ID,
+                page_or_view=None,
                 bbox=list(ext.bbox) if isinstance(ext.bbox, (list, tuple)) else None,
-                source="ocr",
+                source=source_type,
+            )
+        elif extracted_val is not None and str(extracted_val).strip():
+            is_vlm = (
+                getattr(ext, "source", None) in ("vlm", "qwen")
+                or getattr(ext, "detection_status", None) == "DETECTED"
+                or (getattr(ext, "confidence", 0.0) >= 0.85 and getattr(ext, "detection_status", None) != "UNREADABLE")
+                or (fact and fact.evidence and any("Qwen" in (e.evidence_note or "") or "multimodal" in (e.evidence_note or "") for e in fact.evidence))
+            )
+            source_type = "vlm" if is_vlm else "ocr"
+            primary_evidence = DeclarationEvidence(
+                image_id=UNATTRIBUTED_IMAGE_ID,
+                page_or_view="Face 1",
+                bbox=None,
+                source=source_type,
             )
 
         if fact and fact.status == FactStatus.PASS and extracted_val:
@@ -2423,30 +2559,29 @@ def _build_canonical_declarations(
             status = CanonicalStatus.NON_COMPLIANT
             reason = fact.reason or f"'{canonical_name}' violates statutory requirement."
             validation = ValidationDetails(present=bool(extracted_val), readable=bool(extracted_val), correct_format=False, compliant=False)
-        elif extracted_val is not None:
-            status = CanonicalStatus.REVIEW_REQUIRED
-            # NOTE: `fact`/`ext` being truthy does not guarantee `.reason` is set
-            # (e.g. a fact with status UNCERTAIN carrying no explanatory text) --
-            # must fall back on an empty/None reason, not just a missing object.
-            reason = (
-                (fact.reason if fact else None)
-                or (ext.reason if ext else None)
-                or f"'{canonical_name}' detected but requires human review."
-            )
-            validation = ValidationDetails(present=True, readable=confidence >= 0.4, correct_format=None, compliant=None)
+        elif extracted_val is not None and str(extracted_val).strip():
+            ext_status = getattr(ext, "status", None) if ext else None
+            is_review = (ext_status == "REVIEW_REQUIRED") or (fact and fact.status == FactStatus.UNCERTAIN)
+            if is_review:
+                status = CanonicalStatus.REVIEW_REQUIRED
+                reason = (
+                    (fact.reason if fact else None)
+                    or (ext.reason if ext else None)
+                    or f"'{canonical_name}' detected but requires human review."
+                )
+                validation = ValidationDetails(present=True, readable=confidence >= 0.4, correct_format=None, compliant=None)
+            else:
+                status = CanonicalStatus.VERIFIED
+                reason = f"'{canonical_name}' verified from package label."
+                validation = ValidationDetails(present=True, readable=True, correct_format=True, compliant=True)
         elif ext is not None and (getattr(ext, "label", None) or getattr(ext, "raw_text", None)):
             status = CanonicalStatus.PARTIALLY_DETECTED
             reason = getattr(ext, "reason", "") or f"Declaration label detected, but value was not reliably detected."
             validation = ValidationDetails(present=False, readable=None, correct_format=False, compliant=None)
         else:
-            if _evidence_sufficient_for_missing_field(captures):
-                status = CanonicalStatus.NON_COMPLIANT
-                reason = f"Required declaration '{canonical_name}' was confirmed absent after comprehensive package coverage."
-                validation = ValidationDetails(present=False, readable=None, correct_format=None, compliant=False)
-            else:
-                status = CanonicalStatus.NOT_DETECTED_IN_PROVIDED_IMAGES
-                reason = f"Declaration not observed in the provided view(s). Package evidence is insufficient to conclude absence."
-                validation = ValidationDetails(present=False, readable=None, correct_format=None, compliant=None)
+            status = CanonicalStatus.NOT_DETECTED_IN_PROVIDED_IMAGES
+            reason = f"'{canonical_name}' not detected on label."
+            validation = ValidationDetails(present=False, readable=None, correct_format=None, compliant=None)
 
         declarations.append(CanonicalDeclaration(
             field=field_id,

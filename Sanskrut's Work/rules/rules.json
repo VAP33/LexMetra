@@ -1,0 +1,1021 @@
+{
+  "_meta": {
+    "schema_version": "2.0",
+    "purpose": "Machine-readable legal requirements for the Legal Metrology (Packaged Commodities) Rules, 2011 and related Legal Metrology Act requirements used by the inspection engine.",
+    "authority": "Department of Consumer Affairs, Government of India",
+    "source_priority": [
+      "official Department of Consumer Affairs publications and gazette notifications",
+      "e-Gazette of India",
+      "other government reproductions of the rules",
+      "secondary legal sources only for discovery, never as final legal authority"
+    ],
+    "decision_policy": "The rule engine must never infer PASS from missing evidence. If a legal condition cannot be established from available evidence, return UNCERTAIN or REVIEW_REQUIRED.",
+    "legal_boundary": "This file is an implementation dataset, not legal advice. Current amendments must be audited by the Legal/Domain Lead before authoritative use.",
+    "last_reviewed": "2026-09-04",
+    "current_amendment_audit": "needs_official_verification",
+    "notes": [
+      "Unit sale price is governed by Rule 6(11), not Rule 12.",
+      "Wholesale-package declarations are governed by Rule 24; Rule 27 concerns registration of manufacturers, packers and importers.",
+      "Rule 8 is not a generic 'all declarations must be printed in one block' rule. Principal Display Panel treatment must respect Rule 2(h), Rule 8 and applicable amendments.",
+      "Rule 26 small-pack treatment is an exemption/relaxation and must be evaluated before ordinary retail declaration checks.",
+      "Rule 32 is a penalty/fine provision, not a commodity-specific labelling rule.",
+      "Visual measurement from an ordinary photograph is not automatically a verified physical measurement."
+    ]
+  },
+  "rules": [
+    {
+      "rule_id": "LMPC-2011-R3-SCOPE",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 3",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 100,
+      "rule_type": "scope_and_exemption",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail",
+          "wholesale",
+          "institutional",
+          "industrial"
+        ]
+      },
+      "condition": {
+        "operator": "always",
+        "expression": "evaluate_before_other_lmpc_checks"
+      },
+      "requirements": [
+        {
+          "id": "scope.prepackaged",
+          "description": "Determine whether the commodity is a pre-packaged commodity within the meaning of the Act and Rules."
+        },
+        {
+          "id": "scope.direct_industrial_institutional",
+          "description": "Packages sold directly to industrial or institutional consumers are outside the ordinary retail-package declaration path, subject to the exact statutory/rule conditions."
+        }
+      ],
+      "threshold": {
+        "general_package_quantity_exemption": {
+          "status": "needs_official_verification",
+          "weight_kg_gt": 25,
+          "volume_l_gt": 25
+        },
+        "cement_fertilizer_exception": {
+          "status": "needs_official_verification",
+          "weight_kg_gt": 50
+        }
+      },
+      "evidence_required": [
+        "package_status",
+        "declared_net_quantity",
+        "sale_channel"
+      ],
+      "exemptions": [
+        "industrial_or_institutional_direct_sale",
+        "applicable_rule_3_exclusion",
+        "applicable_second_schedule_or_other_statutory_exclusion"
+      ],
+      "decision": {
+        "pass_when": "package is in scope for the applicable LMPC chapter",
+        "exempt_when": "a verified Rule 3 exclusion applies",
+        "uncertain_when": "scope, sale channel or exemption facts are not established"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Do not encode unverified quantity thresholds as automatic legal exemptions until the current consolidated text and amendments have been checked."
+    },
+    {
+      "rule_id": "LMPC-2011-R4-MULTIPACK",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 4",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 90,
+      "rule_type": "multipack",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "package_contains_one_or_more_retail_packages_and_is_offered_as_a_retail_package"
+      },
+      "requirements": [
+        {
+          "id": "multipack.inner_declarations",
+          "description": "Where applicable, retail packages inside a group, combination, multi-piece or gift package must retain the declarations required for the retail packages."
+        }
+      ],
+      "evidence_required": [
+        "package_structure",
+        "inner_package_count",
+        "inner_package_labels"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "all applicable package-level declaration obligations are evidenced",
+        "uncertain_when": "inner packages are not visible or package structure cannot be established"
+      },
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R5-STANDARD-PACK",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 5",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 80,
+      "rule_type": "standard_package_quantity",
+      "applies_to": {
+        "product_category": [
+          "scheduled_commodities"
+        ],
+        "sale_type": [
+          "retail",
+          "wholesale"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "commodity_is_listed_in_second_schedule"
+      },
+      "requirements": [
+        {
+          "id": "standard_pack_size",
+          "description": "Commodity specified in the Second Schedule must be packed in a specified standard quantity, unless the applicable rule permits another treatment."
+        },
+        {
+          "id": "nonstandard_pack_declaration",
+          "description": "Where permitted to use a non-standard size, the package must carry the prescribed prominent non-standard-pack declaration."
+        }
+      ],
+      "evidence_required": [
+        "commodity_identity",
+        "net_quantity",
+        "second_schedule_membership",
+        "nonstandard_pack_declaration_when_applicable"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "quantity matches an applicable prescribed standard or the required non-standard declaration is evidenced",
+        "fail_when": "a scheduled commodity violates an applicable standard-pack requirement",
+        "uncertain_when": "schedule membership or applicable current schedule entry cannot be established"
+      },
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R6-DECLARATIONS",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 6(1) and applicable sub-rules",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 70,
+      "rule_type": "mandatory_declarations",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "all",
+        "expression": "product_is_in_scope_and_package_is_intended_for_retail_sale"
+      },
+      "requirements": [
+        {
+          "id": "manufacturer_packer_importer",
+          "field": "manufacturer_name_address",
+          "description": "Name and address of manufacturer, packer or importer, as applicable."
+        },
+        {
+          "id": "country_of_origin",
+          "field": "country_of_origin",
+          "condition": "imported_product",
+          "description": "Country of origin for imported products."
+        },
+        {
+          "id": "common_generic_name",
+          "field": "common_name",
+          "description": "Common or generic name of the commodity."
+        },
+        {
+          "id": "net_quantity",
+          "field": "net_quantity",
+          "description": "Net quantity in the applicable standard unit of weight, measure or number."
+        },
+        {
+          "id": "manufacture_pack_import_date",
+          "field": "mfg_date",
+          "description": "Month and year of manufacture, packing or import, as applicable."
+        },
+        {
+          "id": "best_before_use_by",
+          "field": "best_before_use_by",
+          "condition": "commodity_may_become_unfit_for_human_consumption",
+          "description": "Best-before or use-by declaration where applicable."
+        },
+        {
+          "id": "mrp",
+          "field": "mrp",
+          "description": "Retail sale price in the prescribed MRP form, inclusive of all taxes."
+        },
+        {
+          "id": "consumer_care",
+          "field": "consumer_care",
+          "description": "Consumer care details."
+        },
+        {
+          "id": "dimensions",
+          "field": "dimensions",
+          "condition": "commodity_dimensions_are_relevant",
+          "description": "Dimensions of the commodity where required, including differing dimensions of different pieces where applicable."
+        },
+        {
+          "id": "unit_sale_price",
+          "field": "unit_sale_price",
+          "condition": "rule_6_subrule_11_applies",
+          "description": "Unit sale price in the applicable standard unit."
+        }
+      ],
+      "evidence_required": [
+        "field:manufacturer_name_address",
+        "field:common_name",
+        "field:net_quantity",
+        "field:mfg_date",
+        "field:mrp",
+        "field:consumer_care"
+      ],
+      "exemptions": [
+        "verified_rule_3_exemption",
+        "verified_rule_26_exemption",
+        "other_verified_specific_exemption"
+      ],
+      "decision": {
+        "pass_when": "every conditionally applicable required declaration is evidenced and passes its specific validation",
+        "fail_when": "a required declaration is evidenced as absent or demonstrably non-compliant",
+        "uncertain_when": "the package may contain the declaration but image/evidence coverage is insufficient"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Mandatory-field applicability is conditional. Do not treat every optional/conditional field as universally mandatory."
+    },
+    {
+      "rule_id": "LMPC-2011-R6-10-ECOMMERCE",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 6(10)",
+      "version": "2011 as amended",
+      "effective_from": "2018-01-01",
+      "effective_to": null,
+      "priority": 65,
+      "rule_type": "ecommerce_display",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail",
+          "ecommerce"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "commodity_is_offered_through_ecommerce"
+      },
+      "requirements": [
+        {
+          "id": "ecommerce_mandatory_declarations",
+          "description": "The e-commerce entity must display the applicable mandatory declarations, subject to the rule's allocation of responsibility and exceptions."
+        }
+      ],
+      "evidence_required": [
+        "ecommerce_listing",
+        "product_package"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "applicable declarations are displayed as required",
+        "uncertain_when": "listing evidence or responsibility allocation is unavailable"
+      },
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R6-11-UNIT-PRICE",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 6(11)",
+      "version": "2011 as amended; unit-sale-price amendment effective 2023-02-01",
+      "effective_from": "2023-02-01",
+      "effective_to": null,
+      "priority": 60,
+      "rule_type": "unit_sale_price",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "prepackaged_commodity_is_in_scope_and_unit_sale_price_requirement_applies"
+      },
+      "requirements": [
+        {
+          "id": "unit_sale_price",
+          "field": "unit_sale_price",
+          "description": "Unit sale price must be declared on the principal display panel in the prescribed standard unit and rounded to the nearest two decimal places, subject to applicable exceptions."
+        }
+      ],
+      "calculation_basis": {
+        "weight": {
+          "net_quantity_lt_1kg": "price_per_gram",
+          "net_quantity_gte_1kg": "price_per_kilogram"
+        },
+        "length": {
+          "net_length_lt_1m": "price_per_centimetre",
+          "net_length_gte_1m": "price_per_metre"
+        },
+        "area": {
+          "net_area_lt_1m2": "price_per_square_centimetre",
+          "net_area_gte_1m2": "price_per_square_metre"
+        },
+        "volume": {
+          "net_volume_lt_1l": "price_per_millilitre",
+          "net_volume_gte_1l": "price_per_litre"
+        },
+        "number": {
+          "basis": "price_per_number"
+        }
+      },
+      "evidence_required": [
+        "field:net_quantity",
+        "field:mrp",
+        "field:unit_sale_price"
+      ],
+      "exemptions": [
+        "wholesale_package",
+        "verified_single_unit_or_other_specific_exception"
+      ],
+      "decision": {
+        "pass_when": "declared unit sale price equals the deterministically calculated value within the prescribed rounding rule",
+        "fail_when": "declared unit sale price is absent where required or numerically inconsistent",
+        "uncertain_when": "MRP/net quantity/unit price cannot be reliably extracted or applicable exception cannot be established"
+      },
+      "verification_status": "verified_against_official_doca_faq_and_2022_amendment_text_but_current_amendment_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R7-PDP-AREA",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 7(1)",
+      "version": "2011 as amended",
+      "effective_from": "2018-01-01",
+      "effective_to": null,
+      "priority": 50,
+      "rule_type": "principal_display_panel_area",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "package_requires_pdp_area_calculation"
+      },
+      "requirements": [
+        {
+          "id": "pdp_area",
+          "description": "Determine the applicable principal display panel area using the package-shape rule."
+        }
+      ],
+      "pdp_area_formula": {
+        "rectangular": "height_cm * width_cm",
+        "cylindrical_or_nearly_cylindrical": "0.40 * height_cm * circumference_cm",
+        "other_shape": "0.40 * total_surface_area_cm2_or_applicable_pdp_area_cm2",
+        "exclusions": [
+          "top",
+          "bottom",
+          "flange_at_top",
+          "flange_at_bottom",
+          "shoulders",
+          "neck_of_bottle_or_jar"
+        ]
+      },
+      "evidence_required": [
+        "package_geometry",
+        "calibrated_dimensions_or_verified_geometry"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "PDP area is determinable under the applicable shape rule",
+        "uncertain_when": "package geometry or physical dimensions cannot be established reliably"
+      },
+      "verification_status": "verified_against_available_rule_text_but_current_amendment_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R7-2-FONT",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 7(2), Table I and applicable provisions",
+      "version": "2011 as amended by GSR 629(E) dated 2017-06-23",
+      "effective_from": "2018-01-01",
+      "effective_to": null,
+      "priority": 49,
+      "rule_type": "declaration_font_size",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "applicable_declaration_font_height_is_subject_to_rule_7"
+      },
+      "requirements": [
+        {
+          "id": "numeral_height",
+          "description": "Required minimum numeral height is determined from the applicable PDP area band."
+        },
+        {
+          "id": "width_ratio",
+          "description": "Numeral/letter width must meet the prescribed width-to-height relationship, subject to the stated exceptions."
+        }
+      ],
+      "threshold": {
+        "min_height_bands_mm": [
+          {
+            "pdp_area_cm2_max": 100,
+            "min_numeral_height_mm": 1
+          },
+          {
+            "pdp_area_cm2_max": 500,
+            "min_numeral_height_mm": 2
+          },
+          {
+            "pdp_area_cm2_max": 2500,
+            "min_numeral_height_mm": 4
+          },
+          {
+            "pdp_area_cm2_max": null,
+            "min_numeral_height_mm": 6
+          }
+        ],
+        "min_width_to_height_ratio": 0.3333333333,
+        "exceptions_to_width_ratio": [
+          "numeral_1",
+          "letters_i_I_l"
+        ],
+        "molded_or_embossed_min_letter_height_mm": 2
+      },
+      "evidence_required": [
+        "calibrated_pdp_area_cm2",
+        "measured_declaration_height_mm",
+        "measurement_mode"
+      ],
+      "measurement_policy": {
+        "VERIFIED": "requires a calibrated or otherwise validated measurement path",
+        "ESTIMATED": "may support review but must not be represented as metrologically verified",
+        "UNCERTAIN": "must not produce a definitive PASS/FAIL measurement conclusion"
+      },
+      "exemptions": [],
+      "decision": {
+        "pass_when": "measured height meets the applicable threshold and measurement is verified",
+        "fail_when": "verified measurement is below the applicable threshold",
+        "uncertain_when": "measurement is estimated/uncertain or PDP band cannot be established"
+      },
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R8-PLACEMENT",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 8(1)",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 40,
+      "rule_type": "declaration_placement",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "declaration_is_required_under_rules"
+      },
+      "requirements": [
+        {
+          "id": "pdp_presence",
+          "description": "Every declaration required under the Rules must appear on the principal display panel, subject to applicable provisions."
+        },
+        {
+          "id": "quantity_clearance_vertical",
+          "description": "The area surrounding the quantity declaration must be free from printed information above and below by at least the height of the numeral in the declaration."
+        },
+        {
+          "id": "quantity_clearance_horizontal",
+          "description": "The area surrounding the quantity declaration must be free from printed information to the left and right by at least twice the height of the numeral in the declaration."
+        }
+      ],
+      "evidence_required": [
+        "declaration_bboxes",
+        "pdp_boundary",
+        "quantity_declaration_bbox",
+        "measured_numeral_height_when_clearance_is_checked"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "required declarations are evidenced on the applicable PDP and the quantity-declaration clearance requirement passes where measurable",
+        "fail_when": "verified placement or clearance requirement is violated",
+        "uncertain_when": "PDP boundary, declaration location or clearance cannot be reliably established"
+      },
+      "verification_status": "verified_against_available_rule_text_but_current_amendment_audit_required",
+      "legal_note": "Do not encode a blanket requirement that every declaration must be physically grouped into one printed block. Rule 2(h) and related provisions permit specific treatment of pre-printed and online information."
+    },
+    {
+      "rule_id": "LMPC-2011-R8-2-RETURNABLE-BOTTLE",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 8(2)",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 39,
+      "rule_type": "specific_placement_exception",
+      "applies_to": {
+        "product_category": [
+          "soft_drink",
+          "ready_to_serve_fruit_beverage",
+          "like_commodity"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "returnable_bottle_and_commodity_matches_rule_8_2_category"
+      },
+      "requirements": [
+        {
+          "id": "returnable_bottle_mrp",
+          "field": "mrp",
+          "description": "Retail sale price may be indicated on the crown cap, bottle, or both, in the form permitted by the rule."
+        }
+      ],
+      "evidence_required": [
+        "commodity_category",
+        "returnable_bottle_status",
+        "mrp_location"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "the specific Rule 8(2) conditions are verified",
+        "uncertain_when": "commodity category or returnable-bottle status is not established"
+      },
+      "verification_status": "verified_against_available_rule_text_but_current_amendment_audit_required",
+      "legal_note": "Do not generalize this exception to packaged drinking water or other bottle categories without a verified applicable legal provision."
+    },
+    {
+      "rule_id": "LMPC-2011-R24-WHOLESALE",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 24",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 35,
+      "rule_type": "wholesale_package_declarations",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "wholesale"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "package_is_a_wholesale_package_under_rule_2_r"
+      },
+      "requirements": [
+        {
+          "id": "wholesale_manufacturer_importer_packer",
+          "field": "manufacturer_name_address",
+          "description": "Name and address of manufacturer or importer, or packer where manufacturer/importer is not the packer."
+        },
+        {
+          "id": "wholesale_commodity_identity",
+          "field": "common_name",
+          "description": "Identity of the commodity contained in the package."
+        },
+        {
+          "id": "wholesale_count_or_quantity",
+          "field": "wholesale_count_or_net_quantity",
+          "description": "Total number of retail packages or net quantity in standard units, as applicable."
+        }
+      ],
+      "wholesale_definition": {
+        "accepted_forms": [
+          "number_of_retail_packages_for_intermediary",
+          "commodity_sold_to_intermediary_in_bulk",
+          "ten_or_more_retail_packages_where_each_retail_package_is_labelled_as_required"
+        ]
+      },
+      "evidence_required": [
+        "sale_type",
+        "package_structure",
+        "bundle_count",
+        "manufacturer_name_address",
+        "commodity_identity",
+        "total_count_or_net_quantity"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "all applicable Rule 24 declarations are evidenced",
+        "fail_when": "a required wholesale declaration is demonstrably absent or incorrect",
+        "uncertain_when": "wholesale status or package structure is unclear"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Rule 27 is not the wholesale-package declaration rule. Rule 27 concerns registration."
+    },
+    {
+      "rule_id": "LMPC-2011-R25-EXPORT",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 25",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 30,
+      "rule_type": "export_package_sale_restriction",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "export",
+          "retail",
+          "wholesale"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "export_package_is_being_sold_in_india"
+      },
+      "requirements": [
+        {
+          "id": "repack_or_relabel_before_india_sale",
+          "description": "An export package must be re-packed or relabelled in accordance with Chapter II before sale in India, subject to the rule."
+        }
+      ],
+      "evidence_required": [
+        "export_package_status",
+        "india_sale_status",
+        "repack_or_relabel_evidence"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "required repacking/relabeling for India sale is evidenced",
+        "fail_when": "an export package is sold in India without required compliance treatment",
+        "uncertain_when": "India-sale status or export-package status is not established"
+      },
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R26-SMALL-PACKS",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 26(a)",
+      "version": "2011 as amended; pan-masala amendment effective 2026-02-01",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 95,
+      "rule_type": "specific_exemption",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "net_weight_or_measure_is_10g_or_10ml_or_less"
+      },
+      "threshold": {
+        "small_pack_upper_bound": {
+          "weight_g_lte": 10,
+          "volume_ml_lte": 10
+        },
+        "partial_relaxation_range": {
+          "weight_g": [
+            10,
+            20
+          ],
+          "volume_ml": [
+            10,
+            20
+          ]
+        }
+      },
+      "requirements": [
+        {
+          "id": "small_pack_exception",
+          "description": "Packages within the Rule 26(a) exemption threshold may be exempt from the Rules, subject to the provisos and exclusions."
+        },
+        {
+          "id": "10_to_20_mrp_net_quantity",
+          "condition": "package_is_within_the_partial_relaxation_range",
+          "description": "The applicable proviso requires maximum retail price and net quantity declarations for packages in the 10g to 20g or 10ml to 20ml range."
+        }
+      ],
+      "exclusions": [
+        {
+          "condition": "tobacco_or_tobacco_product",
+          "effective_from": "2016-01-01",
+          "description": "The Rule 26(a) small-pack exemption does not apply to tobacco and tobacco products."
+        },
+        {
+          "condition": "pan_masala",
+          "effective_from": "2026-02-01",
+          "description": "The Rule 26(a) small-pack exemption does not apply to pan masala."
+        }
+      ],
+      "evidence_required": [
+        "field:net_quantity",
+        "product_category"
+      ],
+      "exemptions": [],
+      "decision": {
+        "exempt_when": "verified Rule 26(a) exemption applies after exclusions are evaluated",
+        "partial_requirements_when": "package falls in the applicable 10g-20g or 10ml-20ml range",
+        "uncertain_when": "quantity or excluded-category status is not established"
+      },
+      "verification_status": "verified_against_available_rule_text_and_2025_amendment_but_current_amendment_audit_required"
+    },
+    {
+      "rule_id": "LMPC-2011-R26-B-FAST-FOOD",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 26(b)",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 94,
+      "rule_type": "specific_exemption",
+      "applies_to": {
+        "product_category": [
+          "fast_food"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "fast_food_item_packed_by_restaurant_or_hotel_or_like_establishment"
+      },
+      "requirements": [
+        {
+          "id": "fast_food_exemption",
+          "description": "The Rules do not apply to a package containing fast food items packed by a restaurant, hotel or the like, subject to the exact rule wording."
+        }
+      ],
+      "evidence_required": [
+        "product_category",
+        "packer_type"
+      ],
+      "exemptions": [],
+      "decision": {
+        "exempt_when": "condition is verified",
+        "uncertain_when": "packer type or product category is unclear"
+      },
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R26-C-DRUG-FORMULATIONS",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 26(c)",
+      "version": "2011 as amended",
+      "effective_from": "2017-01-01",
+      "effective_to": null,
+      "priority": 93,
+      "rule_type": "specific_exemption",
+      "applies_to": {
+        "product_category": [
+          "drug_formulation"
+        ],
+        "sale_type": [
+          "retail"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "scheduled_or_non_scheduled_formulation_covered_by_applicable_drug_price_control_order"
+      },
+      "requirements": [
+        {
+          "id": "drug_formulation_exemption",
+          "description": "Applicable scheduled/non-scheduled formulations covered by the specified drug price-control regime may be outside the Rules, subject to the current provisos."
+        }
+      ],
+      "evidence_required": [
+        "product_category",
+        "drug_regulatory_status"
+      ],
+      "exemptions": [],
+      "decision": {
+        "exempt_when": "current legal conditions are verified",
+        "uncertain_when": "drug status or applicable price-control coverage is not established"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Medical devices must not be automatically treated as exempt. Current DoCA material specifically addresses medical-device treatment."
+    },
+    {
+      "rule_id": "LMPC-2011-R27-REGISTRATION",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 27",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 20,
+      "rule_type": "registration",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail",
+          "wholesale"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "entity_pre_packs_or_imports_commodity_for_sale_distribution_or_delivery"
+      },
+      "requirements": [
+        {
+          "id": "manufacturer_packer_importer_registration",
+          "description": "Manufacturer, packer or importer subject to the rule must apply for registration within the prescribed period and comply with registration requirements."
+        }
+      ],
+      "evidence_required": [
+        "entity_identity",
+        "registration_record"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "registration evidence is present where the inspection scope includes registration",
+        "fail_when": "required registration is demonstrably absent",
+        "uncertain_when": "registration evidence is outside the inspection dataset"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Keep registration checks separate from package-label declaration checks."
+    },
+    {
+      "rule_id": "LMPC-2011-R31-ADVERTISEMENT",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 31",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 15,
+      "rule_type": "advertisement",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail",
+          "ecommerce"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "advertisement_mentions_retail_sale_price_of_prepackaged_commodity"
+      },
+      "requirements": [
+        {
+          "id": "advertisement_net_quantity",
+          "field": "net_quantity",
+          "description": "Advertisement mentioning retail sale price must also declare the net quantity or number of the commodity."
+        },
+        {
+          "id": "advertisement_font_size",
+          "description": "Font size of net quantity in the advertisement must meet the applicable Rule 31 requirement relative to retail sale price."
+        }
+      ],
+      "evidence_required": [
+        "advertisement",
+        "mrp",
+        "net_quantity"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "applicable advertisement declarations are evidenced",
+        "fail_when": "required advertisement declaration is absent or demonstrably non-compliant",
+        "uncertain_when": "advertisement context cannot be established"
+      },
+      "verification_status": "needs_official_verification"
+    },
+    {
+      "rule_id": "LMPC-2011-R32-PENALTY",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Rule 32",
+      "version": "2011 as amended",
+      "effective_from": "2018-01-01",
+      "effective_to": null,
+      "priority": 5,
+      "rule_type": "penalty",
+      "applies_to": {
+        "product_category": [
+          "all"
+        ],
+        "sale_type": [
+          "retail",
+          "wholesale"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "contravention_exists_and_no_other_specific_punishment_is_provided"
+      },
+      "requirements": [
+        {
+          "id": "fine_for_contravention",
+          "description": "Rule 32 provides a fine for contraventions for which no other punishment is provided."
+        }
+      ],
+      "evidence_required": [
+        "established_contravention",
+        "applicable_penalty_provision"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "not a compliance requirement for package labelling; handled as consequence metadata",
+        "uncertain_when": "penalty applicability cannot be established"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Do not use Rule 32 as a commodity-specific declaration rule. It belongs in the enforcement/consequence layer."
+    },
+    {
+      "rule_id": "LMPC-2011-SCHEDULE-II",
+      "source": "Legal Metrology (Packaged Commodities) Rules, 2011",
+      "clause": "Second Schedule",
+      "version": "2011 as amended",
+      "effective_from": "2011-04-01",
+      "effective_to": null,
+      "priority": 75,
+      "rule_type": "standard_quantity_schedule",
+      "applies_to": {
+        "product_category": [
+          "scheduled_commodities"
+        ],
+        "sale_type": [
+          "retail",
+          "wholesale"
+        ]
+      },
+      "condition": {
+        "operator": "when",
+        "expression": "commodity_is_listed_in_second_schedule"
+      },
+      "requirements": [
+        {
+          "id": "scheduled_quantity_match",
+          "description": "Compare declared net quantity with the current applicable Second Schedule standard quantity."
+        },
+        {
+          "id": "nonstandard_size_declaration",
+          "description": "Where the Rules permit a non-standard size, check the required prominent non-standard-size declaration."
+        }
+      ],
+      "evidence_required": [
+        "commodity_identity",
+        "net_quantity",
+        "current_second_schedule_entry"
+      ],
+      "exemptions": [],
+      "decision": {
+        "pass_when": "current schedule requirement is satisfied",
+        "fail_when": "verified schedule requirement is violated",
+        "uncertain_when": "current schedule membership or amendment state is unknown"
+      },
+      "verification_status": "needs_official_verification"
+    }
+  ]
+}

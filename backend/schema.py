@@ -91,6 +91,11 @@ class CanonicalDeclaration(BaseModel):
     reason: str = ""
     rule_id: Optional[str] = None
     rule_clause: Optional[str] = None
+    alternative_candidates: Optional[List[Dict[str, Any]]] = None
+    reasoning_signals: Optional[Dict[str, float]] = None
+    rejection_reasons: Optional[Dict[str, str]] = None
+    label_bbox: Optional[List[float]] = None
+    value_bbox: Optional[List[float]] = None
 
     @property
     def canonical_field(self) -> str:
@@ -122,40 +127,25 @@ class CanonicalDeclaration(BaseModel):
 
 
 CANONICAL_DECLARATION_DEFINITIONS: Dict[str, Dict[str, str]] = {
-    "manufacturer_name_address": {
-        "canonical_name": "Manufacturer / Packer / Importer Name & Address",
-        "rule_id": "LMPC-2011-R6-DECLARATIONS",
-        "rule_clause": "Rule 6(1)(a)/(b)/(c)",
-    },
     "common_name": {
-        "canonical_name": "Common / Generic Name of Commodity",
+        "canonical_name": "Product Name",
         "rule_id": "LMPC-2011-R6-DECLARATIONS",
         "rule_clause": "Rule 6(1)(b)",
+    },
+    "product_id": {
+        "canonical_name": "Product ID",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Label Identification",
+    },
+    "mrp": {
+        "canonical_name": "MRP",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(da)",
     },
     "net_quantity": {
         "canonical_name": "Net Quantity",
         "rule_id": "LMPC-2011-R6-DECLARATIONS",
         "rule_clause": "Rule 6(1)(e)",
-    },
-    "mfg_date": {
-        "canonical_name": "Manufacturing / Packing Date",
-        "rule_id": "LMPC-2011-R6-DECLARATIONS",
-        "rule_clause": "Rule 6(1)(d)",
-    },
-    "best_before_use_by": {
-        "canonical_name": "Best Before / Use By / Expiry Date",
-        "rule_id": "LMPC-2011-R6-DECLARATIONS",
-        "rule_clause": "Rule 6(1)(d) proviso",
-    },
-    "mrp": {
-        "canonical_name": "Maximum Retail Price (MRP)",
-        "rule_id": "LMPC-2011-R6-DECLARATIONS",
-        "rule_clause": "Rule 6(1)(da)",
-    },
-    "consumer_care": {
-        "canonical_name": "Consumer Care Details",
-        "rule_id": "LMPC-2011-R6-DECLARATIONS",
-        "rule_clause": "Rule 6(1)(da)/(f)",
     },
     "unit_sale_price": {
         "canonical_name": "Unit Sale Price",
@@ -163,19 +153,44 @@ CANONICAL_DECLARATION_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "rule_clause": "Rule 6(11)",
     },
     "batch_no": {
-        "canonical_name": "Batch / Lot / Code Number",
+        "canonical_name": "Batch / Lot Number",
         "rule_id": "LMPC-2011-R6-DECLARATIONS",
         "rule_clause": "Rule 6(1) / FSSAI 2.2.2",
+    },
+    "mfg_date": {
+        "canonical_name": "Manufacturing Date",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(d)",
+    },
+    "best_before_use_by": {
+        "canonical_name": "Expiry / Best Before Date",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(d) proviso",
+    },
+    "manufacturer_name_address": {
+        "canonical_name": "Manufacturer",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(a)",
+    },
+    "marketer_name": {
+        "canonical_name": "Marketer",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(a)",
+    },
+    "consumer_care": {
+        "canonical_name": "Consumer Care Details",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(da)/(f)",
+    },
+    "country_of_origin": {
+        "canonical_name": "Country of Origin",
+        "rule_id": "LMPC-2011-R6-DECLARATIONS",
+        "rule_clause": "Rule 6(1)(a) proviso",
     },
     "standard_pack_size": {
         "canonical_name": "Standard Pack Size (Second Schedule)",
         "rule_id": "LMPC-2011-R5-STANDARD-PACK",
         "rule_clause": "Rule 5 / Second Schedule",
-    },
-    "country_of_origin": {
-        "canonical_name": "Country of Origin (Imported)",
-        "rule_id": "LMPC-2011-R6-DECLARATIONS",
-        "rule_clause": "Rule 6(1)(a) proviso",
     },
 }
 
@@ -213,8 +228,13 @@ CANONICAL_FIELD_ALIASES: Dict[str, str] = {
     "packer_name": "manufacturer_name_address",
     "imported by": "manufacturer_name_address",
     "importer_name": "manufacturer_name_address",
-    "marketer": "manufacturer_name_address",
-    "marketed by": "manufacturer_name_address",
+    "marketer": "marketer_name",
+    "marketer_name": "marketer_name",
+    "marketed by": "marketer_name",
+    "product id": "product_id",
+    "product_id": "product_id",
+    "item code": "product_id",
+    "sku": "product_id",
     "net quantity": "net_quantity",
     "net_quantity": "net_quantity",
     "net qty": "net_quantity",
@@ -225,6 +245,8 @@ CANONICAL_FIELD_ALIASES: Dict[str, str] = {
     "common name": "common_name",
     "common_name": "common_name",
     "generic name": "common_name",
+    "product name": "common_name",
+    "product_name": "common_name",
     "consumer care": "consumer_care",
     "consumer_care": "consumer_care",
     "customer care": "consumer_care",
@@ -310,6 +332,9 @@ class GeometryType(str, Enum):
 
 
 class SurfaceType(str, Enum):
+    FACE_1 = "Face 1"
+    FACE_2 = "Face 2"
+    FACE_3 = "Face 3"
     FRONT = "FRONT"
     BACK = "BACK"
     SIDE = "SIDE"
@@ -320,7 +345,20 @@ class SurfaceType(str, Enum):
     TOP = "TOP"
     BOTTOM = "BOTTOM"
     WRAPAROUND = "WRAPAROUND"
+    OTHER = "OTHER"
     UNKNOWN = "UNKNOWN"
+
+
+class PackageStructure(str, Enum):
+    SINGLE_UNIT = "SINGLE_UNIT"
+    COMBINATION_PACKAGE = "COMBINATION_PACKAGE"
+    GROUP_PACKAGE = "GROUP_PACKAGE"
+    MULTI_PIECE_PACKAGE = "MULTI_PIECE_PACKAGE"
+    WHOLESALE_PACKAGE = "WHOLESALE_PACKAGE"
+    GIFT_PACKAGE = "GIFT_PACKAGE"
+    OTHER = "OTHER"
+    UNKNOWN = "UNKNOWN"
+
 
 
 class EvidenceStatus(str, Enum):
@@ -547,6 +585,25 @@ class SurfaceObservation(BaseModel):
     capture_mode: CaptureMode = CaptureMode.SINGLE_IMAGE
     rotation_index: Optional[int] = Field(default=None, ge=0)
     notes: List[str] = Field(default_factory=list)
+
+
+class InspectionSurface(BaseModel):
+    """
+    Persisted and prioritized surface record within an inspection.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    surface_id: str
+    surface_type: SurfaceType = SurfaceType.UNKNOWN
+    priority_score: float = 0.0
+    original_image_path: Optional[str] = None
+    canonical_image_path: Optional[str] = None
+    transform_matrix: Optional[List[List[float]]] = None
+    declaration_density: float = 0.0
+    dimensions: Optional[Dict[str, int]] = None
+    notes: List[str] = Field(default_factory=list)
+
 
 
 #: Recorded as `EvidenceReference.image_id` when an observation reaches the
@@ -871,12 +928,15 @@ class ProductInspection(BaseModel):
     applicable_rule_version: Optional[str] = None
 
     # Package context
+    package_structure: PackageStructure = PackageStructure.SINGLE_UNIT
     package_weight_or_volume: Optional[float] = Field(default=None, ge=0.0)
     package_weight_unit: Optional[str] = None
     geometry: GeometryType = GeometryType.UNKNOWN
 
-    # New multi-surface evidence model
+    # Multi-surface evidence model
     captures: List[SurfaceObservation] = Field(default_factory=list)
+    surfaces: List[InspectionSurface] = Field(default_factory=list)
+
 
     # Extracted declaration facts
     facts: List[ExtractedFact] = Field(default_factory=list)
@@ -933,7 +993,9 @@ class InspectionCreateRequest(BaseModel):
     inspection_id: str
     product_category: str
     sale_type: str = "retail"
+    package_structure: PackageStructure = PackageStructure.SINGLE_UNIT
     geometry: GeometryType = GeometryType.UNKNOWN
+
 
 
 class InspectionResponse(BaseModel):

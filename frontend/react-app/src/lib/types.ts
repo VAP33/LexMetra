@@ -76,6 +76,35 @@ export function mapOverallStatus(status: FactStatus): InspectionStatus {
   }
 }
 
+export interface CandidateAlternative {
+  value: string;
+  score: number;
+  signals?: {
+    spatial?: number;
+    sequence?: number;
+    semanticType?: number;
+    block?: number;
+    format?: number;
+  };
+  rejected?: boolean;
+  rejectionReason?: string;
+}
+
+export interface ReasoningSignals {
+  spatial: number;
+  sequence: number;
+  semanticType: number;
+  block: number;
+  format: number;
+}
+
+export interface ConfidenceBreakdown {
+  ocrConfidence?: number | null;
+  extractionConfidence?: number | null;
+  semanticConfidence?: number | null;
+  overallConfidence?: number | null;
+}
+
 // A declaration row shown in the "Extracted information" table. Only real
 // legal fields belong here — auxiliary AI signals (sticker suspicion, etc.)
 // are surfaced separately (see AiSignal below), never mixed into this list,
@@ -108,6 +137,18 @@ export interface Declaration {
   // original image's coordinate space. Carried per-declaration so a row can be
   // traced back to the exact region it came from.
   evidenceBboxPx?: { x: number; y: number; width: number; height: number };
+  labelBboxPx?: { x: number; y: number; width: number; height: number };
+  valueBboxPx?: { x: number; y: number; width: number; height: number };
+  evidenceId?: string;
+  applicabilityStatus?: string;
+  complianceStatus?: string;
+  polygonPx?: [number, number][];
+  canonicalBboxPx?: { x: number; y: number; width: number; height: number };
+  canonicalPolygonPx?: [number, number][];
+  candidateAlternatives?: CandidateAlternative[];
+  reasoningSignals?: ReasoningSignals;
+  confidenceBreakdown?: ConfidenceBreakdown;
+  graphResolutionStatus?: "RESOLVED" | "AMBIGUOUS" | "UNRESOLVED" | "INSUFFICIENT_EVIDENCE" | "CONTRADICTORY" | "REVIEW_REQUIRED";
 }
 
 // One localized evidence region on the original image. bbox is kept in RAW
@@ -120,7 +161,33 @@ export interface EvidenceRegion {
   label: string;
   value: string;
   confidence: number;
+  evidenceId?: string;
   bboxPx?: { x: number; y: number; width: number; height: number };
+  labelBboxPx?: { x: number; y: number; width: number; height: number };
+  valueBboxPx?: { x: number; y: number; width: number; height: number };
+  polygonPx?: [number, number][];
+  canonicalBboxPx?: { x: number; y: number; width: number; height: number };
+  canonicalPolygonPx?: [number, number][];
+  surfaceType?: string;
+  ruleId?: string;
+  findingStatus?: string;
+  alternativeCandidates?: CandidateAlternative[];
+  reasoningSignals?: ReasoningSignals;
+  confidenceBreakdown?: ConfidenceBreakdown;
+}
+
+
+export interface SurfaceEvidence {
+  surfaceId: string;
+  surfaceType: string; // "Face 1" | "Face 2" | "Face 3" | "FRONT" | "BACK" | etc.
+  faceLabel?: string;
+  priorityScore: number;
+  imageUrl?: string;
+  canonicalImageUrl?: string;
+  regions: EvidenceRegion[];
+  transformHistory?: string[];
+  transformMatrix?: number[][];
+  ocrConfidence?: number;
 }
 
 export interface SimilarMatch {
@@ -145,7 +212,8 @@ export interface DeclarationSummary {
 
 export interface Inspection {
   id: string;
-  product: string;
+  product: string;         // Product Name (from Qwen common_name)
+  productId?: string;      // Actual Product ID printed on label (NOT generated). "Not detected" if absent.
   manufacturer: string;
   category: string;
   saleType: string;
@@ -182,6 +250,8 @@ export interface Inspection {
   declarationSummary?: DeclarationSummary;
   evidence: EvidenceRegion[];
   image?: string;
+  canonicalImage?: string;
+  surfaces?: SurfaceEvidence[];
   imageNaturalWidth?: number;
   imageNaturalHeight?: number;
   saved: boolean;

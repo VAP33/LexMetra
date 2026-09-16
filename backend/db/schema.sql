@@ -395,3 +395,31 @@ CREATE INDEX IF NOT EXISTS idx_session_captures_session
 ALTER TABLE inspections ADD COLUMN IF NOT EXISTS declarations_json JSONB;
 ALTER TABLE inspection_sessions ALTER COLUMN net_quantity_value DROP NOT NULL;
 ALTER TABLE inspection_sessions ALTER COLUMN net_quantity_unit DROP NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- inspection_surfaces
+--
+-- First-class surface evidence records. Each surface retains its original
+-- capture path, canonical rectified image path, 3x3 transformation matrix,
+-- surface type, priority score, and declaration density.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS inspection_surfaces (
+    id                      SERIAL PRIMARY KEY,
+    inspection_id           TEXT NOT NULL
+                            REFERENCES inspections(inspection_id)
+                            ON DELETE CASCADE,
+    surface_id              TEXT NOT NULL,
+    surface_type            TEXT NOT NULL,
+    priority_score          NUMERIC NOT NULL DEFAULT 0.0,
+    original_image_path     TEXT,
+    canonical_image_path    TEXT,
+    transform_matrix_json   JSONB,
+    declaration_density     NUMERIC DEFAULT 0.0,
+    dimensions_json         JSONB,
+    notes_json              JSONB,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inspection_surfaces_inspection
+    ON inspection_surfaces(inspection_id);
+

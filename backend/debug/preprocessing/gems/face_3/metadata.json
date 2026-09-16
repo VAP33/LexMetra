@@ -1,0 +1,64 @@
+{
+  "product": "GEMS",
+  "face": "Face 3",
+  "original_dimensions": [
+    1080,
+    2392
+  ],
+  "original_file_size_bytes": 457555,
+  "boundary_detected": true,
+  "boundary_method": "CONTOUR_HULL_POLY",
+  "physical_boundary_confidence": 0.78,
+  "evidence_safe_boundary_used": true,
+  "boundary_margin_percent": 6.0,
+  "perspective_corrected": true,
+  "background_normalized": true,
+  "glare_detected": true,
+  "glare_reduced": true,
+  "illumination_corrected": true,
+  "text_enhanced": true,
+  "final_dimensions": [
+    691,
+    800
+  ],
+  "final_file_size_bytes": 133794,
+  "fallback_used": false,
+  "failure_reason": null,
+  "preprocessing_latency_ms": 287.1,
+  "physical_corners": [
+    [
+      0.0,
+      1109.6
+    ],
+    [
+      623.7,
+      927.4
+    ],
+    [
+      682.1,
+      1679.5
+    ],
+    [
+      49.1,
+      1836.0
+    ]
+  ],
+  "evidence_safe_corners": [
+    [
+      0.0,
+      1092.9
+    ],
+    [
+      640.8,
+      899.8
+    ],
+    [
+      702.7,
+      1697.0
+    ],
+    [
+      31.7,
+      1862.9
+    ]
+  ]
+}

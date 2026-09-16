@@ -189,11 +189,10 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
 
     if "manufacturer_name_address" not in bridged:
         # Prefer a source that carries an actual value; fall back to one that
-        # was observed as a label only. See `_is_observed` for why the
-        # label-only case must survive this hop.
+        # was observed as a label only.
         for predicate in (_has_value, _is_observed):
             picked = None
-            for source_field in ("manufacturer_name", "packer_name", "importer_name", "marketer_name"):
+            for source_field in ("manufacturer_name", "packer_name", "importer_name"):
                 data = bridged.get(source_field)
                 if data and predicate(data):
                     picked = data
@@ -211,6 +210,26 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
         data = bridged.get("net_quantity")
         if data and _is_observed(data):
             bridged["wholesale_count_or_net_quantity"] = data
+
+    # Ensure batch fields are properly mapped and legacy OCR batch keys don't linger if batch_code/batch_no is present
+    if "batch_code" in bridged or "batch_no" in bridged:
+        canonical_batch = bridged.get("batch_code") or bridged.get("batch_no")
+        for legacy_k in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch"):
+            bridged.pop(legacy_k, None)
+        bridged["batch_no"] = canonical_batch
+        bridged["batch_code"] = canonical_batch
+        bridged["batch_number"] = canonical_batch
+    elif "batch_number" in bridged:
+        bridged["batch_no"] = bridged["batch_number"]
+        bridged["batch_code"] = bridged["batch_number"]
+
+    # Ensure marketer_name remains preserved
+    if "marketer_name" in classified:
+        bridged["marketer_name"] = classified["marketer_name"]
+
+    # Ensure product_id remains preserved
+    if "product_id" in classified:
+        bridged["product_id"] = classified["product_id"]
 
     return bridged
 
@@ -362,19 +381,30 @@ def build_raw_extraction(field: str, data: Dict[str, Any]) -> "RawExtraction":
     evidence: List[EvidenceReference] = []
     bbox_model = _bbox_from_sequence(bbox)
 
+    is_vlm = (
+        data.get("source") in ("vlm", "qwen")
+        or data.get("source_type") in ("vlm", "qwen")
+        or data.get("detection_status") == "DETECTED"
+        or data.get("status") == "DETECTED"
+        or (float(data.get("confidence", 0.0) or 0.0) >= 0.85 and data.get("status") not in ("UNREADABLE", "REVIEW_REQUIRED"))
+    )
+
     if bbox_model is not None or image_id != UNATTRIBUTED_IMAGE_ID:
-        note = "Region located by OCR/CV extraction in original image coordinates."
+        if is_vlm:
+            note = "Region evidenced by multimodal perception (Qwen) on canonical rectified surface."
+        else:
+            note = "Region located by OCR/CV extraction in original image coordinates."
         if image_id == UNATTRIBUTED_IMAGE_ID:
             note = (
-                "Region located by OCR/CV extraction, but no source image was "
-                "recorded for this observation. Provenance is incomplete."
+                "Region evidenced by multimodal perception (Qwen), but no source image was recorded."
+                if is_vlm else
+                "Region located by OCR/CV extraction, but no source image was recorded for this observation. Provenance is incomplete."
             )
         elif measurement_downgraded:
             note = (
-                "Region located by OCR/CV extraction in original image "
-                "coordinates. A supplied VERIFIED measurement flag was "
-                "downgraded to ESTIMATED because no validated calibration "
-                "accompanied it."
+                "Region evidenced in canonical coordinates. A supplied VERIFIED measurement flag was downgraded to ESTIMATED because no validated calibration accompanied it."
+                if is_vlm else
+                "Region located by OCR/CV extraction in original image coordinates. A supplied VERIFIED measurement flag was downgraded to ESTIMATED because no validated calibration accompanied it."
             )
 
         evidence.append(
@@ -436,7 +466,8 @@ def build_raw_extraction(field: str, data: Dict[str, Any]) -> "RawExtraction":
         # previously stopped here. See the field comments on `RawExtraction`.
         label=data.get("label"),
         reason=data.get("reason"),
-        detection_status=data.get("status"),
+        detection_status=data.get("detection_status") or data.get("status"),
+        source="vlm" if is_vlm else "ocr",
     )
 
 
@@ -560,29 +591,60 @@ def guidance_messages(
     image_quality: ImageQuality,
     coverage: float,
     missing_fields: List[str],
+    resolved_fields: Optional[List[str]] = None,
+    current_surfaces: Optional[List[Any]] = None,
 ) -> List[str]:
     """
     Human-readable next-step guidance for the mobile/guided-capture client.
-    Mirrors the phrasing style specified in the master spec (section 5).
+    Mirrors the phrasing style specified in the master spec (section 5 and req 25).
     """
     messages: List[str] = list(image_quality.notes)
 
-    if coverage >= EVIDENCE_SUFFICIENT_COVERAGE:
+    if coverage >= EVIDENCE_SUFFICIENT_COVERAGE and not missing_fields:
         messages.append("Evidence sufficient for applicable checks.")
         return messages
 
+    # Identify missing categories to give specific panel recommendations
+    missing_set = set(missing_fields)
+    date_pricing_missing = bool(
+        missing_set
+        & {"mfg_date", "best_before_use_by", "mrp", "unit_sale_price", "batch_number"}
+    )
+    entity_missing = bool(
+        missing_set & {"manufacturer_name_address", "consumer_care"}
+    )
+
+    if date_pricing_missing and entity_missing:
+        messages.append(
+            "Recommended next capture: declaration-heavy back or side panel "
+            "(showing manufacturing, batch, MRP and manufacturer address)."
+        )
+    elif date_pricing_missing:
+        messages.append(
+            "Recommended next capture: declaration panel / bottom flap "
+            "(showing MFD, Best Before, MRP, and Unit Sale Price)."
+        )
+    elif entity_missing:
+        messages.append(
+            "Recommended next capture: address panel (typically rear or side panel) "
+            "showing manufacturer and consumer care contact."
+        )
+
     if missing_fields:
-        # Surface at most 2 concrete hints per turn to avoid overwhelming
-        # the inspector; the full missing list remains in the API response.
         for f in missing_fields[:2]:
             hint = FIELD_CAPTURE_HINTS.get(f)
-            messages.append(hint or f"Information not yet located: {f}. Capture another surface.")
+            messages.append(
+                hint or f"Information not yet located: {f}. Capture another surface."
+            )
         if len(missing_fields) > 2:
-            messages.append(f"{len(missing_fields) - 2} more declaration(s) still need to be located.")
+            messages.append(
+                f"{len(missing_fields) - 2} more declaration(s) still need to be located."
+            )
     else:
         messages.append("Capture another surface to improve evidence coverage.")
 
     return messages
+
 
 
 @dataclass
@@ -795,4 +857,62 @@ def reconstruct_split_fields(
         reconstructed[field] = new_entry
 
     return reconstructed
+
+
+def compute_surface_priority(
+    surface_type: SurfaceType,
+    ocr_lines: list,
+    classified_fields: dict,
+    has_barcode: bool = False,
+    quality_score: float = 0.8,
+) -> tuple[float, float, SurfaceType]:
+    """
+    Compute dynamic evidence-driven priority score for an inspection surface.
+    Never assumes BACK is inherently primary; instead priority is strictly calculated
+    from declaration density, rule coverage, OCR confidence and barcode presence.
+
+    Returns:
+        (priority_score, declaration_density, inferred_surface_type)
+    """
+    key_fields = {
+        "mrp",
+        "net_quantity",
+        "mfg_date",
+        "best_before_use_by",
+        "manufacturer_name_address",
+        "unit_sale_price",
+        "consumer_care",
+        "batch_number",
+    }
+    present_keys = 0
+    total_conf = 0.0
+    for k in key_fields:
+        f = classified_fields.get(k)
+        if f and isinstance(f, dict) and f.get("value"):
+            present_keys += 1
+            total_conf += float(f.get("confidence", 0.5) or 0.5)
+
+    num_lines = len(ocr_lines)
+    declaration_density = round(float(present_keys), 2)
+
+    # Base priority calculation
+    priority = (present_keys * 0.25) + (total_conf * 0.10) + min(0.15, num_lines * 0.005)
+    if has_barcode:
+        priority += 0.10
+    priority += min(0.10, quality_score * 0.10)
+
+    # Infer surface type if UNKNOWN or not manually specified
+    inferred_type = surface_type
+    if surface_type in (SurfaceType.UNKNOWN, SurfaceType.OTHER) or surface_type is None:
+        if present_keys >= 3:
+            inferred_type = SurfaceType.BACK
+        elif classified_fields.get("common_name", {}).get("value") and present_keys <= 1:
+            inferred_type = SurfaceType.FRONT
+        elif num_lines > 5:
+            inferred_type = SurfaceType.SIDE
+        else:
+            inferred_type = SurfaceType.OTHER
+
+    return round(float(priority), 3), declaration_density, inferred_type
+
 

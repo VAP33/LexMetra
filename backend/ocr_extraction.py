@@ -29,6 +29,18 @@ import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 import config
+from declaration_graph import DeclarationGraphResolver, ResolvedDeclaration
+from semantic_parsers import (
+    MoneyValue,
+    BatchCandidate,
+    RoleAddressBlock,
+    TemporalValue,
+    parse_money,
+    parse_batch_code,
+    parse_date_or_duration,
+    parse_role_company_block,
+)
+from temporal_reasoning import resolve_temporal_evidence, TemporalEvidence
 
 
 @dataclass
@@ -344,11 +356,12 @@ FIELD_PATTERNS = {
         r"\b(?:pkd|pkg)\.?\s*(?:date|dt)?\b|"
         r"\bpacked\s+on\b|\bdate\s+of\s+pack\w*\b|"
         r"\b(?:mfg|mfd)\.?\s*(?:date|dt)\b|"
-        r"\b(?:mfg|mfd)\.?(?!\s*by\b)\b|"
+        r"\b(?:mfg|mfd)\.?(?!\s*(?:by|lic|licen[cs]e)\b)\b|"
         r"\bmanufactur(?:ed|e|ing)?\.?\s*(?:date|dt)\b|"
         r"\bdate\s+of\s+manufactur\w*\b",
         re.I,
     ),
+
     "expiry_date": re.compile(
         r"\b(?:expiry|exp\.?|use\s*by|use\s*before)\b|"
         r"\bbest\s*before\b|\bconsume\s*before\b",
@@ -929,223 +942,139 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
             if pattern.search(text):
                 label_hits[field] = (i, line)
 
-    # Explicit-label fields.
-    for field, (i, label_line) in label_hits.items():
-        if field in {"mfg_date", "expiry_date"}:
-            # Handled by generalized evidence-based date association engine below
-            continue
-        has_inline_value = _value_shape(field, label_line.text)
-        best_candidate: Optional[OcrLine] = None
+    # 1. Run Heterogeneous Declaration Graph Resolver
+    resolver = DeclarationGraphResolver()
+    graph_resolved = resolver.resolve(ordered)
 
-        # Company/role declarations are frequently printed as
-        # "Manufacturer: ACME Pvt Ltd". The old logic treated the whole line as
-        # a label and then borrowed the next line, which could silently turn
-        # "Common Name: Fruit Juice" into the manufacturer. Extract the inline
-        # remainder first and keep its original bbox as the strongest evidence.
-        if field in _FIELDS_TAKE_FOLLOWING_LINES:
-            inline_company = _inline_label_value(field, label_line.text)
-            if inline_company:
-                found[field] = {
-                    "field": field,
-                    "label": _normalized_text(label_line.text[: label_line.text.lower().find(inline_company.lower())]).strip(" :-–="),
-                    "value": inline_company,
-                    "confidence": label_line.confidence,
-                    "bbox": label_line.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_label_inline",
-                    "status": "DETECTED",
-                }
-                used_line_idx.add(i)
-                continue
+    # 2. Map graph_resolved into standard `found` dictionary contract
+    for f, res in graph_resolved.items():
+        if res.status == "RESOLVED":
 
-        if field in _COLUMN_VALUE_FIELDS and not has_inline_value:
-            candidates = _candidate_value_lines(
-                label_line,
-                ordered,
-                field,
-                i,
-                used_line_idx,
-            )
-            if candidates:
-                _, j, best_candidate = candidates[0]
-                used_line_idx.add(j)
-
-        val_line = label_line if has_inline_value else best_candidate
-
-        if field in {"mrp", "unit_sale_price"}:
-            money = _extract_money(val_line.text) if val_line else None
-            if money is not None:
-                unit = _extract_unit_price_unit(val_line.text) or _extract_unit_price_unit(label_line.text)
+            if f in {"mrp", "unit_sale_price"}:
+                is_inline = res.selected_candidate.is_inline if res.selected_candidate else False
                 entry = {
-                    "field": field,
-                    "label": _normalized_text(label_line.text),
-                    "value": f"₹{money:g}",
-                    "numeric_value": money,
+                    "field": f,
+                    "label": _normalized_text(res.selected_candidate.label_text if res.selected_candidate else f.upper()),
+                    "value": res.display_value,
+                    "numeric_value": getattr(res.value, "amount", None),
                     "currency": "INR",
-                    "raw_text": f"{label_line.text} {val_line.text}" if val_line != label_line else label_line.text,
-                    "confidence": min(label_line.confidence, val_line.confidence) * (1.0 if has_inline_value else 0.88),
-                    "bbox": val_line.bbox if val_line else label_line.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_label_inline" if has_inline_value else "ocr_associated_value_line",
+                    "raw_text": res.raw_text,
+                    "confidence": min(0.95, res.overall_confidence),
+                    "bbox": res.bbox or (0, 0, 0, 0),
+                    "label_bbox": res.label_bbox or (0, 0, 0, 0),
+                    "source": "ocr_label_inline" if is_inline else "ocr_associated_value_line",
                     "status": "DETECTED",
                 }
-                if unit:
-                    entry["numeric_unit"] = unit
-            else:
-                # Label alone, or malformed OCR without price value:
-                # Do NOT treat "MRP&" or label text as an extracted monetary price!
-                entry = {
-                    "field": field,
-                    "label": _normalized_text(label_line.text),
-                    "value": None,
-                    "numeric_value": None,
-                    "raw_text": label_line.text,
-                    "confidence": min(0.35, label_line.confidence * 0.3),
-                    "bbox": label_line.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_label_only",
-                    "status": "REVIEW_REQUIRED",
-                    "reason": f"Declaration label '{label_line.text}' was detected, but no valid monetary price could be established.",
-                }
+                if f == "unit_sale_price" and getattr(res.value, "denominator_unit", None):
+                    entry["numeric_unit"] = res.value.denominator_unit
+                found[f] = entry
 
-        elif field in {"mfg_date", "expiry_date"}:
-            date_val = _extract_date(val_line.text) if val_line else None
-            if date_val is not None:
-                norm_date = _normalize_date(date_val)
-                entry = {
-                    "field": field,
-                    "label": _normalized_text(label_line.text),
-                    "value": date_val,
-                    "normalized_value": norm_date,
-                    "date_value": date_val,
-                    "raw_text": f"{label_line.text} {val_line.text}" if val_line != label_line else label_line.text,
-                    "confidence": min(label_line.confidence, val_line.confidence) * (1.0 if has_inline_value else 0.88),
-                    "bbox": val_line.bbox if val_line else label_line.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_label_inline" if has_inline_value else "ocr_associated_value_line",
+            elif f == "batch_no":
+                is_inline = res.selected_candidate.is_inline if res.selected_candidate else False
+                found[f] = {
+                    "field": f,
+                    "label": _normalized_text(res.selected_candidate.label_text if res.selected_candidate else "BATCH NO"),
+                    "value": res.display_value,
+                    "batch_code": res.display_value,
+                    "raw_text": res.raw_text,
+                    "confidence": min(0.95, res.overall_confidence),
+                    "bbox": res.bbox or (0, 0, 0, 0),
+                    "label_bbox": res.label_bbox or (0, 0, 0, 0),
+                    "source": "ocr_label_line" if is_inline else "ocr_associated_value_line",
                     "status": "DETECTED",
                 }
-            else:
-                # Label alone (e.g. "USE BY") without a date:
-                # NEVER assign label text as the value or give 100% verified status!
-                entry = {
-                    "field": field,
-                    "label": _normalized_text(label_line.text),
-                    "value": None,
-                    "normalized_value": None,
-                    "date_value": None,
-                    "raw_text": label_line.text,
-                    "confidence": min(0.35, label_line.confidence * 0.3),
-                    "bbox": label_line.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_label_only",
-                    "status": "REVIEW_REQUIRED",
-                    "reason": f"Declaration label '{label_line.text}' detected, but corresponding date value was not reliably detected.",
-                }
 
-        elif field == "batch_no":
-            code = val_line.text if val_line else None
-            if code:
-                lbl_match = FIELD_PATTERNS["batch_no"].search(code)
-                if lbl_match:
-                    code = code[lbl_match.end():]
-                code = re.sub(r"^[\s:\-–=~,|]+", "", code).rstrip(" |")
-                code = _normalized_text(code)
-            has_valid_code = bool(code and re.search(r"[A-Za-z0-9]{2,}", code))
-            entry = {
-                "field": field,
-                "label": _normalized_text(label_line.text),
-                "value": code if has_valid_code else None,
-                "batch_code": code if has_valid_code else None,
-                "raw_text": f"{label_line.text} {code}" if code and code != label_line.text else label_line.text,
-                "confidence": min(label_line.confidence, getattr(val_line, "confidence", label_line.confidence)),
-                "bbox": getattr(val_line, "bbox", label_line.bbox),
-                "label_bbox": label_line.bbox,
-                "source": "ocr_associated_value_line" if best_candidate else "ocr_label_line",
-                "status": "DETECTED" if has_valid_code else "REVIEW_REQUIRED",
-            }
-            if not has_valid_code:
-                entry["reason"] = f"Declaration label '{label_line.text}' detected, but corresponding batch/lot code was not reliably detected."
-
-        elif field == "net_quantity":
-            qty_res = _extract_qty(val_line.text, allow_glyph_repair=True) if val_line else None
-            if qty_res is not None:
-                qty_val, qty_unit = qty_res
-                entry = {
-                    "field": field,
-                    "label": _normalized_text(label_line.text),
-                    "value": f"{qty_val:g} {qty_unit}",
-                    "numeric_value": qty_val,
+            elif f == "net_quantity":
+                qty_amt = res.details.get("amount") if res.details else None
+                qty_unit = res.details.get("unit") if res.details else None
+                is_inline = res.selected_candidate.is_inline if res.selected_candidate else False
+                found[f] = {
+                    "field": f,
+                    "label": _normalized_text(res.selected_candidate.label_text if res.selected_candidate else "NET QTY"),
+                    "value": res.display_value,
+                    "numeric_value": qty_amt,
                     "numeric_unit": qty_unit,
-                    "raw_text": f"{label_line.text} {val_line.text}" if val_line != label_line else label_line.text,
-                    "confidence": min(label_line.confidence, val_line.confidence),
-                    "bbox": val_line.bbox if val_line else label_line.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_label_inline" if has_inline_value else "ocr_associated_value_line",
+                    "raw_text": res.raw_text,
+                    "confidence": min(0.95, res.overall_confidence),
+                    "bbox": res.bbox or (0, 0, 0, 0),
+                    "label_bbox": res.label_bbox or (0, 0, 0, 0),
+                    "source": "ocr_label_inline" if is_inline else "ocr_associated_value_line",
                     "status": "DETECTED",
                 }
-            else:
-                entry = {
-                    "field": field,
-                    "label": _normalized_text(label_line.text),
-                    "value": None,
-                    "raw_text": label_line.text,
-                    "confidence": min(0.35, label_line.confidence * 0.3),
-                    "bbox": label_line.bbox,
-                    "label_bbox": label_line.bbox,
-                    "source": "ocr_label_only",
-                    "status": "REVIEW_REQUIRED",
-                    "reason": f"Declaration label '{label_line.text}' detected, but quantity amount was not detected.",
+
+            elif f in _FIELDS_TAKE_FOLLOWING_LINES:
+                found[f] = {
+                    "field": f,
+                    "label": f.replace("_", " ").title(),
+                    "value": res.display_value,
+                    "confidence": min(0.95, res.overall_confidence),
+                    "bbox": res.bbox or (0, 0, 0, 0),
+                    "label_bbox": res.label_bbox or (0, 0, 0, 0),
+                    "source": "ocr_role_company_block",
+                    "status": "DETECTED",
+                    "address_lines": res.details.get("address_lines", []),
+                    "pin_code": res.details.get("pin_code"),
                 }
-        else:
+
+            elif f in {"common_name", "country_of_origin"}:
+                found[f] = {
+                    "field": f,
+                    "label": f.replace("_", " ").title(),
+                    "value": res.display_value,
+                    "confidence": min(0.95, res.overall_confidence),
+                    "bbox": res.bbox or (0, 0, 0, 0),
+                    "label_bbox": res.label_bbox or (0, 0, 0, 0),
+                    "source": f"ocr_{f}",
+                    "status": "DETECTED",
+                }
+
+            elif f in {"mfg_date", "expiry_date", "best_before"}:
+                is_inline = (
+                    res.selected_candidate.is_inline if res.selected_candidate else False
+                )
+                val_str = res.display_value
+                date_val = (
+                    getattr(res.value, "calendar_date", None)
+                    or getattr(res.value, "normalized_iso", None)
+                    or val_str
+                )
+                found[f] = {
+                    "field": f,
+                    "label": _normalized_text(
+                        res.selected_candidate.label_text
+                        if res.selected_candidate
+                        else f.upper()
+                    ),
+                    "value": val_str,
+                    "normalized_value": date_val,
+                    "date_value": date_val,
+                    "raw_text": res.raw_text,
+                    "confidence": min(0.95, res.overall_confidence),
+                    "bbox": res.bbox or (0, 0, 0, 0),
+                    "label_bbox": res.label_bbox or (0, 0, 0, 0),
+                    "source": "ocr_declaration_graph_date",
+                    "status": "DETECTED",
+                }
+
+
+        elif res.status in {"REVIEW_REQUIRED", "INSUFFICIENT_EVIDENCE", "AMBIGUOUS"}:
             entry = {
-                "field": field,
-                "label": _normalized_text(label_line.text),
-                "value": _normalized_text(val_line.text) if val_line else None,
-                "confidence": label_line.confidence,
-                "bbox": label_line.bbox,
-                "source": "ocr_label_line",
+                "field": f,
+                "label": _normalized_text(res.raw_text or f.upper()),
+                "value": None,
+                "raw_text": res.raw_text,
+                "confidence": min(0.35, res.overall_confidence * 0.3 if res.overall_confidence > 0 else 0.3),
+                "bbox": res.label_bbox or (0, 0, 0, 0),
+                "label_bbox": res.label_bbox or (0, 0, 0, 0),
+                "source": "ocr_label_only",
+                "status": "REVIEW_REQUIRED",
+                "reason": res.ambiguity_reason or f"Declaration label '{res.raw_text}' was detected, but value could not be reliably established.",
             }
-
-        found[field] = entry
-        used_line_idx.add(i)
-
-
-    # Manufacturer / packer / importer / marketer roles generally introduce
-    # the actual company/address on the next line(s).
-    for field in _FIELDS_TAKE_FOLLOWING_LINES:
-        if field not in label_hits:
-            continue
-
-        i, label_line = label_hits[field]
-        value_lines: List[OcrLine] = []
-
-        for j in range(i + 1, min(i + 4, len(ordered))):
-            nxt = ordered[j]
-
-            if j in used_line_idx:
-                break
-            if _is_label_line(nxt.text):
-                break
-
-            # Avoid swallowing an unrelated distant paragraph.
-            if _vertical_distance(label_line, nxt) > max(120.0, label_line.bbox[3] * 8):
-                break
-
-            value_lines.append(nxt)
-            used_line_idx.add(j)
-
-        if value_lines:
-            combined = ", ".join(_normalized_text(l.text) for l in value_lines)
-            avg_conf = sum(l.confidence for l in value_lines) / len(value_lines)
-
-            found[field] = {
-                "value": combined,
-                "confidence": min(label_line.confidence, avg_conf) * 0.9,
-                "bbox": value_lines[0].bbox,
-                "label_bbox": label_line.bbox,
-                "source": "ocr_following_lines",
-            }
+            if f in {"mrp", "unit_sale_price"}:
+                entry["numeric_value"] = None
+            elif f == "batch_no":
+                entry["batch_code"] = None
+            found[f] = entry
 
     # Consumer care: explicit label is strong evidence. Contact details add
     # supporting evidence even if the label and phone/email are separate lines.
@@ -1415,9 +1344,83 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
         from date_association import associate_date_fields
         date_entries = associate_date_fields(ordered)
         for d_field, d_entry in date_entries.items():
+            # Do not overwrite a successfully resolved date from the declaration graph
+            # with an unresolved / review_required entry from legacy date association!
+            if d_field in found and found[d_field].get("value") and not d_entry.get("value"):
+                continue
             found[d_field] = d_entry
     except Exception as e:
         logger.warning(f"Generalized date association failed: {e}")
+
+
+    # Explicit date label without date value: review required
+    if "expiry_date" in label_hits and "expiry_date" not in found:
+        _, lbl_line = label_hits["expiry_date"]
+        found["expiry_date"] = {
+            "field": "expiry_date",
+            "label": _normalized_text(lbl_line.text),
+            "value": None,
+            "normalized_value": None,
+            "date_value": None,
+            "raw_text": lbl_line.text,
+            "confidence": min(0.35, lbl_line.confidence * 0.3),
+            "bbox": lbl_line.bbox,
+            "label_bbox": lbl_line.bbox,
+            "source": "ocr_label_only",
+            "status": "REVIEW_REQUIRED",
+            "reason": f"Declaration label '{lbl_line.text}' detected, but corresponding date value was not reliably detected.",
+        }
+
+    if "mfg_date" in label_hits and "mfg_date" not in found:
+        _, lbl_line = label_hits["mfg_date"]
+        found["mfg_date"] = {
+            "field": "mfg_date",
+            "label": _normalized_text(lbl_line.text),
+            "value": None,
+            "normalized_value": None,
+            "date_value": None,
+            "raw_text": lbl_line.text,
+            "confidence": min(0.35, lbl_line.confidence * 0.3),
+            "bbox": lbl_line.bbox,
+            "label_bbox": lbl_line.bbox,
+            "source": "ocr_label_only",
+            "status": "REVIEW_REQUIRED",
+            "reason": f"Declaration label '{lbl_line.text}' detected, but corresponding date value was not reliably detected.",
+        }
+
+    # Structured Temporal Reasoning Layer
+    mfg_raw = found.get("mfg_date", {}).get("raw_text") or found.get("mfg_date", {}).get("value")
+    exp_raw = found.get("expiry_date", {}).get("raw_text") or found.get("expiry_date", {}).get("value")
+    bb_raw = found.get("best_before", {}).get("raw_text") or found.get("best_before", {}).get("value")
+    if not bb_raw:
+        for l in ordered:
+            if re.search(r"\bbest\s*before\b|\buse\s*within\b", l.text, re.I):
+                bb_raw = l.text
+                break
+
+    temporal_ev = resolve_temporal_evidence(
+        mfg_raw=str(mfg_raw) if mfg_raw else None,
+        expiry_raw=str(exp_raw) if exp_raw else None,
+        best_before_raw=str(bb_raw) if bb_raw else None,
+    )
+    if temporal_ev:
+        found["_temporal_evidence"] = temporal_ev
+        if "best_before" in temporal_ev:
+            bb_item = temporal_ev["best_before"]
+            if bb_item.derived_date and "best_before" not in found:
+                found["best_before"] = {
+                    "field": "best_before",
+                    "label": "Best Before",
+                    "value": bb_item.derived_date,
+                    "normalized_value": bb_item.derived_date,
+                    "raw_text": bb_item.raw_text,
+                    "confidence": bb_item.confidence,
+                    "status": "DETECTED",
+                    "source": "temporal_derived_endpoint",
+                    "details": bb_item.details,
+                }
+
+    found["_graph_resolution"] = graph_resolved
 
     # Unit sale price rate pattern fallback (e.g. "= 2.80/g" or "₹2.80/g" without explicit "USP" keyword)
     if "unit_sale_price" not in found:

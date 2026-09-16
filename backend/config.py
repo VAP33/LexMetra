@@ -182,3 +182,38 @@ if MAX_UPLOAD_BYTES <= 0:
 # Both paths return `List[OcrLine]` in ORIGINAL image coordinates, so
 # `classify_fields()` and the rule engine are unaffected by the choice.
 ENABLE_REGION_FIRST_OCR = _env_bool("LMPC_ENABLE_REGION_FIRST_OCR", True)
+
+# Groq Multimodal Perception configuration (V1.md)
+GROQ_API_KEY: str | None = os.environ.get("GROQ_API_KEY")
+GROQ_MODEL: str = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
+
+# OpenRouter Fallback Perception configuration
+OPENROUTER_API_KEY: str | None = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY2")
+OPENROUTER_MODEL: str = os.environ.get("OPENROUTER_MODEL", "qwen/qwen3.8-27b")
+OPENROUTER_ENDPOINT: str = os.environ.get("OPENROUTER_ENDPOINT", "https://openrouter.ai/api/v1/chat/completions")
+
+LOG_DIR: Path = Path(os.environ.get("LOG_DIR", Path(__file__).resolve().parent / "logs"))
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+# ---------------------------------------------------------------------------
+# LexMetra Subsystem Integration & Rollback Modes (Sections 4 & 10)
+# ---------------------------------------------------------------------------
+
+# Regulatory engine mode: "legacy" | "shadow" | "generic"
+REGULATORY_ENGINE_MODE: str = os.environ.get("REGULATORY_ENGINE_MODE", "legacy").strip().lower()
+
+# Evidence localizer mode: "current" | "shadow" | "sanskruti"
+EVIDENCE_LOCALIZER_MODE: str = os.environ.get("EVIDENCE_LOCALIZER_MODE", "current").strip().lower()
+
+# Localization thresholds (provisional defaults as per Section 6)
+LOCALIZATION_VERIFIED_THRESHOLD: float = float(os.environ.get("LOCALIZATION_VERIFIED_THRESHOLD", "0.70"))
+LOCALIZATION_AMBIGUOUS_THRESHOLD: float = float(os.environ.get("LOCALIZATION_AMBIGUOUS_THRESHOLD", "0.30"))
+
+# YOLO coarse ROI proposal flag (disabled by default as per non-negotiable invariant)
+ENABLE_LOCALIZATION_YOLO: bool = _env_bool("ENABLE_LOCALIZATION_YOLO", False)
+
+
+
