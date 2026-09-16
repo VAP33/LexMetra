@@ -20,7 +20,6 @@ import {
   Image as ImageIcon,
   Info,
   LayoutDashboard,
-  Link2,
   LoaderCircle,
   LogOut,
   Menu,
@@ -1213,7 +1212,35 @@ function DeclarationRow({ declaration }: { declaration: Declaration }) {
       </button>
       {expanded && (
         <div className="mt-3 rounded-lg bg-muted p-3 text-xs leading-5 text-muted-foreground">
-          <p>{declaration.reason || "No further detail available for this field."}</p>
+          <p className="font-medium text-foreground">{declaration.reason || "No further detail available for this field."}</p>
+
+          <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4 rounded-md bg-card p-2 border border-border/50 text-[11px]">
+            <div>
+              <span className="text-muted-foreground block text-[10px] uppercase font-bold">Rule / Provision</span>
+              <span className="font-semibold text-foreground font-mono">{declaration.ruleId || "LMPC-2011"}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground block text-[10px] uppercase font-bold">Ruleset Version</span>
+              <span className="font-semibold text-foreground font-mono">{declaration.ruleVersion || "2011-consolidated"}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground block text-[10px] uppercase font-bold">Applicability</span>
+              <span className="font-semibold text-foreground">{declaration.applicabilityStatus || (declaration.status === "EXEMPT" ? "EXEMPTED" : "APPLICABLE")}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground block text-[10px] uppercase font-bold">Compliance Status</span>
+              <span className={`font-semibold ${declaration.status === "VERIFIED" ? "text-emerald-500" : declaration.status === "EXEMPT" ? "text-blue-400" : "text-amber-500"}`}>
+                {declaration.complianceStatus || (declaration.status === "VERIFIED" ? "PASS" : declaration.status === "EXEMPT" ? "EXEMPTED" : "REVIEW")}
+              </span>
+            </div>
+          </div>
+
+          {declaration.canonicalPolygonPx && (
+            <p className="mt-2 inline-flex items-center gap-1.5 font-medium text-emerald-500 text-[11px]">
+              <Check className="h-3.5 w-3.5" /> Tight text polygon localized from PaddleOCR
+            </p>
+          )}
+
           {declaration.validationIssues && declaration.validationIssues.length > 0 && (
             <div className="mt-2 space-y-1">
               {declaration.validationIssues.map((issue, idx) => (
@@ -1223,9 +1250,6 @@ function DeclarationRow({ declaration }: { declaration: Declaration }) {
           )}
           {declaration.provenance?.surfaceType && (
             <p className="mt-1.5 text-[11px] text-muted-foreground">Captured panel: <span className="font-semibold text-foreground">{declaration.provenance.surfaceType}</span></p>
-          )}
-          {declaration.ruleId && (
-            <p className="mt-2 inline-flex items-center gap-1.5 font-semibold text-foreground"><Link2 className="h-3 w-3" />{declaration.ruleId}{declaration.ruleVersion ? ` · ${declaration.ruleVersion}` : ""}</p>
           )}
           {declaration.reviewRequired && <p className="mt-2 font-semibold text-warning">Flagged for human review.</p>}
         </div>
@@ -1399,8 +1423,13 @@ function ResultView({
         <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7">
           <div className="flex items-end justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Declarations</p>
-              <h3 className="mt-2 text-xl font-semibold tracking-[-.035em]">Extracted information</h3>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Declarations</p>
+                <span className="rounded-full bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] font-mono font-bold text-brand">
+                  Ruleset: {inspection.declarations[0]?.ruleVersion || "IN-LMPC-2011:2011-consolidated"}
+                </span>
+              </div>
+              <h3 className="mt-2 text-xl font-semibold tracking-[-.035em]">Extracted information & Regulatory Intelligence</h3>
             </div>
             <div className="text-right">
               <span className="text-sm font-semibold text-muted-foreground">
@@ -1460,15 +1489,57 @@ function ResultView({
 // (User Requirements 11, 12, 19, 20, 21, 22, 23)
 // ---------------------------------------------------------------------------
 
+function getSvgColors(label: string, isSelected: boolean) {
+  const l = label.toLowerCase();
+  if (l.includes("mrp") || l.includes("retail") || l.includes("price")) {
+    return {
+      stroke: isSelected ? "#10b981" : "#059669",
+      fill: isSelected ? "rgba(16, 185, 129, 0.35)" : "rgba(16, 185, 129, 0.18)",
+    };
+  }
+  if (l.includes("unit") || l.includes("usp")) {
+    return {
+      stroke: isSelected ? "#06b6d4" : "#0891b2",
+      fill: isSelected ? "rgba(6, 182, 212, 0.35)" : "rgba(6, 182, 212, 0.18)",
+    };
+  }
+  if (l.includes("batch") || l.includes("lot")) {
+    return {
+      stroke: isSelected ? "#6366f1" : "#4f46e5",
+      fill: isSelected ? "rgba(99, 102, 241, 0.35)" : "rgba(99, 102, 241, 0.18)",
+    };
+  }
+  if (l.includes("net") || l.includes("qty") || l.includes("volume") || l.includes("weight")) {
+    return {
+      stroke: isSelected ? "#f59e0b" : "#d97706",
+      fill: isSelected ? "rgba(245, 158, 11, 0.35)" : "rgba(245, 158, 11, 0.18)",
+    };
+  }
+  if (l.includes("date") || l.includes("mfd") || l.includes("exp") || l.includes("before")) {
+    return {
+      stroke: isSelected ? "#a855f7" : "#9333ea",
+      fill: isSelected ? "rgba(168, 85, 247, 0.35)" : "rgba(168, 85, 247, 0.18)",
+    };
+  }
+  return {
+    stroke: isSelected ? "#3b82f6" : "#2563eb",
+    fill: isSelected ? "rgba(59, 130, 246, 0.35)" : "rgba(59, 130, 246, 0.18)",
+  };
+}
+
 function DynamicEvidenceCrop({
   imageSrc,
   bbox,
+  polygon,
+  localizationStatus,
   label,
   value,
   confidence,
 }: {
   imageSrc: string;
   bbox?: { x: number; y: number; width: number; height: number };
+  polygon?: [number, number][];
+  localizationStatus?: string;
   label: string;
   value?: string;
   confidence?: number;
@@ -1542,14 +1613,28 @@ function DynamicEvidenceCrop({
       const boxCanvasW = bbox.width * scale;
       const boxCanvasH = bbox.height * scale;
 
-      // Subtle translucent fill
-      ctx.fillStyle = "rgba(16, 185, 129, 0.16)";
-      ctx.fillRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
-
-      // Crisp highlight stroke
-      ctx.strokeStyle = "#10b981";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+      // Draw tight polygon if available, else rectangle
+      if (polygon && polygon.length >= 3) {
+        ctx.beginPath();
+        const startX = offsetX + (polygon[0][0] - cropX) * scale;
+        const startY = offsetY + (polygon[0][1] - cropY) * scale;
+        ctx.moveTo(startX, startY);
+        for (let i = 1; i < polygon.length; i++) {
+          ctx.lineTo(offsetX + (polygon[i][0] - cropX) * scale, offsetY + (polygon[i][1] - cropY) * scale);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "rgba(16, 185, 129, 0.22)";
+        ctx.fill();
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "rgba(16, 185, 129, 0.16)";
+        ctx.fillRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+      }
 
       // Badge label
       const badgeText = `${label}${value ? `: ${value}` : ""}${confidence ? ` (${confidence}%)` : ""}`;
@@ -1590,16 +1675,30 @@ function DynamicEvidenceCrop({
     };
 
     img.src = imageSrc;
-  }, [imageSrc, bbox, label, confidence]);
+  }, [imageSrc, bbox, polygon, label, confidence]);
 
   if (!bbox || bbox.width <= 0 || bbox.height <= 0) {
+    const isAmbiguous = localizationStatus === "AMBIGUOUS_MATCH";
+    const isUnavailable = localizationStatus === "LOCALIZER_UNAVAILABLE";
+    const heading = isAmbiguous
+      ? "Evidence location uncertain"
+      : isUnavailable
+      ? "Localization service unavailable"
+      : "Evidence location unavailable";
+    const desc = isAmbiguous
+      ? `Multiple candidate text locations detected on this face for "${label}". Coarse fallback box suppressed for statutory precision.`
+      : isUnavailable
+      ? "The localization engine was unavailable during this scan."
+      : `No verified tight text polygon could be localized for "${label}" on this package face. Physical verification is required.`;
+
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center bg-card rounded-xl border border-warning/30 min-h-[320px]">
         <ShieldAlert className="h-12 w-12 text-warning mb-3 animate-pulse" />
-        <h4 className="text-base font-bold text-foreground">Evidence unavailable — Review required</h4>
-        <p className="text-xs text-muted-foreground mt-1.5 max-w-sm">
-          No verified visual bounding box coordinates could be localized on this package face for &ldquo;{label}&rdquo;. Physical verification is required.
-        </p>
+        <h4 className="text-base font-bold text-foreground">{heading}</h4>
+        <p className="text-xs text-muted-foreground mt-1.5 max-w-sm">{desc}</p>
+        <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1 text-[11px] font-semibold text-warning border border-warning/20">
+          Status: {localizationStatus || "UNLOCALIZED"}
+        </div>
       </div>
     );
   }
@@ -1731,58 +1830,6 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
     }
   }
 
-  function toPercentBoxForFace(
-    bboxPx?: { x: number; y: number; width: number; height: number },
-    surfaceKey?: string
-  ) {
-    if (!bboxPx || typeof bboxPx.x !== "number" || typeof bboxPx.y !== "number" || bboxPx.width <= 0 || bboxPx.height <= 0) {
-      return null;
-    }
-    const size = (surfaceKey && faceNaturalSizes[surfaceKey]) || (inspection.imageNaturalWidth && inspection.imageNaturalHeight ? { w: inspection.imageNaturalWidth, h: inspection.imageNaturalHeight } : null);
-    if (!size || size.w <= 0 || size.h <= 0) {
-      return null;
-    }
-    return {
-      left: Math.max(0, Math.min(100, (bboxPx.x / size.w) * 100)),
-      top: Math.max(0, Math.min(100, (bboxPx.y / size.h) * 100)),
-      width: Math.max(1, Math.min(100, (bboxPx.width / size.w) * 100)),
-      height: Math.max(1, Math.min(100, (bboxPx.height / size.h) * 100)),
-    };
-  }
-
-  // Field color palette for high readability
-  function getFieldColor(label: string, isSelected: boolean) {
-    const l = label.toLowerCase();
-    if (l.includes("mrp") || l.includes("retail") || l.includes("price")) {
-      return isSelected
-        ? "border-emerald-500 bg-emerald-500/25 text-emerald-300 ring-2 ring-emerald-400"
-        : "border-emerald-500/70 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20";
-    }
-    if (l.includes("unit") || l.includes("usp")) {
-      return isSelected
-        ? "border-cyan-500 bg-cyan-500/25 text-cyan-300 ring-2 ring-cyan-400"
-        : "border-cyan-500/70 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20";
-    }
-    if (l.includes("batch") || l.includes("lot")) {
-      return isSelected
-        ? "border-indigo-500 bg-indigo-500/25 text-indigo-300 ring-2 ring-indigo-400"
-        : "border-indigo-500/70 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20";
-    }
-    if (l.includes("net") || l.includes("qty") || l.includes("volume") || l.includes("weight")) {
-      return isSelected
-        ? "border-amber-500 bg-amber-500/25 text-amber-300 ring-2 ring-amber-400"
-        : "border-amber-500/70 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20";
-    }
-    if (l.includes("date") || l.includes("mfd") || l.includes("exp") || l.includes("before")) {
-      return isSelected
-        ? "border-purple-500 bg-purple-500/25 text-purple-300 ring-2 ring-purple-400"
-        : "border-purple-500/70 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20";
-    }
-    return isSelected
-      ? "border-brand bg-brand/25 text-brand ring-2 ring-brand"
-      : "border-brand/70 bg-brand/10 text-brand-foreground hover:bg-brand/20";
-  }
-
   // Package-level unobserved declarations (Zero false absence warning)
   const unobservedDeclarations = useMemo(() => {
     return inspection.declarations.filter(
@@ -1856,9 +1903,9 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
               const isPanelActive = activeSurfaceType === st.surfaceType;
               const priority = st.priorityScore ?? (1.0 - idx * 0.05);
 
-              // Filter regions strictly belonging to this face with valid bboxes
+              // Filter regions strictly belonging to this face with valid polygons or bboxes
               const faceRegionsWithBox = (st.regions || []).filter(
-                (r) => r.bboxPx && r.bboxPx.width > 0 && r.bboxPx.height > 0
+                (r) => (r.polygonPx && r.polygonPx.length >= 3) || (r.bboxPx && r.bboxPx.width > 0 && r.bboxPx.height > 0)
               );
 
               return (
@@ -1939,54 +1986,120 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                   {/* Canvas Viewport with Face-Isolated Overlays */}
                   <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-border/60 bg-neutral-950 flex items-center justify-center">
                     {displayUrl ? (
-                      <img
-                        src={displayUrl}
-                        alt={`${st.faceLabel || st.surfaceType} scan`}
-                        className="max-h-full max-w-full object-contain select-none"
-                        onLoad={(e) => {
-                          const img = e.currentTarget;
-                          setFaceNaturalSizes((prev) => ({
-                            ...prev,
-                            [st.surfaceType]: { w: img.naturalWidth, h: img.naturalHeight },
-                          }));
-                        }}
-                      />
+                      <div className="relative flex items-center justify-center h-full w-full">
+                        <img
+                          src={displayUrl}
+                          alt={`${st.faceLabel || st.surfaceType} scan`}
+                          className="max-h-full max-w-full object-contain select-none block"
+                          onLoad={(e) => {
+                            const img = e.currentTarget;
+                            setFaceNaturalSizes((prev) => ({
+                              ...prev,
+                              [st.surfaceType]: { w: img.naturalWidth, h: img.naturalHeight },
+                            }));
+                          }}
+                        />
+                        {/* SVG Polygon & Vector Overlay (Canonical Mode) */}
+                        {currentMode === "canonical" && faceNaturalSizes[st.surfaceType] && (
+                          <svg
+                            className="absolute inset-0 w-full h-full pointer-events-none"
+                            viewBox={`0 0 ${faceNaturalSizes[st.surfaceType].w} ${faceNaturalSizes[st.surfaceType].h}`}
+                            preserveAspectRatio="xMidYMid meet"
+                          >
+                            {faceRegionsWithBox.map((region) => {
+                              const isSelected = selectedLabel.toLowerCase() === region.label.toLowerCase();
+                              const cols = getSvgColors(region.label, isSelected);
+
+                              if (region.polygonPx && region.polygonPx.length >= 3) {
+                                const pts = region.polygonPx.map(([px, py]) => `${px},${py}`).join(" ");
+                                const [firstX, firstY] = region.polygonPx[0];
+                                return (
+                                  <g
+                                    key={region.label}
+                                    className="pointer-events-auto cursor-pointer group"
+                                    onClick={() => handleSelectDeclaration(region.label, st.surfaceType)}
+                                  >
+                                    <polygon
+                                      points={pts}
+                                      fill={cols.fill}
+                                      stroke={cols.stroke}
+                                      strokeWidth={isSelected ? 4 : 2}
+                                      strokeLinejoin="round"
+                                      className="transition-all hover:fill-opacity-50"
+                                    />
+                                    <rect
+                                      x={firstX}
+                                      y={Math.max(4, firstY - 20)}
+                                      width={region.label.length * 8 + 14}
+                                      height={18}
+                                      rx={4}
+                                      fill="#0f172a"
+                                      fillOpacity={0.9}
+                                      stroke={cols.stroke}
+                                      strokeWidth={1}
+                                    />
+                                    <text
+                                      x={firstX + 6}
+                                      y={Math.max(16, firstY - 7)}
+                                      fill="#ffffff"
+                                      fontSize="11"
+                                      fontWeight="bold"
+                                    >
+                                      {region.label}
+                                    </text>
+                                  </g>
+                                );
+                              } else if (region.bboxPx) {
+                                return (
+                                  <g
+                                    key={region.label}
+                                    className="pointer-events-auto cursor-pointer group"
+                                    onClick={() => handleSelectDeclaration(region.label, st.surfaceType)}
+                                  >
+                                    <rect
+                                      x={region.bboxPx.x}
+                                      y={region.bboxPx.y}
+                                      width={region.bboxPx.width}
+                                      height={region.bboxPx.height}
+                                      rx={3}
+                                      fill={cols.fill}
+                                      stroke={cols.stroke}
+                                      strokeWidth={isSelected ? 4 : 2}
+                                      className="transition-all hover:fill-opacity-50"
+                                    />
+                                    <rect
+                                      x={region.bboxPx.x}
+                                      y={Math.max(4, region.bboxPx.y - 20)}
+                                      width={region.label.length * 8 + 14}
+                                      height={18}
+                                      rx={4}
+                                      fill="#0f172a"
+                                      fillOpacity={0.9}
+                                      stroke={cols.stroke}
+                                      strokeWidth={1}
+                                    />
+                                    <text
+                                      x={region.bboxPx.x + 6}
+                                      y={Math.max(16, region.bboxPx.y - 7)}
+                                      fill="#ffffff"
+                                      fontSize="11"
+                                      fontWeight="bold"
+                                    >
+                                      {region.label}
+                                    </text>
+                                  </g>
+                                );
+                              }
+                              return null;
+                            })}
+                          </svg>
+                        )}
+                      </div>
                     ) : (
                       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                         No image capture
                       </div>
                     )}
-
-                    {/* Localized Face Overlays (Rendered in Canonical mode) */}
-                    {currentMode === "canonical" &&
-                      faceRegionsWithBox.map((region) => {
-                        const box = toPercentBoxForFace(region.bboxPx, st.surfaceType);
-                        if (!box) return null;
-                        const isSelected = selectedLabel.toLowerCase() === region.label.toLowerCase();
-                        const colorClasses = getFieldColor(region.label, isSelected);
-
-                        return (
-                          <button
-                            type="button"
-                            key={region.label}
-                            onClick={() => {
-                              handleSelectDeclaration(region.label, st.surfaceType);
-                            }}
-                            style={{
-                              top: `${box.top}%`,
-                              left: `${box.left}%`,
-                              width: `${box.width}%`,
-                              height: `${box.height}%`,
-                            }}
-                            className={`absolute rounded border-2 text-left transition-all duration-150 ${colorClasses}`}
-                            title={`Click to inspect ${region.label}: ${region.value}`}
-                          >
-                            <span className="absolute -top-5 left-0 whitespace-nowrap rounded bg-neutral-900/90 px-1 py-0.5 text-[8px] font-bold tracking-tight shadow backdrop-blur-sm border border-border/40">
-                              {region.label}
-                            </span>
-                          </button>
-                        );
-                      })}
                   </div>
 
                   {/* Surface Declarations Pill List - Decluttered & Compact */}
@@ -2104,6 +2217,8 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                 ""
               }
               bbox={targetBbox}
+              polygon={activeDecl?.canonicalPolygonPx || activeDecl?.polygonPx || activeRegion?.canonicalPolygonPx || activeRegion?.polygonPx}
+              localizationStatus={activeRegion?.localizationStatus || (targetBbox ? "VERIFIED_MATCH" : "UNLOCALIZED")}
               label={activeDecl?.field || selectedLabel}
               value={activeDecl?.value || activeRegion?.value}
               confidence={activeDecl?.confidence ?? activeRegion?.confidence}

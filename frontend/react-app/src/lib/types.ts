@@ -171,6 +171,8 @@ export interface EvidenceRegion {
   surfaceType?: string;
   ruleId?: string;
   findingStatus?: string;
+  localizationStatus?: string;
+  localizationSource?: string;
   alternativeCandidates?: CandidateAlternative[];
   reasoningSignals?: ReasoningSignals;
   confidenceBreakdown?: ConfidenceBreakdown;

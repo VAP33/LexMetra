@@ -200,6 +200,15 @@ export interface RawCanonicalDeclaration {
     page_or_view?: string | null;
     bbox?: number[] | null;
     source?: string | null;
+    evidence_id?: string | null;
+    face_id?: string | null;
+    localization_status?: string | null;
+    localization_source?: string | null;
+    localization_confidence?: number | null;
+    canonical_bbox?: number[] | null;
+    canonical_polygon?: [number, number][] | null;
+    polygon?: [number, number][] | null;
+    qwen_coarse_bbox?: number[] | null;
   } | null;
   // backend ValidationDetails — four optional tri-state booleans. There is no
   // `issues` array and no `requires_inspector_review` flag; the old interface
@@ -224,6 +233,9 @@ export interface RawCanonicalDeclaration {
   rejection_reasons?: Record<string, string> | null;
   label_bbox?: number[] | null;
   value_bbox?: number[] | null;
+  evidence_id?: string | null;
+  applicability_status?: string | null;
+  compliance_status?: string | null;
 }
 
 export interface RawDeclarationSummary {

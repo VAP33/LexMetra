@@ -356,11 +356,15 @@ def validate_semantic_declarations(
                 item.currency = "₹"
 
         # ------------------- Dates Validation -------------------
-        elif f in ("MFD", "EXPIRY", "USE_BEFORE"):
-            # Relative statement like "Use before 24 months" must be USE_BEFORE, not EXPIRY
-            if f == "EXPIRY" and re.search(r"\b(?:months?|days?|years?)\s+(?:from|after)\b", ev_text, re.IGNORECASE):
+        elif f in ("MFD", "EXPIRY", "USE_BEFORE", "USE_BY", "BEST_BEFORE", "BB"):
+            # Normalize USE_BY / BEST_BEFORE / BB → USE_BEFORE so downstream
+            # field_map resolves them all to best_before_use_by consistently.
+            if f in ("USE_BY", "BEST_BEFORE", "BB"):
                 item.field = "USE_BEFORE"
-            elif f == "MFD" and re.search(r"\b(?:use\s+before|best\s+before|expiry|exp\.)\b", ev_text, re.IGNORECASE):
+            # Relative statement like "Use before 24 months" must be USE_BEFORE, not EXPIRY
+            elif f == "EXPIRY" and re.search(r"\b(?:months?|days?|years?)\s+(?:from|after)\b", ev_text, re.IGNORECASE):
+                item.field = "USE_BEFORE"
+            elif f == "MFD" and re.search(r"\b(?:use\s+before|use\s+by|best\s+before|expiry|exp\.)\b", ev_text, re.IGNORECASE):
                 item.field = "USE_BEFORE"
 
         validated.append(item)
@@ -1540,17 +1544,25 @@ def perception_to_classified_fields(
         "NET_QUANTITY": "net_quantity",
         "MFD": "mfg_date",
         "EXPIRY": "expiry_date",
+        # USE_BEFORE and USE_BY are synonyms — many packages print "USE BY" not "USE BEFORE"
         "USE_BEFORE": "best_before_use_by",
+        "USE_BY": "best_before_use_by",
+        "BEST_BEFORE": "best_before_use_by",
+        "BB": "best_before_use_by",
         "BATCH": "batch_code",
+        "LOT": "batch_code",
+        "BATCH_NO": "batch_code",
         "MANUFACTURER": "manufacturer_name",
         "MARKETER": "marketer_name",
         "PACKER": "packer_name",
         "IMPORTER": "importer_name",
         "ADDRESS": "address",
         "CONSUMER_CARE": "consumer_care",
+        "CONSUMER_HELPLINE": "consumer_care",
         "COUNTRY_OF_ORIGIN": "country_of_origin",
         "PRODUCT_NAME": "common_name",
         "PRODUCT_ID": "product_id",
+        "SKU": "product_id",
         "GENERIC_NAME": "common_name",
         "COMMON_NAME": "common_name",
     }
@@ -1585,7 +1597,12 @@ def perception_to_classified_fields(
         entry: Dict[str, Any] = {
             "value": decl.value,
             "confidence": decl.confidence,
-            "raw_text": decl.evidence_text or decl.value,
+            # Always use the full extracted value as raw_text — evidence_text is
+            # capped at 40 chars in the prompt and would truncate long declarations
+            # like a marketer's full address. evidence_text is only useful for
+            # localization matching, not for display or rule-engine consumption.
+            "raw_text": decl.value,
+            "evidence_text": decl.evidence_text or "",
             "face": decl.face,
             "status": decl.status,
             "coordinate_space": decl.coordinate_space,
@@ -1621,12 +1638,24 @@ def perception_to_classified_fields(
             if decl.basis:
                 entry["numeric_unit"] = decl.basis
         elif backend_name == "net_quantity":
-            m = re.search(r"(\d+[\.,]?\d*)\s*([a-zA-Z]+)?", decl.value)
-            if m:
+            # Robust numeric extraction: handles "150 g", "NET WEIGHT 150 g",
+            # "Net Qty: 150g", "150ml" etc. Find the LAST number+unit pair
+            # because leading words like "NET WEIGHT" should not be parsed as numbers.
+            qty_matches = list(re.finditer(r"(\d+[\.,]?\d*)\s*([a-zA-Z]+)?", decl.value))
+            if qty_matches:
+                # Use the last numeric match that has a plausible unit
+                best_match = None
+                for qm in reversed(qty_matches):
+                    unit_candidate = (qm.group(2) or "").lower()
+                    if unit_candidate in ("g", "kg", "ml", "l", "litre", "liter", "mg", "oz", "lb", "units", "pcs", "nos"):
+                        best_match = qm
+                        break
+                if best_match is None:
+                    best_match = qty_matches[-1]  # fallback: last match even without known unit
                 try:
-                    entry["numeric_value"] = float(m.group(1).replace(",", ""))
-                    if m.group(2):
-                        entry["numeric_unit"] = m.group(2).lower()
+                    entry["numeric_value"] = float(best_match.group(1).replace(",", ""))
+                    if best_match.group(2):
+                        entry["numeric_unit"] = best_match.group(2).lower()
                 except ValueError:
                     pass
             if decl.unit:

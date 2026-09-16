@@ -42,11 +42,16 @@ class PaddleTextDetector:
         return cls._instance
 
     def _init_engine(self) -> bool:
-        if self._initialized:
-            return self._available
+        if self._initialized and self._available and self._engine is not None:
+            return True
 
-        self._initialized = True
         try:
+            # Ensure torch loads its C-libraries cleanly before paddle/paddleocr on Windows
+            try:
+                import torch
+            except Exception:
+                pass
+
             os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "False")
             os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
             os.environ.setdefault("FLAGS_enable_pir_api", "0")
@@ -65,11 +70,14 @@ class PaddleTextDetector:
 
             self._available = True
             self._weights_ready = True
+            self._initialized = True
+            self._fallback_reason = None
             return True
         except Exception as e:
             self._available = False
             self._weights_ready = False
             self._fallback_reason = f"PaddleOCR initialization failed: {e}"
+            print(f"[!] [PaddleTextDetector] Initialization failed: {e}", flush=True)
             return False
 
     def health(self) -> Dict[str, Any]:

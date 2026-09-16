@@ -110,6 +110,9 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
     }
 
     const bboxPx = bboxFromEvidence(c.evidence?.bbox);
+    const canonBboxPx = bboxFromEvidence(c.evidence?.canonical_bbox) || bboxPx;
+    const polygonPx = (c.evidence?.polygon || c.evidence?.canonical_polygon) as [number, number][] | undefined;
+    const ruleVer = c.rule_id?.includes("IN-LMPC") ? "2011-consolidated" : "2011 (amended)";
 
     return {
       field: c.canonical_name,
@@ -120,7 +123,7 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
       // statutory_rule was a property; rule_clause is the declared field it
       // returned (falling back to rule_id).
       ruleId: c.rule_clause || c.rule_id || undefined,
-      ruleVersion: "2011 (amended)",
+      ruleVersion: ruleVer,
       reason: reasonText || undefined,
       reviewRequired: uiStatus === "REVIEW",
       canonicalField: c.field,
@@ -131,7 +134,7 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
       provenance: c.evidence
         ? {
             imageId: c.evidence.image_id ?? null,
-            surfaceId: null,
+            surfaceId: c.evidence.face_id ?? null,
             surfaceType: c.evidence.page_or_view ?? null,
             rawText: c.raw_text ?? null,
           }
@@ -140,6 +143,12 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
       evidenceBboxPx: bboxPx,
       labelBboxPx: bboxFromEvidence(c.label_bbox),
       valueBboxPx: bboxFromEvidence(c.value_bbox) || bboxPx,
+      canonicalBboxPx: canonBboxPx,
+      canonicalPolygonPx: polygonPx,
+      polygonPx: polygonPx,
+      evidenceId: c.evidence_id || c.evidence?.evidence_id || undefined,
+      applicabilityStatus: c.applicability_status || undefined,
+      complianceStatus: c.compliance_status || undefined,
       candidateAlternatives: c.alternative_candidates?.map((alt) => ({
         value: alt.value,
         score: alt.score,
@@ -290,20 +299,29 @@ function evidenceFromDeclarationsOrFacts(
   if (declarations && declarations.length > 0) {
     const regions: EvidenceRegion[] = [];
     for (const d of declarations) {
-      // Was `d.provenance?.bbox` and `d.extracted_value` — both non-serialized
-      // @property names, so this loop found nothing on any payload and the
-      const bbox = bboxFromEvidence(d.evidence?.bbox);
-      if (bbox && d.value) {
+      const bbox = bboxFromEvidence(d.evidence?.canonical_bbox) || bboxFromEvidence(d.evidence?.bbox);
+      const polygon = (d.evidence?.canonical_polygon || d.evidence?.polygon) as [number, number][] | undefined;
+      const locStatus = d.evidence?.localization_status;
+      const locSource = d.evidence?.localization_source;
+      const evId = d.evidence_id || d.evidence?.evidence_id || undefined;
+
+      if (d.value) {
         regions.push({
           label: d.canonical_name,
           value: d.value,
           confidence: Math.round((d.ocr_confidence ?? d.confidence ?? 0.8) * 100),
+          evidenceId: evId,
           bboxPx: bbox,
           labelBboxPx: bboxFromEvidence(d.label_bbox),
           valueBboxPx: bboxFromEvidence(d.value_bbox) || bbox,
+          polygonPx: polygon,
+          canonicalBboxPx: bbox,
+          canonicalPolygonPx: polygon,
           surfaceType: d.evidence?.page_or_view ?? undefined,
           ruleId: d.rule_clause || d.rule_id || undefined,
-          findingStatus: d.status,
+          findingStatus: locStatus || d.status,
+          localizationStatus: locStatus || undefined,
+          localizationSource: locSource || undefined,
           alternativeCandidates: d.alternative_candidates?.map((alt) => ({
             value: alt.value,
             score: alt.score,

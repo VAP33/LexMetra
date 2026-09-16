@@ -25,6 +25,7 @@ from localization.sanskruti.matching import (
     score_candidate,
     project_polygon,
     polygon_to_xywh,
+    group_adjacent_matched_polygons,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,24 +147,45 @@ class LocalizationService:
 
         for field_name, extraction in extractions.items():
             # Resolve face_id
-            face_id = "face_1"
             if isinstance(extraction, dict):
-                face_id = extraction.get("surface_id") or extraction.get("face_id") or "face_1"
-                image_id = extraction.get("image_id") or f"{face_id}-canonical"
+                face_raw = extraction.get("surface_id") or extraction.get("face_id") or extraction.get("face") or "face_1"
+                image_id = extraction.get("image_id")
                 qwen_val = extraction.get("value")
                 qwen_raw = extraction.get("raw_text") or str(qwen_val or "")
                 raw_bbox = extraction.get("bbox")
             else:
-                face_id = getattr(extraction, "surface_id", None) or getattr(extraction, "face_id", None) or "face_1"
-                image_id = getattr(extraction, "image_id", None) or f"{face_id}-canonical"
+                face_raw = getattr(extraction, "surface_id", None) or getattr(extraction, "face_id", None) or getattr(extraction, "face", None) or "face_1"
+                image_id = getattr(extraction, "image_id", None)
                 qwen_val = getattr(extraction, "value", None)
                 qwen_raw = getattr(extraction, "raw_text", None) or str(qwen_val or "")
                 raw_bbox = getattr(extraction, "bbox", None)
+
+            # Normalize face_raw e.g. "Face 1" -> "face_1", "Face 2" -> "face_2"
+            face_id = "face_1"
+            if face_raw:
+                fr_str = str(face_raw).strip().lower().replace(" ", "_").replace("-", "_")
+                if "face_1" in fr_str or fr_str == "1" or fr_str == "face1":
+                    face_id = "face_1"
+                elif "face_2" in fr_str or fr_str == "2" or fr_str == "face2":
+                    face_id = "face_2"
+                elif "face_3" in fr_str or fr_str == "3" or fr_str == "face3":
+                    face_id = "face_3"
+                else:
+                    face_id = fr_str
+
+            if not image_id:
+                image_id = f"{face_id}-canonical"
 
             evidence_id = f"{inspection_id}:{face_id}:{field_name}:0"
 
             # Check surface
             surface = surfaces.get(face_id)
+            if not surface:
+                for k, s in surfaces.items():
+                    if k.lower().replace(" ", "_") == face_id or face_id.endswith(k.lower()):
+                        surface = s
+                        break
+
             if not surface or surface.canonical_image is None:
                 # Surface not available
                 results.append(LocalizedEvidence(
@@ -241,12 +263,21 @@ class LocalizationService:
                     img_h=img_h,
                     cand_text=cand.text,
                     qwen_text=qwen_raw,
+                    field_name=field_name,
+                    qwen_value=str(qwen_val or ""),
                 )
                 scored_candidates.append((score, cand))
 
             scored_candidates.sort(key=lambda item: item[0], reverse=True)
 
             best_score, best_cand = scored_candidates[0]
+
+            # Check ambiguity margin (Task 5 safeguard: reject if top 2 candidates are very close and neither has clear text match)
+            ambiguous_margin = False
+            if len(scored_candidates) > 1:
+                second_score = scored_candidates[1][0]
+                if abs(best_score - second_score) < 0.05 and best_score < 0.85:
+                    ambiguous_margin = True
 
             candidate_summaries = [
                 {
@@ -259,7 +290,6 @@ class LocalizationService:
             ]
 
             if best_score < self.ambiguous_threshold:
-                # Safe fallback: return UNLOCALIZED rather than confident wrong box
                 results.append(LocalizedEvidence(
                     evidence_id=evidence_id,
                     field=field_name,
@@ -270,8 +300,7 @@ class LocalizationService:
                     coarse_bbox_canonical=coarse_canonical,
                     candidate_regions=candidate_summaries,
                 ))
-            elif best_score < self.verified_threshold:
-                # Ambiguous match: record candidates but do not mark verified
+            elif best_score < self.verified_threshold or ambiguous_margin:
                 results.append(LocalizedEvidence(
                     evidence_id=evidence_id,
                     field=field_name,
@@ -283,9 +312,34 @@ class LocalizationService:
                     candidate_regions=candidate_summaries,
                 ))
             else:
-                # Verified match: compute tight polygon and project to original
-                canon_poly = best_cand.polygon
-                canon_bbox = polygon_to_xywh(canon_poly, img_w, img_h)
+                # Multi-line grouping for text fields (manufacturer address, consumer care)
+                is_multi_line_field = any(k in field_name.lower() for k in ("address", "manufacturer", "consumer_care", "common_name"))
+                matched_cand_list = [best_cand]
+
+                if is_multi_line_field:
+                    # Gather other high-scoring candidates within the Qwen coarse region
+                    for s, c in scored_candidates[1:4]:
+                        if s >= (best_score * 0.75) and compute_iou(qwen_xywh, c.bbox_xywh) > 0.15:
+                            matched_cand_list.append(c)
+
+                # Group adjacent matched lines into tight composite polygon & bbox
+                canon_poly, (cbx, cby, cbw, cbh) = group_adjacent_matched_polygons(
+                    matched_cand_list,
+                    img_w,
+                    img_h,
+                    max_area_fraction=0.35 if is_multi_line_field else 0.15,
+                )
+
+                canon_bbox = {
+                    "space": "CANONICAL_PIXEL",
+                    "format": "XYWH",
+                    "x": round(cbx, 2),
+                    "y": round(cby, 2),
+                    "width": round(cbw, 2),
+                    "height": round(cbh, 2),
+                    "image_width": img_w,
+                    "image_height": img_h,
+                }
 
                 # Project polygon to original coordinates
                 orig_poly = project_polygon(canon_poly, surface.inverse_transform)

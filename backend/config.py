@@ -17,7 +17,7 @@ try:
     # Load backend/.env if present (development convenience only). In production,
     # environment variables should be supplied by the deployment platform instead.
     _ENV_PATH = Path(__file__).resolve().parent / ".env"
-    load_dotenv(dotenv_path=_ENV_PATH, override=False)
+    load_dotenv(dotenv_path=_ENV_PATH, override=True)
 except ImportError:
     pass
 
@@ -203,10 +203,10 @@ except Exception:
 # ---------------------------------------------------------------------------
 
 # Regulatory engine mode: "legacy" | "shadow" | "generic"
-REGULATORY_ENGINE_MODE: str = os.environ.get("REGULATORY_ENGINE_MODE", "legacy").strip().lower()
+REGULATORY_ENGINE_MODE: str = os.environ.get("REGULATORY_ENGINE_MODE", "generic").strip().lower()
 
 # Evidence localizer mode: "current" | "shadow" | "sanskruti"
-EVIDENCE_LOCALIZER_MODE: str = os.environ.get("EVIDENCE_LOCALIZER_MODE", "current").strip().lower()
+EVIDENCE_LOCALIZER_MODE: str = os.environ.get("EVIDENCE_LOCALIZER_MODE", "sanskruti").strip().lower()
 
 # Localization thresholds (provisional defaults as per Section 6)
 LOCALIZATION_VERIFIED_THRESHOLD: float = float(os.environ.get("LOCALIZATION_VERIFIED_THRESHOLD", "0.70"))

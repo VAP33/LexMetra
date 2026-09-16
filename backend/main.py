@@ -484,7 +484,7 @@ def _resolve_quantity(
     classified: Dict[str, dict],
 ) -> tuple[Optional[float], Optional[str], str]:
     """
-    Prefer a clean OCR net-quantity extraction when available.
+    Prefer a clean Qwen/OCR net-quantity extraction when available.
 
     Returns:
         quantity_value, quantity_unit, source
@@ -496,6 +496,33 @@ def _resolve_quantity(
 
     if ocr_value is not None and ocr_unit:
         return ocr_value, ocr_unit, "ocr"
+
+    # numeric_value was not pre-parsed — try to parse from the raw string value.
+    # Handles Qwen strings like "150 g", "NET WEIGHT 150 g", "150g", "150 ml" etc.
+    nq_data = classified.get("net_quantity")
+    if nq_data and isinstance(nq_data, dict):
+        raw_str = nq_data.get("value") or nq_data.get("raw_text") or ""
+        if raw_str:
+            # Robust: find LAST numeric group followed by a known mass/volume unit
+            _KNOWN_UNITS = ("g", "kg", "ml", "l", "litre", "liter", "mg", "oz", "lb")
+            import re as _re
+            qty_matches = list(_re.finditer(r"(\d+[.,]?\d*)\s*([a-zA-Z]+)?", str(raw_str)))
+            best_m = None
+            for qm in reversed(qty_matches):
+                u = (qm.group(2) or "").strip().lower()
+                if u in _KNOWN_UNITS:
+                    best_m = qm
+                    break
+            if best_m is None and qty_matches:
+                best_m = qty_matches[-1]  # last numeric group even without recognized unit
+            if best_m:
+                try:
+                    parsed_val = float(best_m.group(1).replace(",", ""))
+                    parsed_unit = (best_m.group(2) or "").strip().lower() or None
+                    if parsed_val > 0:
+                        return parsed_val, parsed_unit, "ocr"
+                except ValueError:
+                    pass
 
     return supplied_value, supplied_unit, "request"
 
@@ -1905,9 +1932,20 @@ def get_session_status(
     }
 
 
+class FinalizeSessionRequest(BaseModel):
+    confirmed_fields: Optional[Dict[str, Any]] = None
+    product_category: Optional[str] = None
+    sale_type: Optional[str] = None
+    mrp: Optional[float] = None
+    net_quantity_value: Optional[float] = None
+    net_quantity_unit: Optional[str] = None
+    package_structure: Optional[str] = None
+
+
 @app.post("/sessions/{session_id}/finalize", response_model=ProductInspection)
 async def finalize_session(
     session_id: str,
+    payload: Optional[FinalizeSessionRequest] = None,
     current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ) -> ProductInspection:
     session = db.get_session(session_id)
@@ -1937,67 +1975,101 @@ async def finalize_session(
     # Send ALL available faces (1, 2, or 3) in ONE multimodal Qwen request.
     # Qwen is the ONLY authoritative extraction source — it directly overwrites
     # OCR/CV values accumulated above.
-    provider = qwen_perception.get_qwen_provider()
-    if captures and provider.is_available():
-        faces_multi = []
-        for i, cap in enumerate(captures[:3]):
-            obs = cap.get("surface_observation") or {}
-            c_path = obs.get("canonical_image_path")
-            inv_m = obs.get("inverse_transform_matrix")
-            c_bgr = None
-            if c_path and os.path.exists(c_path):
-                c_bgr = cv2.imread(c_path)
-            if c_bgr is None:
-                orig_p = cap.get("image_path")
-                if orig_p and os.path.exists(orig_p):
-                    c_bgr = cv2.imread(orig_p)
-            if c_bgr is not None:
-                h, w = c_bgr.shape[:2]
-                t = CoordinateTransform(
-                    source_space=CoordinateSpace.CANONICAL_PIXEL,
-                    target_space=CoordinateSpace.ORIGINAL_PIXEL,
-                    matrix=inv_m if inv_m else [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-                    source_dims=(w, h),
-                    target_dims=(w, h),
-                )
-                faces_multi.append((f"Face {i+1}", c_bgr, t))
-        if faces_multi:
-            try:
-                multi_res = await provider.perceive(faces_multi)
-                multi_fields = qwen_perception.perception_to_classified_fields(multi_res)
-                if multi_fields:
-                    for fld, fld_data in multi_fields.items():
-                        if isinstance(fld_data, dict):
-                            tf = fld_data.get("face", "Face 1")
-                            for idx, cap_item in enumerate(captures[:3]):
-                                if f"Face {idx+1}" == tf:
-                                    fld_data["image_id"] = cap_item.get("image_id", f"face_{idx+1}")
-                                    fld_data["surface_id"] = f"face_{idx+1}"
-                                    break
-                            else:
-                                fld_data["image_id"] = captures[0].get("image_id", "face_1") if captures else "face_1"
-                                fld_data["surface_id"] = "face_1"
+    if payload and payload.confirmed_fields:
+        print(f"[+] [finalize_session] Using provided confirmed_fields ({len(payload.confirmed_fields)})", flush=True)
+        for fld, fld_data in payload.confirmed_fields.items():
+            if isinstance(fld_data, dict):
+                accumulated_fields[fld] = dict(fld_data)
+            else:
+                accumulated_fields[fld] = {"value": fld_data}
+        if payload.product_category:
+            session["product_category"] = payload.product_category
+        if payload.sale_type:
+            session["sale_type"] = payload.sale_type
+        if payload.mrp is not None:
+            session["mrp"] = payload.mrp
+        if payload.net_quantity_value is not None:
+            session["net_quantity_value"] = payload.net_quantity_value
+        if payload.net_quantity_unit is not None:
+            session["net_quantity_unit"] = payload.net_quantity_unit
+    else:
+        provider = qwen_perception.get_qwen_provider()
+        if captures and provider.is_available():
+            faces_multi = []
+            for i, cap in enumerate(captures[:3]):
+                obs = cap.get("surface_observation") or {}
+                c_path = obs.get("canonical_image_path")
+                inv_m = obs.get("inverse_transform_matrix")
+                c_bgr = None
+                if c_path and os.path.exists(c_path):
+                    c_bgr = cv2.imread(c_path)
+                if c_bgr is None:
+                    orig_p = cap.get("image_path")
+                    if orig_p and os.path.exists(orig_p):
+                        c_bgr = cv2.imread(orig_p)
+                if c_bgr is not None:
+                    h, w = c_bgr.shape[:2]
+                    t = CoordinateTransform(
+                        source_space=CoordinateSpace.CANONICAL_PIXEL,
+                        target_space=CoordinateSpace.ORIGINAL_PIXEL,
+                        matrix=inv_m if inv_m else [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                        source_dims=(w, h),
+                        target_dims=(w, h),
+                    )
+                    faces_multi.append((f"Face {i+1}", c_bgr, t))
+            if faces_multi:
+                try:
+                    multi_res = await provider.perceive(faces_multi)
+                    multi_fields = qwen_perception.perception_to_classified_fields(multi_res)
+                    if multi_fields:
+                        for fld, fld_data in multi_fields.items():
+                            if isinstance(fld_data, dict):
+                                tf = fld_data.get("face", "Face 1")
+                                for idx, cap_item in enumerate(captures[:3]):
+                                    if f"Face {idx+1}" == tf:
+                                        fld_data["image_id"] = cap_item.get("image_id", f"face_{idx+1}")
+                                        fld_data["surface_id"] = f"face_{idx+1}"
+                                        break
+                                else:
+                                    fld_data["image_id"] = captures[0].get("image_id", "face_1") if captures else "face_1"
+                                    fld_data["surface_id"] = "face_1"
 
-                    # Qwen is authoritative: directly overwrite OCR values for every
-                    # field Qwen detected. OCR values only survive for fields Qwen
-                    # did not observe at all.
-                    if multi_fields.get("batch_code", {}).get("value") or multi_fields.get("batch_no", {}).get("value"):
-                        for legacy_batch_key in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch", "batch_code", "batch_no"):
-                            accumulated_fields.pop(legacy_batch_key, None)
+                        # Qwen is authoritative: directly overwrite OCR values for every
+                        # field Qwen detected. OCR values only survive for fields Qwen
+                        # did not observe at all.
+                        if multi_fields.get("batch_code", {}).get("value") or multi_fields.get("batch_no", {}).get("value"):
+                            for legacy_batch_key in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch", "batch_code", "batch_no"):
+                                accumulated_fields.pop(legacy_batch_key, None)
 
-                    for fld, fld_data in multi_fields.items():
-                        if isinstance(fld_data, dict) and fld_data.get("value"):
-                            accumulated_fields[fld] = fld_data
+                        for fld, fld_data in multi_fields.items():
+                            if isinstance(fld_data, dict) and fld_data.get("value"):
+                                accumulated_fields[fld] = fld_data
 
-                    # Product ID: never generate or infer
-                    if not multi_fields.get("product_id", {}).get("value"):
-                        accumulated_fields.pop("product_id", None)
+                        # Product ID: never generate or infer
+                        if not multi_fields.get("product_id", {}).get("value"):
+                            accumulated_fields.pop("product_id", None)
 
-                    print(f"[+] [finalize_session] Qwen fields applied ({len(multi_fields)}): {list(multi_fields.keys())}", flush=True)
-            except Exception as e:
-                import traceback as _tb
-                logger.warning("Cross-face Qwen perception failed in finalize_session: %s\n%s", e, _tb.format_exc())
-                print(f"[!] [finalize_session] Qwen FAILED — OCR fields will be used: {e}", flush=True)
+                        print(f"[+] [finalize_session] Qwen fields applied ({len(multi_fields)}): {list(multi_fields.keys())}", flush=True)
+                except Exception as e:
+                    import traceback as _tb
+                    logger.warning("Cross-face Qwen perception failed in finalize_session: %s\n%s", e, _tb.format_exc())
+                    print(f"[!] [finalize_session] Qwen FAILED — OCR fields will be used: {e}", flush=True)
+
+    # Ensure all accumulated fields have surface_id & image_id mapped to captures
+    for fld, fld_data in accumulated_fields.items():
+        if isinstance(fld_data, dict):
+            tf = fld_data.get("face") or fld_data.get("surface_id") or "face_1"
+            tf_str = str(tf).lower().replace(" ", "_")
+            for idx, cap_item in enumerate(captures[:3]):
+                c_fid = f"face_{idx+1}"
+                if c_fid in tf_str or f"face{idx+1}" in tf_str:
+                    fld_data["image_id"] = cap_item.get("image_id", c_fid)
+                    fld_data["surface_id"] = c_fid
+                    break
+            else:
+                if not fld_data.get("surface_id"):
+                    fld_data["image_id"] = captures[0].get("image_id", "face_1") if captures else "face_1"
+                    fld_data["surface_id"] = "face_1"
     session_nqv = session.get("net_quantity_value")
     session_nqu = session.get("net_quantity_unit")
     supplied_qty = float(session_nqv) if session_nqv is not None else None
@@ -2108,12 +2180,16 @@ async def finalize_session(
 
     if localizer_mode in ("shadow", "sanskruti"):
         try:
+            h = localizer_svc.health()
+            print(f"[*] [finalize_session] Localizer health: available={h['available']}, engine={h['engine']}, fallback={h['fallback_reason']}", flush=True)
             localized_evidence_list = localizer_svc.localize_extractions(
                 inspection_id=inspection_id,
                 extractions=accumulated_fields,
                 surfaces=loc_surfaces,
             )
             print(f"[*] [finalize_session] Localized {len(localized_evidence_list)} evidence regions (mode={localizer_mode})", flush=True)
+            for le in localized_evidence_list:
+                print(f"    - {le.field}: status={le.localization_status}, conf={le.localization_confidence:.3f}, canon_bbox={le.bbox_canonical}", flush=True)
         except Exception as e:
             logger.warning("LocalizationService failed in finalize_session: %s", e, exc_info=True)
 

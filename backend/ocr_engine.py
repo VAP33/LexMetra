@@ -661,6 +661,11 @@ class PaddleOcrEngine:
                 try:  # pragma: no cover - not installed in this environment
 
                     try:
+                        import torch
+                    except Exception:
+                        pass
+
+                    try:
                         import paddle.inference as pi
 
                         if not getattr(pi.Config, "_lmpc_patched", False):
@@ -677,10 +682,16 @@ class PaddleOcrEngine:
                             pi.Config._lmpc_patched = True
                     except Exception:
                         pass
-                    from paddleocr import PaddleOCR
 
-                    self._reader = PaddleOCR(use_angle_cls=False, lang="en")
-                    self._available = True
+                    from localization.sanskruti.paddle_detector import PaddleTextDetector
+                    detector = PaddleTextDetector.get_instance()
+                    if detector._init_engine() and detector._engine is not None:
+                        self._reader = detector._engine
+                        self._available = True
+                    else:
+                        from paddleocr import PaddleOCR
+                        self._reader = PaddleOCR(lang="en")
+                        self._available = True
                 except Exception as exc:
                     self._available = False
                     self._error = (

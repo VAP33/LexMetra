@@ -23,6 +23,9 @@ from exemption import ExemptionInput, classify_exemption
 from schema import (
     BBox,
     CANONICAL_DECLARATION_DEFINITIONS,
+    CanonicalDeclaration,
+    CanonicalStatus,
+    DeclarationEvidence,
     EvidenceReference,
     ExtractedFact,
     FactStatus,
@@ -30,6 +33,7 @@ from schema import (
     ProductInspection,
     RuleFinding,
     UNATTRIBUTED_IMAGE_ID,
+    ValidationDetails,
 )
 from unit_price import compute_unit_sale_price
 
@@ -62,6 +66,7 @@ _STATUS_TO_FACT_STATUS = {
 
 _RULE_TO_CANONICAL_FIELD = {
     "LMPC-6-1-A-MANUFACTURER": "manufacturer_name_address",
+    "LMPC-6-1-A-MARKETER": "marketer_name",
     "LMPC-6-1-B-COMMON-NAME": "common_name",
     "LMPC-6-1-E-NET-QUANTITY": "net_quantity",
     "LMPC-6-1-D-MFG-DATE": "mfg_date",
@@ -71,6 +76,10 @@ _RULE_TO_CANONICAL_FIELD = {
     "LMPC-6-1-A-COUNTRY-OF-ORIGIN": "country_of_origin",
     "LMPC-5-STANDARD-PACK-SIZE": "standard_pack_size",
     "LMPC-6-11-UNIT-PRICE": "unit_sale_price",
+    # Additional aliases that engines may emit
+    "LMPC-6-1-A-MANUFACTURER-MARKETER": "manufacturer_name_address",
+    "LMPC-6-1-BATCH": "batch_no",
+    "LMPC-6-1-D-EXPIRY": "best_before_use_by",
 }
 
 
@@ -104,7 +113,32 @@ def build_generic_evidence(
 
     for field_name in CANONICAL_DECLARATION_DEFINITIONS:
         extraction = extractions.get(field_name)
+        if not extraction:
+            if field_name == "batch_no":
+                extraction = extractions.get("batch_code") or extractions.get("batch")
+            elif field_name == "best_before_use_by":
+                extraction = extractions.get("expiry_date")
+            elif field_name == "manufacturer_name_address":
+                extraction = extractions.get("manufacturer_name") or extractions.get("address")
+            elif field_name == "marketer_name":
+                extraction = extractions.get("marketer_name") or extractions.get("marketer")
+            elif field_name == "consumer_care":
+                extraction = extractions.get("consumer_care") or extractions.get("consumer_helpline")
+            elif field_name == "country_of_origin":
+                extraction = extractions.get("country_of_origin") or extractions.get("origin")
+
         loc = loc_by_field.get(field_name)
+        if not loc:
+            if field_name == "batch_no":
+                loc = loc_by_field.get("batch_code") or loc_by_field.get("batch")
+            elif field_name == "best_before_use_by":
+                loc = loc_by_field.get("expiry_date")
+            elif field_name == "manufacturer_name_address":
+                loc = loc_by_field.get("manufacturer_name") or loc_by_field.get("address")
+            elif field_name == "marketer_name":
+                loc = loc_by_field.get("marketer_name") or loc_by_field.get("marketer")
+            elif field_name == "consumer_care":
+                loc = loc_by_field.get("consumer_care") or loc_by_field.get("consumer_helpline")
 
         if extraction is None:
             continue
@@ -131,13 +165,16 @@ def build_generic_evidence(
         val = norm_val or raw_val
         present = val is not None and str(val).strip() != ""
 
-        # Check localization quality
+        # Check localization quality — prefer tight polygon bbox, fall back to Qwen coarse bbox
+        # so evidence is NEVER blank even when localization couldn't verify the region.
         if loc:
-            if loc.localization_status in (LocalizationStatus.AMBIGUOUS_MATCH, LocalizationStatus.LOCALIZER_UNAVAILABLE):
-                # Mark as ambiguous / review needed where visual verification is strict
-                pass
             if loc.bbox_canonical:
+                # Tight/verified canonical bbox from Sanskruti localization
                 raw_bbox = loc.bbox_canonical
+            elif loc.coarse_bbox_canonical:
+                # Localization ran but could not verify: use Qwen coarse bbox as fallback
+                raw_bbox = loc.coarse_bbox_canonical
+            # (if neither, keep Qwen's extraction bbox from raw_bbox above)
 
         ev.set_field(
             f"declared.{field_name}",
@@ -327,6 +364,180 @@ def evaluate_regulatory_compliance(
                 review_required=rule_res.status in (ComplianceStatus.UNCERTAIN, ComplianceStatus.ENGINE_ERROR),
             ))
 
+    # Build canonical declarations (Task 6 & Task 7)
+    loc_by_field: Dict[str, LocalizedEvidence] = {}
+    if localized_evidence:
+        for loc in localized_evidence:
+            loc_by_field[loc.field] = loc
+
+    canonical_declarations: List[CanonicalDeclaration] = []
+    decl_counts = {"applicable": 0, "detected": 0, "verified": 0, "review_required": 0, "non_compliant": 0}
+
+    # Map rule results by canonical field
+    rule_res_by_field: Dict[str, RuleResult] = {}
+    for rule_res in engine_report.results:
+        f_name = _RULE_TO_CANONICAL_FIELD.get(rule_res.rule_id)
+        if f_name:
+            rule_res_by_field[f_name] = rule_res
+
+    for field_id, meta in CANONICAL_DECLARATION_DEFINITIONS.items():
+        canonical_name = meta["canonical_name"]
+        rule_meta_id = meta["rule_id"]
+        rule_clause = meta["rule_clause"]
+        rule_res = rule_res_by_field.get(field_id)
+        loc = loc_by_field.get(field_id)
+        if not loc:
+            if field_id == "batch_no":
+                loc = loc_by_field.get("batch_code") or loc_by_field.get("batch")
+            elif field_id == "best_before_use_by":
+                loc = loc_by_field.get("expiry_date")
+            elif field_id == "manufacturer_name_address":
+                loc = loc_by_field.get("manufacturer_name") or loc_by_field.get("address")
+
+        ext = extractions.get(field_id)
+        if not ext:
+            if field_id == "batch_no":
+                ext = extractions.get("batch_code") or extractions.get("batch")
+            elif field_id == "best_before_use_by":
+                ext = extractions.get("expiry_date")
+            elif field_id == "manufacturer_name_address":
+                ext = extractions.get("manufacturer_name") or extractions.get("address")
+
+        val = None
+        raw_t = None
+        conf = 0.0
+        if ext:
+            if isinstance(ext, dict):
+                val = ext.get("normalized_value") or ext.get("value")
+                raw_t = ext.get("raw_text")
+                conf = float(ext.get("confidence", 0.0) or 0.0)
+            else:
+                val = getattr(ext, "normalized_value", None) or getattr(ext, "value", None)
+                raw_t = getattr(ext, "raw_text", None)
+                conf = float(getattr(ext, "confidence", 0.0) or 0.0)
+
+        # Canonical Status mapping
+        if rule_res:
+            if rule_res.applicability is not ApplicabilityStatus.APPLICABLE:
+                c_status = CanonicalStatus.NOT_APPLICABLE
+            elif rule_res.status == ComplianceStatus.PASS:
+                c_status = CanonicalStatus.VERIFIED
+            elif rule_res.status == ComplianceStatus.FAIL:
+                c_status = CanonicalStatus.NON_COMPLIANT
+            elif rule_res.status == ComplianceStatus.EXEMPTED:
+                c_status = CanonicalStatus.NOT_APPLICABLE
+            else:
+                c_status = CanonicalStatus.REVIEW_REQUIRED
+            reason_text = rule_res.explanation
+        else:
+            if val:
+                c_status = CanonicalStatus.DETECTED
+                reason_text = "Declaration detected from package evidence."
+            else:
+                c_status = CanonicalStatus.NOT_DETECTED_IN_PROVIDED_IMAGES
+                reason_text = "Mandatory declaration was not detected in the provided image panels."
+
+        # Update declaration summary counts
+        if c_status != CanonicalStatus.NOT_APPLICABLE:
+            decl_counts["applicable"] += 1
+            if val:
+                decl_counts["detected"] += 1
+            if c_status == CanonicalStatus.VERIFIED:
+                decl_counts["verified"] += 1
+            elif c_status == CanonicalStatus.NON_COMPLIANT:
+                decl_counts["non_compliant"] += 1
+            elif c_status == CanonicalStatus.REVIEW_REQUIRED:
+                decl_counts["review_required"] += 1
+
+        # Evidence geometry: prefer tight localized geometry from Sanskruti,
+        # fall back to Qwen coarse bbox so evidence crop is NEVER blank.
+        decl_evidence = None
+        if loc:
+            is_verified = (loc.localization_status == LocalizationStatus.VERIFIED_MATCH and loc.bbox_canonical)
+            face_lbl = loc.face_id.replace("face_", "Face ") if loc.face_id else "Face 1"
+
+            # Tight verified bbox
+            bbox_list = None
+            if is_verified and loc.bbox_canonical:
+                bb = loc.bbox_canonical
+                if isinstance(bb, dict):
+                    bbox_list = [float(bb.get("x", 0)), float(bb.get("y", 0)), float(bb.get("width", 0)), float(bb.get("height", 0))]
+                elif isinstance(bb, (list, tuple)) and len(bb) == 4:
+                    bbox_list = [float(v) for v in bb]
+
+            # Qwen coarse bbox (always available when Qwen provided a bbox hint)
+            coarse_b = getattr(loc, "coarse_bbox_canonical", None)
+            coarse_list = None
+            if isinstance(coarse_b, dict):
+                coarse_list = [float(coarse_b.get("x", 0)), float(coarse_b.get("y", 0)), float(coarse_b.get("width", 0)), float(coarse_b.get("height", 0))]
+            elif isinstance(coarse_b, (list, tuple)) and len(coarse_b) == 4:
+                coarse_list = [float(coarse_b[0]), float(coarse_b[1]), float(coarse_b[2]), float(coarse_b[3])]
+
+            # Use tight bbox when verified; fall back to coarse bbox for evidence image crop
+            display_bbox = bbox_list if bbox_list else coarse_list
+
+            decl_evidence = DeclarationEvidence(
+                image_id=loc.image_id,
+                page_or_view=face_lbl,
+                bbox=display_bbox,
+                source=loc.localization_source or "sanskruti_paddle",
+                evidence_id=loc.evidence_id,
+                face_id=loc.face_id,
+                localization_status=loc.localization_status.value if hasattr(loc.localization_status, "value") else str(loc.localization_status),
+                localization_source=loc.localization_source,
+                localization_confidence=loc.localization_confidence,
+                canonical_bbox=display_bbox,
+                canonical_polygon=loc.polygon_canonical if is_verified else None,
+                polygon=loc.polygon_canonical if is_verified else None,
+                qwen_coarse_bbox=coarse_list,
+            )
+        elif ext:
+            face_label = (ext.get("face") if isinstance(ext, dict) else getattr(ext, "face", None)) or "Face 1"
+            img_id = (ext.get("image_id") if isinstance(ext, dict) else getattr(ext, "image_id", None)) or "face_1"
+            b = (ext.get("bbox") if isinstance(ext, dict) else getattr(ext, "bbox", None))
+            # Fallback when no Sanskruti localization ran at all (legacy mode)
+            bbox_arr = None
+            if b:
+                try:
+                    if isinstance(b, dict):
+                        bbox_arr = [float(b.get("x", 0)), float(b.get("y", 0)), float(b.get("width", 0)), float(b.get("height", 0))]
+                    elif hasattr(b, "x"):
+                        bbox_arr = [float(b.x), float(b.y), float(b.width), float(b.height)]
+                    elif isinstance(b, (list, tuple)) and len(b) == 4:
+                        bbox_arr = [float(v) for v in b]
+                except Exception:
+                    bbox_arr = None
+            decl_evidence = DeclarationEvidence(
+                image_id=img_id,
+                page_or_view=face_label,
+                bbox=bbox_arr,
+                source="vlm",
+                qwen_coarse_bbox=bbox_arr,
+            )
+
+        canonical_declarations.append(CanonicalDeclaration(
+            field=field_id,
+            canonical_name=canonical_name,
+            value=str(val) if val is not None else None,
+            normalized_value=val,
+            raw_text=raw_t,
+            confidence=conf,
+            status=c_status,
+            evidence=decl_evidence,
+            validation=ValidationDetails(
+                present=bool(val),
+                readable=bool(val),
+                correct_format=c_status != CanonicalStatus.NON_COMPLIANT if val else None,
+                compliant=c_status == CanonicalStatus.VERIFIED if val else None,
+            ),
+            reason=reason_text,
+            rule_id=rule_res.rule_id if rule_res else rule_meta_id,
+            rule_clause=rule_res.provision if rule_res else rule_clause,
+            evidence_id=loc.evidence_id if loc else None,
+            applicability_status=rule_res.applicability.value if rule_res else None,
+            compliance_status=rule_res.status.value if rule_res else None,
+        ))
+
     # Aggregate summary
     overall_status = _STATUS_TO_FACT_STATUS.get(engine_report.aggregation.overall_status, FactStatus.UNCERTAIN)
 
@@ -362,7 +573,8 @@ def evaluate_regulatory_compliance(
         findings=findings,
         facts=facts,
         summary=summary,
-        declarations=[],
+        declarations=canonical_declarations,
+        declaration_summary=decl_counts,
         applicable_rule_version=f"{engine_report.ruleset_id}:{engine_report.ruleset_version}" if engine_report.ruleset_version else engine_report.ruleset_id,
     )
 

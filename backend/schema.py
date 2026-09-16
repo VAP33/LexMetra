@@ -61,8 +61,17 @@ class DeclarationEvidence(BaseModel):
     model_config = ConfigDict(extra="ignore")
     image_id: str
     page_or_view: Optional[str] = "other"  # "front", "back", "other"
-    bbox: Optional[List[float]] = None     # [x1, y1, x2, y2]
-    source: str = "ocr"                    # "ocr", "vlm", "both"
+    bbox: Optional[List[float]] = None     # [x, y, w, h]
+    source: str = "ocr"                    # "ocr", "vlm", "both", "sanskruti_paddle"
+    evidence_id: Optional[str] = None
+    face_id: Optional[str] = None
+    localization_status: Optional[str] = None
+    localization_source: Optional[str] = None
+    localization_confidence: Optional[float] = None
+    canonical_bbox: Optional[List[float]] = None
+    canonical_polygon: Optional[List[List[float]]] = None
+    polygon: Optional[List[List[float]]] = None
+    qwen_coarse_bbox: Optional[List[float]] = None
 
 
 class ValidationDetails(BaseModel):
@@ -96,6 +105,9 @@ class CanonicalDeclaration(BaseModel):
     rejection_reasons: Optional[Dict[str, str]] = None
     label_bbox: Optional[List[float]] = None
     value_bbox: Optional[List[float]] = None
+    evidence_id: Optional[str] = None
+    applicability_status: Optional[str] = None
+    compliance_status: Optional[str] = None
 
     @property
     def canonical_field(self) -> str:

@@ -214,6 +214,17 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
     # Ensure batch fields are properly mapped and legacy OCR batch keys don't linger if batch_code/batch_no is present
     if "batch_code" in bridged or "batch_no" in bridged:
         canonical_batch = bridged.get("batch_code") or bridged.get("batch_no")
+        # Sanity: a batch value that looks ONLY like a date (DD/MM/YY, DD-MM-YYYY) should not be
+        # accepted as a batch number — this prevents date leakage from misclassified OCR.
+        import re as _re
+        _DATE_ONLY_PATTERN = _re.compile(r"^\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}$")
+        if canonical_batch and isinstance(canonical_batch, dict):
+            batch_val = canonical_batch.get("value") or ""
+            if _DATE_ONLY_PATTERN.match(str(batch_val).strip()):
+                # Looks like a bare date — keep it but flag for review
+                canonical_batch = dict(canonical_batch)
+                canonical_batch["status"] = "REVIEW_REQUIRED"
+                canonical_batch["reason"] = "Batch value looks like a bare date; may be misclassified"
         for legacy_k in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch"):
             bridged.pop(legacy_k, None)
         bridged["batch_no"] = canonical_batch
@@ -226,6 +237,14 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
     # Ensure marketer_name remains preserved
     if "marketer_name" in classified:
         bridged["marketer_name"] = classified["marketer_name"]
+
+    # Ensure consumer_care remains preserved (not caught by any existing bridge)
+    if "consumer_care" in classified:
+        bridged["consumer_care"] = classified["consumer_care"]
+
+    # Ensure country_of_origin remains preserved
+    if "country_of_origin" in classified:
+        bridged["country_of_origin"] = classified["country_of_origin"]
 
     # Ensure product_id remains preserved
     if "product_id" in classified:

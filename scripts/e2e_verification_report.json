@@ -1,0 +1,510 @@
+{
+  "qwen_model": "qwen/qwen3.8-27b",
+  "qwen_extracted_fields": {
+    "common_name": {
+      "value": "Cadbury Gems",
+      "confidence": 0.95,
+      "raw_text": "Cadbury GEMS",
+      "face": "Face 1",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        414.04271951668494,
+        1843.252612807005,
+        665.9572804833151,
+        375.01189653188817
+      ],
+      "bbox_original": [
+        414.04271951668494,
+        1843.252612807005,
+        665.9572804833151,
+        375.01189653188817
+      ],
+      "bbox_canonical": [
+        200.0,
+        900.0,
+        329.0,
+        124.0
+      ]
+    },
+    "net_quantity": {
+      "value": "135",
+      "confidence": 0.9,
+      "raw_text": "135 g",
+      "face": "Face 3",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        31.741376849765196,
+        1827.6515718222206,
+        146.7225642901396,
+        37.258629166614355
+      ],
+      "bbox_original": [
+        31.741376849765196,
+        1827.6515718222206,
+        146.7225642901396,
+        37.258629166614355
+      ],
+      "bbox_canonical": [
+        0.0,
+        800.0,
+        156.25,
+        1.0
+      ],
+      "numeric_value": 135.0,
+      "numeric_unit": "g"
+    },
+    "mrp": {
+      "value": "3.99",
+      "confidence": 0.9,
+      "raw_text": "Rs. 3.99 per",
+      "face": "Face 2",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        900.6838971749288,
+        1979.2609603974634,
+        12.95077432924711,
+        100.57432137322712
+      ],
+      "bbox_original": [
+        900.6838971749288,
+        1979.2609603974634,
+        12.95077432924711,
+        100.57432137322712
+      ],
+      "bbox_canonical": [
+        593.0,
+        900.0,
+        1.0,
+        80.0
+      ],
+      "numeric_value": 3.99
+    },
+    "expiry_date": {
+      "value": "24/07/27",
+      "confidence": 0.95,
+      "raw_text": "USE BY: 24/07/27",
+      "face": "Face 3",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_original": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_canonical": [
+        390.625,
+        800.0,
+        300.375,
+        1.0
+      ]
+    },
+    "best_before_use_by": {
+      "value": "24/07/27",
+      "confidence": 0.95,
+      "raw_text": "USE BY: 24/07/27",
+      "face": "Face 3",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_original": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_canonical": [
+        390.625,
+        800.0,
+        300.375,
+        1.0
+      ]
+    },
+    "mfg_date": {
+      "value": "24/07/26",
+      "confidence": 0.95,
+      "raw_text": "24/07/26",
+      "face": "Face 3",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_original": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_canonical": [
+        390.625,
+        800.0,
+        300.375,
+        1.0
+      ]
+    },
+    "batch_code": {
+      "value": "Y60724 A26",
+      "confidence": 0.95,
+      "raw_text": "Code Y60724 A26",
+      "face": "Face 3",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_original": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_canonical": [
+        390.625,
+        800.0,
+        300.375,
+        1.0
+      ]
+    },
+    "batch_no": {
+      "value": "Y60724 A26",
+      "confidence": 0.95,
+      "raw_text": "Code Y60724 A26",
+      "face": "Face 3",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_original": [
+        404.1087669302003,
+        1697.7909377432122,
+        299.7710944603589,
+        75.10119980024001
+      ],
+      "bbox_canonical": [
+        390.625,
+        800.0,
+        300.375,
+        1.0
+      ]
+    },
+    "manufacturer_name": {
+      "value": "Cadbury India Ltd.",
+      "confidence": 0.9,
+      "raw_text": "Mfd. by Cadbury India Ltd.",
+      "face": "Face 2",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        125.40276839240057,
+        2179.0798139613917,
+        553.7568944769595,
+        118.43806476612326
+      ],
+      "bbox_original": [
+        125.40276839240057,
+        2179.0798139613917,
+        553.7568944769595,
+        118.43806476612326
+      ],
+      "bbox_canonical": [
+        20.0,
+        1024.0,
+        400.0,
+        1.0
+      ]
+    },
+    "manufacturer_name_address": {
+      "value": "Cadbury India Ltd.",
+      "confidence": 0.9,
+      "raw_text": "Mfd. by Cadbury India Ltd.",
+      "face": "Face 2",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        125.40276839240057,
+        2179.0798139613917,
+        553.7568944769595,
+        118.43806476612326
+      ],
+      "bbox_original": [
+        125.40276839240057,
+        2179.0798139613917,
+        553.7568944769595,
+        118.43806476612326
+      ],
+      "bbox_canonical": [
+        20.0,
+        1024.0,
+        400.0,
+        1.0
+      ]
+    },
+    "address": {
+      "value": "Plot No. 2001, 22nd Floor, Tower B, Mindspace, Outer Ring Road, Whitefield, Bengaluru - 560 066",
+      "confidence": 0.85,
+      "raw_text": "Plot No. 2001, 22nd Floor, Tower B...",
+      "face": "Face 2",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        125.40276839240057,
+        2133.548998438563,
+        769.0099163229137,
+        163.96888028895182
+      ],
+      "bbox_original": [
+        125.40276839240057,
+        2133.548998438563,
+        769.0099163229137,
+        163.96888028895182
+      ],
+      "bbox_canonical": [
+        20.0,
+        1024.0,
+        573.0,
+        1.0
+      ]
+    },
+    "consumer_care": {
+      "value": "mdzindia.com",
+      "confidence": 0.9,
+      "raw_text": "email: suggestions@mdzindia.com",
+      "face": "Face 2",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        125.40276839240057,
+        2133.548998438563,
+        769.0099163229137,
+        163.96888028895182
+      ],
+      "bbox_original": [
+        125.40276839240057,
+        2133.548998438563,
+        769.0099163229137,
+        163.96888028895182
+      ],
+      "bbox_canonical": [
+        20.0,
+        1024.0,
+        573.0,
+        1.0
+      ]
+    },
+    "country_of_origin": {
+      "value": "India",
+      "confidence": 0.95,
+      "raw_text": "Made in India",
+      "face": "Face 3",
+      "status": "DETECTED",
+      "coordinate_space": "CANONICAL",
+      "bbox": [
+        647.5918286278998,
+        974.1416261136367,
+        12.775586132294734,
+        152.04415091887813
+      ],
+      "bbox_original": [
+        647.5918286278998,
+        974.1416261136367,
+        12.775586132294734,
+        152.04415091887813
+      ],
+      "bbox_canonical": [
+        691.0,
+        78.125,
+        1.0,
+        156.25
+      ]
+    }
+  },
+  "active_modes": {
+    "evidence_localizer": "sanskruti",
+    "regulatory_engine": "generic"
+  },
+  "inspection_id": ":scan-eb48db8c",
+  "overall_status": "FAIL",
+  "ruleset_version": "IN-LMPC-2011:2011-consolidated",
+  "declaration_summary": {
+    "applicable": 11,
+    "detected": 9,
+    "verified": 6,
+    "review_required": 1,
+    "non_compliant": 1
+  },
+  "match_table": [
+    {
+      "field": "Product Name",
+      "value": "Cadbury Gems",
+      "status": "VERIFIED",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-B-COMMON-NAME",
+      "rule_clause": "Rule 6(1)(b)",
+      "reason": "Rule: Common / generic name of commodity declared (LMPC-6-1-B-COMMON-NAME)\nApplicability: APPLICABLE\nResult: PASS\nReason: Requirement satisfied: LMPC-6-1-B-COMMON-NAME\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(b)"
+    },
+    {
+      "field": "Product ID",
+      "value": null,
+      "status": "NOT_DETECTED_IN_PROVIDED_IMAGES",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-2011-R6-DECLARATIONS",
+      "rule_clause": "Label Identification",
+      "reason": "Mandatory declaration was not detected in the provided image panels."
+    },
+    {
+      "field": "MRP",
+      "value": "3.99",
+      "status": "NON_COMPLIANT",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-DA-MRP",
+      "rule_clause": "Rule 6(1)(da)",
+      "reason": "Rule: Maximum Retail Price (MRP), inclusive of all taxes, declared (LMPC-6-1-DA-MRP)\nApplicability: APPLICABLE\nResult: FAIL\nReason: Requirement satisfied: MRP value is declared; Requirement satisfied: Declared MRP is a positive amount; Requirement not satisfied: Label states MRP is inclusive of all taxes\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(da)"
+    },
+    {
+      "field": "Net Quantity",
+      "value": "135",
+      "status": "VERIFIED",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-E-NET-QUANTITY",
+      "rule_clause": "Rule 6(1)(e)",
+      "reason": "Rule: Net quantity declared (LMPC-6-1-E-NET-QUANTITY)\nApplicability: APPLICABLE\nResult: PASS\nReason: Requirement satisfied: Net quantity value is declared; Requirement satisfied: Net quantity carries a standard unit of weight/volume/count\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(e)"
+    },
+    {
+      "field": "Unit Sale Price",
+      "value": "\u20b915/kg",
+      "status": "REVIEW_REQUIRED",
+      "loc_status": "VERIFIED_MATCH",
+      "bbox": [
+        95.0,
+        383.0,
+        507.0,
+        46.0
+      ],
+      "poly_pts": 4,
+      "rule_id": "LMPC-6-11-UNIT-PRICE",
+      "rule_clause": "Rule 6(11)",
+      "reason": "Rule: Declared unit sale price matches MRP / net-quantity within tolerance (LMPC-6-11-UNIT-PRICE)\nApplicability: APPLICABLE\nResult: UNCERTAIN\nReason: Could not compute the expected unit sale price (MRP, net quantity, or declared unit price missing/unreadable).\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(11)"
+    },
+    {
+      "field": "Batch / Lot Number",
+      "value": "Y60724 A26",
+      "status": "DETECTED",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-2011-R6-DECLARATIONS",
+      "rule_clause": "Rule 6(1) / FSSAI 2.2.2",
+      "reason": "Declaration detected from package evidence."
+    },
+    {
+      "field": "Manufacturing Date",
+      "value": "2026-07-24",
+      "status": "VERIFIED",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-D-MFG-DATE",
+      "rule_clause": "Rule 6(1)(d)",
+      "reason": "Rule: Month & year of manufacture / packing declared (LMPC-6-1-D-MFG-DATE)\nApplicability: APPLICABLE\nResult: PASS\nReason: Requirement satisfied: LMPC-6-1-D-MFG-DATE\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(d)"
+    },
+    {
+      "field": "Expiry / Best Before Date",
+      "value": "2027-07-24",
+      "status": "VERIFIED",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-D-BEST-BEFORE",
+      "rule_clause": "Rule 6(1)(d) proviso",
+      "reason": "Rule: Best before / use by / expiry date declared where required (LMPC-6-1-D-BEST-BEFORE)\nApplicability: APPLICABLE\nResult: PASS\nReason: Requirement satisfied: LMPC-6-1-D-BEST-BEFORE\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(d) proviso"
+    },
+    {
+      "field": "Manufacturer",
+      "value": "Cadbury India Ltd.",
+      "status": "VERIFIED",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-A-MANUFACTURER",
+      "rule_clause": "Rule 6(1)(a)/(b)/(c)",
+      "reason": "Rule: Manufacturer / Packer / Importer name & address declared (LMPC-6-1-A-MANUFACTURER)\nApplicability: APPLICABLE\nResult: PASS\nReason: Manufacturer/packer/importer name and address is declared.\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(a)/(b)/(c)"
+    },
+    {
+      "field": "Marketer",
+      "value": null,
+      "status": "NOT_DETECTED_IN_PROVIDED_IMAGES",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-2011-R6-DECLARATIONS",
+      "rule_clause": "Rule 6(1)(a)",
+      "reason": "Mandatory declaration was not detected in the provided image panels."
+    },
+    {
+      "field": "Consumer Care Details",
+      "value": "mdzindia.com",
+      "status": "VERIFIED",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-DA-F-CONSUMER-CARE",
+      "rule_clause": "Rule 6(1)(da)/(f)",
+      "reason": "Rule: Consumer care / grievance contact details declared (LMPC-6-1-DA-F-CONSUMER-CARE)\nApplicability: APPLICABLE\nResult: PASS\nReason: Requirement satisfied: LMPC-6-1-DA-F-CONSUMER-CARE\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(da)/(f)"
+    },
+    {
+      "field": "Country of Origin",
+      "value": "India",
+      "status": "NOT_APPLICABLE",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-6-1-A-COUNTRY-OF-ORIGIN",
+      "rule_clause": "Rule 6(1)(a) proviso",
+      "reason": "Rule: Country of origin declared for imported commodities (LMPC-6-1-A-COUNTRY-OF-ORIGIN)\nApplicability: NOT_APPLICABLE\nResult: NOT_APPLICABLE\nReason: Product is not declared/detected as imported, so country-of-origin marking is not required by this proviso.\nLegal reference: Legal Metrology (Packaged Commodities) Rules, 2011 Rule 6(1)(a) proviso"
+    },
+    {
+      "field": "Standard Pack Size (Second Schedule)",
+      "value": null,
+      "status": "NOT_APPLICABLE",
+      "loc_status": "UNLOCALIZED",
+      "bbox": null,
+      "poly_pts": 0,
+      "rule_id": "LMPC-5-STANDARD-PACK-SIZE",
+      "rule_clause": "Rule 5 / Second Schedule",
+      "reason": "Rule LMPC-5-STANDARD-PACK-SIZE was NOT CONSIDERED: Rule superseded/expired on 2022-08-19 (inspected as of 2026-09-16)"
+    }
+  ]
+}
