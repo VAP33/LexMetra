@@ -1111,6 +1111,11 @@ def truncate_all_data() -> None:
                     session_captures,
                     inspection_sessions,
                     inspection_facts,
+                    inspection_findings,
+                    fssai_inspection_results,
+                    consumer_scans,
+                    openl_deploy_manifest,
+                    knowledge_chunk_embeddings,
                     inspections,
                     products,
                     audit_log,
@@ -1134,3 +1139,71 @@ def list_sessions(status: Optional[str] = None, limit: int = 50) -> list[dict]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(query, params)
             return [dict(row) for row in cur.fetchall()]
+
+
+def save_consumer_scan(scan: dict) -> None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO consumer_scans (
+                    scan_id, overall_status, headline, plain_language,
+                    disclaimer, review_required, payload_json, client_key
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                ON CONFLICT (scan_id) DO UPDATE SET
+                    overall_status = EXCLUDED.overall_status,
+                    payload_json = EXCLUDED.payload_json
+                """,
+                (
+                    scan["scan_id"],
+                    scan["overall_status"],
+                    scan.get("headline"),
+                    scan["plain_language"],
+                    scan["disclaimer"],
+                    bool(scan.get("review_required", True)),
+                    json.dumps(scan, default=str),
+                    scan.get("client_key"),
+                ),
+            )
+
+
+def get_consumer_scan(scan_id: str) -> Optional[dict]:
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM consumer_scans WHERE scan_id = %s",
+                (scan_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def save_fssai_results(inspection_id: str, module_status: str, findings: list) -> None:
+    payload = json.dumps(findings, default=_json_default)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO fssai_inspection_results (
+                    inspection_id, module_status, findings_json
+                ) VALUES (%s, %s, %s::jsonb)
+                """,
+                (inspection_id, module_status, payload),
+            )
+
+
+def get_latest_fssai_result(inspection_id: str) -> Optional[dict]:
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT module_status, findings_json, created_at
+                FROM fssai_inspection_results
+                WHERE inspection_id = %s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (inspection_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None

@@ -34,8 +34,10 @@ _BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BACKEND))
 sys.path.insert(0, str(_BACKEND / "tools"))
 
+from dataset_paths import REAL_IMAGES
+
 _ROOT = _BACKEND.parent
-_DATASET = _ROOT / "images dataset" if (_ROOT / "images dataset").exists() else _ROOT / "DEPENDENCIES" / "images dataset"
+_DATASET = REAL_IMAGES
 
 
 def _images() -> list[Path]:

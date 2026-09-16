@@ -2298,6 +2298,26 @@ def run_inspection(
                 ),
                 review_required=True,
             ))
+            fired = getattr(region, "signals", {}) or {}
+            fired_names = [k for k, v in fired.items() if isinstance(v, (int, float)) and v > 0]
+            findings.append(RuleFinding(
+                rule_id="ADVISORY-CV-STICKER",
+                rule_version=None,
+                status=FactStatus.UNCERTAIN,
+                requirement_id="advisory.sticker",
+                requirement_description=(
+                    "Possible sticker/alteration — review flag only, not a "
+                    "statutory Legal Metrology rule."
+                ),
+                reason=(
+                    "Advisory CV signal only. Heuristics fired: "
+                    f"{', '.join(fired_names) or reason}. "
+                    "This finding is capped at UNCERTAIN and must never be FAIL."
+                ),
+                confidence=max(0.0, min(1.0, confidence)),
+                review_required=True,
+                verification_status="advisory_not_a_legal_rule",
+            ))
 
     # ------------------------------------------------------------------
     # 8. Canonical declarations & deduplicated summary.

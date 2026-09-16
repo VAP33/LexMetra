@@ -18,8 +18,10 @@ if str(_BACKEND_DIR) not in sys.path:
 import product_similarity
 from product_similarity import ProductEmbedding
 
+from dataset_paths import REAL_IMAGES
+
 REPO_ROOT = _BACKEND_DIR.parent
-PHOTOS_DIR = REPO_ROOT / "images dataset" if (REPO_ROOT / "images dataset").exists() else REPO_ROOT / "DEPENDENCIES" / "images dataset"
+PHOTOS_DIR = REAL_IMAGES
 GT_FILE = REPO_ROOT / "dataset" / "real_photos_ground_truth.json"
 INDEX_PATH = _BACKEND_DIR / "product_index.json"
 

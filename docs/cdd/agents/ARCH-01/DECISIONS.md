@@ -43,3 +43,25 @@
 - Correction recorded: Stage 1's "nothing references `DEPENDENCIES/`" was **wrong** — 6 tools/tests reference a `DEPENDENCIES/images dataset` fallback. But that path doesn't exist (real data is `dataset/images dataset`), so the fallback is already dead and archiving breaks nothing; the stale refs are routed to TEST-01 / tools owner.
 - Why: Keeps the working tree unambiguous; preserves history for future diffing.
 - Reversible? Fully — it's an archive move, recoverable from the archive branch.
+
+## 2026-09-16 — D-06: Public consumer scan is flag + rate-limit, not a new RBAC role
+- Context: CON-01 asked for public `/consumer/scan`. Adding a `consumer` role would expand the 3-tier RBAC (inspector/reviewer/admin) without an owner decision.
+- Options considered:
+  1. New `consumer` role + login. Rejected (SCR would be required; FE-02/AUTH-01 not in this pass).
+  2. Open unauthenticated `/scan`. Rejected (cost/abuse).
+  3. Feature-flagged `POST /consumer/scan` + IP sliding-window RPM. **(chosen)**
+- Decision: No fourth role. `LMPC_ENABLE_CONSUMER_SCAN` default false. `LMPC_CONSUMER_SCAN_RPM` rate limit. Response is `ConsumerScanResponse` (no bboxes/rule IDs). UNCERTAIN stays first-class.
+- Why: Unblocks CON-02/FE-02 contract work without expanding auth surface.
+- Reversible? Yes — disable the flag. Adding a consumer role later is a new SCR.
+
+## 2026-09-16 — D-07: FSSAI stays a parallel domain; `overall_status` remains LMPC
+- Context: FSSAI-01 needs a per-module status. `ProductInspection` is `extra="forbid"`.
+- Decision: Do **not** add `module_statuses` to `ProductInspection` in this pass. Persist `fssai_inspection_results` and expose `GET /inspections/{id}/fssai`. Absence of an FSSAI mark is UNCERTAIN, never FAIL. Do not merge into `rules.json`.
+- Why: Preserves USP5 (distinct legal bases) and the frozen pipeline contract.
+- Reversible? An additive optional field on ProductInspection is a future SCR.
+
+## 2026-09-16 — D-08: YOLO not shipped; classical CV retained
+- Context: CV-01 default plan was YOLOv8n fine-tune. Inventory: 50 synthetic images, 30 real, 50 synthetic annotations. Below the honest-finetune bar (`>=200` real + non-synthetic labels).
+- Decision: No weights file. `layout_ensemble.detect_layout` wraps classical `detect_regions`. Documented in `00-REPOSITORY-BASELINE.md`.
+- Why: Package explicitly allows this as the safest-minimal-default.
+- Reversible? Yes — drop weights into `backend/models/layout_yolov8n.pt` and set `LMPC_ENABLE_YOLO_LAYOUT` after a measured bake-off.

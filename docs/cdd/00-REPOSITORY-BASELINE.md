@@ -74,16 +74,20 @@ this is an *additive* program, not a rewrite.
 | OCR (Tesseract + heuristic repair) | PARTIAL — degrades on poor prints |
 | Sticker/tamper detection | WORKING_BUT_UNVERIFIED (heuristic baseline, no trained classifier) |
 | RAG chunking / immutability / publication governance | VERIFIED_WORKING |
-| RAG semantic retrieval | MISSING (BM25/TF-IDF only) |
+| RAG semantic retrieval | PARTIAL — BM25/TF-IDF `retrieve()` unchanged. Additive `retrieve_with_vectors()` + RRF. JSONB embedding table. BGE-M3 **not** shipped (hash fallback is explicitly non-semantic). |
 | Amendment lifecycle state machine | VERIFIED_WORKING |
-| Amendment OCR→diff end-to-end | PARTIAL |
-| Docker Compose (Postgres+Redis+backend) | VERIFIED_WORKING |
-| React frontend | WORKING_BUT_UNVERIFIED — `npm run build` (`tsc && vite build`) succeeded 2026-09-16; login screen verified in browser against the built preview. Authenticated Scan/Inspections/Review flows not live-checked (backend was down). |
+| Amendment OCR→diff end-to-end | PARTIAL — `amendment_gazette.py` extracts Rule mentions + diffs against `rules.json`; `ACTIVE` refused if OpenL zip/redeploy missing. Gazette verbatim OCR unverified on this host (no Tesseract). |
+| Docker Compose (Postgres+Redis+backend) | VERIFIED_WORKING. OpenL is compose profile `openl` (`openltablets/ws:6.4.0`), not default. |
+| React frontend | WORKING_BUT_UNVERIFIED — `npm run build` (`tsc && vite build`) succeeded 2026-09-16; login screen verified in browser against the built preview. Authenticated Scan/Inspections/Review flows not live-checked (backend was down). EvidenceView now calls `GET /inspections/{id}/evidence`. |
 | Static dashboard | **FROZEN** (ARCH-01 D-02 + FE-01 parity). Do not add features. Do not delete until EVID-01 and other Wave 1 agents confirm they no longer need it as a reference. |
-| OpenL Tablets / YOLO / pgvector / BGE-M3 | MISSING entirely |
-| FSSAI / Consumer / Authority / Analytics / Voice | MISSING entirely |
-| `DEPENDENCIES/` tree | NON-CORE — see §7 and `02-DEPENDENCIES-CLASSIFICATION.md` |
-| Test suite (`backend/tests/`, ~33 files) | NOT YET RUN in a recorded pass — see §6, owned by TEST-01 |
+| OpenL Tablets | PARTIAL — Rule 3 / 26(a) exemption table deployed by RULE-01 (1532-case parity). Remaining LMPC rules **not** migrated. Production `/inspect`/`/scan` still `rule_engine.py` (`LMPC_ENABLE_OPENL` default false). |
+| YOLO layout | **Evaluated, data-constrained, classical CV retained.** Inventory 2026-09-16: 50 synthetic images, 30 real images, 50 annotation records (`annotations.json` `_meta.synthetic=true`). No `layout_yolov8n.pt` shipped. See CV-01. |
+| pgvector / BGE-M3 | PARTIAL schema (`knowledge_chunk_embeddings` JSONB; `CREATE EXTENSION vector` attempted and ignored). BGE-M3 weights not in-tree. |
+| FSSAI | PARTIAL — parallel `rules/rules_fssai.json` + `backend/fssai/engine.py`. Implementation encoding, not ingested gazette. Absence = UNCERTAIN, never FAIL. Not merged into `rules.json`. |
+| Consumer scan | PARTIAL — flag-gated `POST /consumer/scan` + `ConsumerScanResponse`. No FE-02 UI. CON-02/AUTH-01 out of this pass. |
+| Authority / Analytics / Voice | MISSING (Wave 3+). |
+| `DEPENDENCIES/` tree | NON-CORE — see §7. **Not present in this checkout**; `archive/README.md` documents the move. |
+| Test suite (`backend/tests/`) | Floor: `docs/cdd/TEST-BASELINE.md` (480/4/0, 78.1% at `ca3d221`). This host 2026-09-16: 489 passed / 19 skipped / 3 failed — the 3 failures are `test_ocr_engine.py` with **no Tesseract binary** (`rpm -q tesseract` not installed). |
 
 ---
 
@@ -116,30 +120,30 @@ this is an *additive* program, not a rewrite.
 1. **Rule engine is not OpenL.** Largest gap. Now a *decided migration* (OpenL
    mandatory) rather than an open question — see `DECISIONS.md`.
 2. **No semantic/vector retrieval.** BM25/TF-IDF only; blocks Tier C RAG claims.
-3. **No trained CV / YOLO.** Classical CV is an honest MVP fallback; caps accuracy on degraded prints.
+3. **No trained CV / YOLO.** CV-01 evaluated fine-tune and did **not** ship weights. Counts: 50 synthetic images under `dataset/images dataset`, 30 real under `dataset/real images`, 50 synthetic annotation records. Classical `region_detection.py` remains the production path (`layout_ensemble.detect_layout`).
 4. **Consumer + Authority ecosystems unbuilt.** ~half the product vision (USP 6/7/8), zero code.
 5. **Frontend split across two Inspector surfaces.** Now *decided and executed at the React layer*: React app is the surface to build on; `dashboard.html` is **frozen-not-deleted** (FE-01, 2026-09-16). `capture.html` remains out of FE-01 scope (calibrated mm capture, not the review dashboard).
 6. **Repo hygiene:** `DEPENDENCIES/` is non-core and should be archived out of the working tree — see §7.
 
 ---
 
-## 6. Test baseline (PENDING — owned by TEST-01)
+## 6. Test baseline (owned by TEST-01; folded 2026-09-16)
 
-> ARCH-01 deliberately does **not** assert a pass/fail count here. The 33 files
-> under `backend/tests/` tell us nothing about pass/fail until run. TEST-01's
-> first Wave 0 action is `cd backend && pip install -r requirements.txt &&
-> pytest -v --tb=short` with real counts recorded in `docs/cdd/TEST-BASELINE.md`.
-> Once that lands, ARCH-01 folds the summary numbers into this section and the
-> baseline commit hash becomes the regression floor referenced by DEVOPS-01's CI.
-
-**Placeholder — replace with TEST-01 numbers:**
+Regression **floor** is `docs/cdd/TEST-BASELINE.md` at commit `ca3d221`.
+Later PRs must not drop below these numbers on a comparable host (Tesseract +
+Postgres + poppler). A host without Tesseract will fail OCR engine tests; that
+is an environment gap, not a license to weaken the floor.
 
 | Metric | Value | As of commit |
 |---|---|---|
-| Tests passed | _pending TEST-01_ | `ccd795c` |
-| Tests failed | _pending TEST-01_ | `ccd795c` |
-| Tests errored | _pending TEST-01_ | `ccd795c` |
-| Coverage % | _pending TEST-01_ | `ccd795c` |
+| Tests passed | **480** | `ca3d221` (TEST-BASELINE clean-DB) |
+| Tests skipped | **4** | `ca3d221` |
+| Tests failed | **0** | `ca3d221` |
+| Tests errored | **0** | `ca3d221` |
+| Coverage % | **78.1%** | `ca3d221` |
+
+See `docs/cdd/TEST-BASELINE.md` for per-file counts, skip classification, and
+the exact clean-DB command. Later PRs must not drop below this floor.
 
 ---
 
@@ -176,11 +180,31 @@ in React; `dashboard.html` is **frozen** (no new features) and **not deleted**.
 EVID-01 should extend `frontend/react-app/src/components/evidence/EvidenceView.tsx`.
 `frontend/capture.html` is intentionally left separate.
 
-ARCH-01: fold this amendment into the frozen voice of this document when you
-next revise it. FE-01 did not change any pipeline contract.
+ARCH-01: folded 2026-09-16. FE-01 did not change any pipeline contract.
+
+---
+
+## Amendment — 2026-09-16 (CV-01 / Wave 2 honest status)
+
+YOLO layout was **not** trained. Inventory via `dataset_paths.dataset_inventory()`:
+
+| Kind | Count |
+|---|---|
+| Synthetic images (`dataset/images dataset` + `dataset/images`) | **50** |
+| Real images (`dataset/real images`) | **30** |
+| `annotations.json` records | **50**, `_meta.synthetic=true` |
+| `backend/models/layout_yolov8n.pt` | **absent** |
+
+Honest outcome allowed by the CV-01 package: classical CV retained as production
+path. Additive seam: `backend/layout_ensemble.py` (`LMPC_ENABLE_YOLO_LAYOUT`).
+
+Wave 2 other honest limits: FSSAI and RAG chunks are **unsourced implementation
+encodings**, not verbatim gazette. OpenL remaining-rule migration and production
+cutover are **not** done. Consumer scan is flag-gated. Wave 3 (CON-02, AUTH-01,
+FE-02, ANA-01) is out of scope.
 
 ---
 
 *Baseline authored by ARCH-01 as the Stage 2 deliverable. Section 6 is owned
-by TEST-01 (`TEST-BASELINE.md` now exists). Frontend status updated by FE-01
-on 2026-09-16.*
+by TEST-01 (`TEST-BASELINE.md`). Frontend status updated by FE-01
+on 2026-09-16. Wave 2 honest status folded 2026-09-16.*

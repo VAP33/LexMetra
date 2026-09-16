@@ -475,8 +475,52 @@ export async function listInspections(params?: {
   return request<RawInspectionRow[]>(`/inspections${qs ? `?${qs}` : ""}`);
 }
 
+export async function getInspectionEvidence(id: string): Promise<EvidenceChainPayload> {
+  return request<EvidenceChainPayload>(`/inspections/${encodeURIComponent(id)}/evidence`);
+}
+
 export async function getInspectionDetail(id: string): Promise<RawInspectionRow> {
   return request<RawInspectionRow>(`/inspections/${encodeURIComponent(id)}`);
+}
+
+export interface EvidenceChainPayload {
+  inspection_id: string;
+  overall_status: "PASS" | "FAIL" | "UNCERTAIN" | "EXEMPT";
+  review_required: boolean;
+  reviewed: boolean;
+  disclaimer: string;
+  image_url?: string | null;
+  image_path_present: boolean;
+  regions: Array<{
+    field: string;
+    extracted_value?: string | null;
+    raw_text?: string | null;
+    bbox?: { x: number; y: number; width: number; height: number } | null;
+    confidence?: number | null;
+    ocr_confidence?: number | null;
+    source_engine?: string | null;
+    fusion_state?: string | null;
+    image_id?: string | null;
+    status?: string | null;
+    review_required: boolean;
+    reason: string;
+  }>;
+  findings: Array<{
+    rule_id: string;
+    status: string;
+    reason: string;
+    confidence?: number | null;
+    review_required: boolean;
+    verification_status?: string | null;
+    required_evidence: string[];
+    missing_evidence: string[];
+  }>;
+  honesty: {
+    not_observed_is_not_missing: string;
+    low_confidence_is_not_noncompliance: string;
+    conflicting_readings_cap_uncertain: string;
+    verification_status_note: string;
+  };
 }
 
 export async function markReviewed(

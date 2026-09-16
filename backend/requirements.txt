@@ -44,7 +44,12 @@ reportlab>=4.0,<5.0
 # ocr_extraction.py degrades gracefully (returns no OCR lines, everything
 # evaluates to UNCERTAIN/NOT_OBSERVED) if the binary is missing, but OCR
 # extraction will not function without it.
+# OCR
 pytesseract>=0.3.10,<1.0
+
+# OpenL decision-table generation (RULE-01/RULE-02). Runtime OpenL is a JVM
+# service, not this package; openpyxl is only used to emit .xlsx rule projects.
+openpyxl>=3.1,<4.0
 
 # PaddleOCR is intentionally optional for the first lightweight MVP install.
 # The current OCR module has a fallback path, so the backend can start without

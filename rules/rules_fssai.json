@@ -1,0 +1,118 @@
+{
+  "_meta": {
+    "schema_version": "1.0",
+    "module": "fssai",
+    "purpose": "Parallel food-safety labelling checks. NEVER merged into rules/rules.json (Legal Metrology).",
+    "authority": "Food Safety and Standards Authority of India",
+    "legal_boundary": "Implementation encoding of well-known FSSAI packaging/labelling categories. Gazette text was NOT ingested in this pass. Every rule needs_official_verification.",
+    "source_priority": [
+      "Food Safety and Standards (Packaging and Labelling) Regulations, 2011",
+      "Food Safety and Standards (Labelling and Display) Regulations, 2020",
+      "official FSSAI / e-Gazette publications"
+    ],
+    "intended_sources": [
+      "https://www.fssai.gov.in/",
+      "https://egazette.gov.in/"
+    ],
+    "corpus_status": "unsourced_implementation_encoding"
+  },
+  "rules": [
+    {
+      "rule_id": "FSSAI-LABEL-LICENCE",
+      "source": "FSSAI labelling / display regulations (implementation encoding)",
+      "clause": "FSSAI licence/registration display",
+      "version": "unsourced-v0",
+      "effective_from": "2011-08-05",
+      "effective_to": null,
+      "module": "fssai",
+      "rule_type": "mandatory_declaration",
+      "applies_to": {"product_category": ["food", "beverage"]},
+      "requirements": [
+        {
+          "id": "fssai.licence_number",
+          "description": "Pre-packaged food should display the FSSAI licence or registration number of the manufacturer/packer."
+        }
+      ],
+      "evidence_required": ["fssai_licence_number"],
+      "decision": {
+        "pass_when": "a licence/registration number is observed on the pack",
+        "uncertain_when": "the number is not readable in the provided images",
+        "fail_when": "never from absence alone — absence is UNCERTAIN until coverage is complete and legally verified"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Thresholds and exact display form are not verified against gazette text in this repository."
+    },
+    {
+      "rule_id": "FSSAI-LABEL-VEG-NONVEG",
+      "source": "FSSAI labelling / display regulations (implementation encoding)",
+      "clause": "Vegetarian / non-vegetarian mark",
+      "version": "unsourced-v0",
+      "effective_from": "2011-08-05",
+      "effective_to": null,
+      "module": "fssai",
+      "rule_type": "mandatory_declaration",
+      "applies_to": {"product_category": ["food", "beverage"]},
+      "requirements": [
+        {
+          "id": "fssai.veg_mark",
+          "description": "Packaged food should carry the vegetarian or non-vegetarian identification mark."
+        }
+      ],
+      "evidence_required": ["veg_nonveg_mark"],
+      "decision": {
+        "pass_when": "a veg/non-veg mark is observed",
+        "uncertain_when": "the mark is not observed in the provided images"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Symbol geometry is a CV/OCR observation, not a legal determination."
+    },
+    {
+      "rule_id": "FSSAI-LABEL-INGREDIENTS",
+      "source": "FSSAI labelling / display regulations (implementation encoding)",
+      "clause": "List of ingredients",
+      "version": "unsourced-v0",
+      "effective_from": "2011-08-05",
+      "effective_to": null,
+      "module": "fssai",
+      "rule_type": "mandatory_declaration",
+      "applies_to": {"product_category": ["food", "beverage"]},
+      "requirements": [
+        {
+          "id": "fssai.ingredients",
+          "description": "Pre-packaged food should declare a list of ingredients."
+        }
+      ],
+      "evidence_required": ["ingredients_list"],
+      "decision": {
+        "pass_when": "an ingredients list is observed",
+        "uncertain_when": "no ingredients list is readable in the provided images"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Unsourced implementation encoding."
+    },
+    {
+      "rule_id": "FSSAI-LABEL-DATE",
+      "source": "FSSAI labelling / display regulations (implementation encoding)",
+      "clause": "Date of manufacture / packing / best before",
+      "version": "unsourced-v0",
+      "effective_from": "2011-08-05",
+      "effective_to": null,
+      "module": "fssai",
+      "rule_type": "mandatory_declaration",
+      "applies_to": {"product_category": ["food", "beverage"]},
+      "requirements": [
+        {
+          "id": "fssai.date_marking",
+          "description": "Pre-packaged food should declare manufacturing/packing and/or best-before/use-by dating as applicable."
+        }
+      ],
+      "evidence_required": ["date_marking"],
+      "decision": {
+        "pass_when": "a date marking is observed",
+        "uncertain_when": "no date marking is readable in the provided images"
+      },
+      "verification_status": "needs_official_verification",
+      "legal_note": "Unsourced implementation encoding."
+    }
+  ]
+}

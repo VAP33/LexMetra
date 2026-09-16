@@ -429,6 +429,12 @@ class ImageReading:
                 fusion_state=o.fusion_state.value if o.fusion_state else None,
                 alternatives=tuple(str(a) for a in (o.alternatives or ())),
                 region_id=o.region_id,
+                source_engine=(
+                    "fused"
+                    if o.fusion_state is FusionState.CORROBORATED
+                    and o.corroborated_by > 1
+                    else (o.engine.value.lower() if o.engine else None)
+                ),
             )
             for o in self.observations
             if o.usable_for_extraction
@@ -527,6 +533,20 @@ class RawLine:
     psm: Optional[int] = None
 
 
+def _paddle_lang() -> str:
+    raw = os.environ.get("LMPC_OCR_LANGUAGES", "eng")
+    try:
+        import config as _cfg
+
+        raw = str(getattr(_cfg, "OCR_LANGUAGES", raw) or raw)
+    except Exception:
+        pass
+    token = raw.replace(",", "+").split("+")[0].strip().lower()
+    return {"eng": "en", "en": "en", "hin": "hi", "hi": "hi", "mar": "mr", "mr": "mr"}.get(
+        token, "en"
+    )
+
+
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
 
@@ -565,16 +585,39 @@ class TesseractEngine:
 
         import pytesseract
 
+        lang = "eng"
+        try:
+            import config as _cfg
+
+            raw_langs = str(getattr(_cfg, "OCR_LANGUAGES", "eng") or "eng")
+            lang = "+".join(
+                p.strip()
+                for p in raw_langs.replace(",", "+").split("+")
+                if p.strip()
+            ) or "eng"
+        except Exception:
+            lang = os.environ.get("LMPC_OCR_LANGUAGES", "eng").replace(",", "+") or "eng"
+
         try:
             data = pytesseract.image_to_data(
                 image,
                 output_type=pytesseract.Output.DICT,
-                config=f"--psm {psm}",
+                config=f"-l {lang} --psm {psm}",
             )
         except Exception:
-            # An engine failure must never crash an inspection. It becomes
-            # NOT_OBSERVED for this pass, which is the safe direction.
-            return []
+            try:
+                if lang != "eng":
+                    data = pytesseract.image_to_data(
+                        image,
+                        output_type=pytesseract.Output.DICT,
+                        config=f"-l eng --psm {psm}",
+                    )
+                else:
+                    raise
+            except Exception:
+                # An engine failure must never crash an inspection. It becomes
+                # NOT_OBSERVED for this pass, which is the safe direction.
+                return []
 
         groups: Dict[Tuple[int, int, int], List[int]] = {}
         for i, raw in enumerate(data.get("text", [])):
@@ -679,7 +722,10 @@ class PaddleOcrEngine:
                         pass
                     from paddleocr import PaddleOCR
 
-                    self._reader = PaddleOCR(use_angle_cls=False, lang="en")
+                    self._reader = PaddleOCR(
+                        use_angle_cls=False,
+                        lang=_paddle_lang(),
+                    )
                     self._available = True
                 except Exception as exc:
                     self._available = False

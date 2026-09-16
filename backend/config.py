@@ -182,3 +182,29 @@ if MAX_UPLOAD_BYTES <= 0:
 # Both paths return `List[OcrLine]` in ORIGINAL image coordinates, so
 # `classify_fields()` and the rule engine are unaffected by the choice.
 ENABLE_REGION_FIRST_OCR = _env_bool("LMPC_ENABLE_REGION_FIRST_OCR", True)
+
+# Comma or plus separated Tesseract language packs. Default English-only so
+# existing tests and the lightweight container stay valid. Hindi/Marathi are
+# additive: set LMPC_OCR_LANGUAGES=eng+hin+mar when those tessdata packs exist.
+OCR_LANGUAGES = os.environ.get("LMPC_OCR_LANGUAGES", "eng").strip() or "eng"
+
+# ---------------------------------------------------------------------------
+# OpenL Tablets (RULE-01) — off until full rule-by-rule parity
+# ---------------------------------------------------------------------------
+ENABLE_OPENL = _env_bool("LMPC_ENABLE_OPENL", False)
+OPENL_BASE_URL = os.environ.get("OPENL_BASE_URL", "http://localhost:8080")
+OPENL_EXEMPTION_PATH = os.environ.get("OPENL_EXEMPTION_PATH", "lexmetra/lexmetra")
+
+# ---------------------------------------------------------------------------
+# Consumer scan (CON-01) — flag-gated public path, no new RBAC role
+# ---------------------------------------------------------------------------
+ENABLE_CONSUMER_SCAN = _env_bool("LMPC_ENABLE_CONSUMER_SCAN", False)
+CONSUMER_SCAN_RPM = int(os.environ.get("LMPC_CONSUMER_SCAN_RPM", "10"))
+
+# ---------------------------------------------------------------------------
+# Parallel FSSAI domain (FSSAI-01) — off by default; never merged into LMPC
+# ---------------------------------------------------------------------------
+ENABLE_FSSAI = _env_bool("LMPC_ENABLE_FSSAI", False)
+
+# CV-01 YOLO validator. Default off; no weights are shipped.
+ENABLE_YOLO_LAYOUT = _env_bool("LMPC_ENABLE_YOLO_LAYOUT", False)

@@ -24,7 +24,7 @@ detect_sticker_regions() and SuspectRegion for downstream compatibility.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -243,10 +243,71 @@ def _aspect_plausibility(w: int, h: int) -> float:
     return float((20.0 - ratio) / 12.0)
 
 
+def _color_boundary_score(
+    bgr: np.ndarray,
+    bbox: BBox,
+    margin: int = 6,
+) -> float:
+    """Chroma/mean-color jump between the candidate interior and a surrounding ring."""
+    if bgr.ndim != 3 or bgr.shape[2] < 3:
+        return 0.0
+    x, y, w, h = bbox
+    height, width = bgr.shape[:2]
+    if w < 4 or h < 4:
+        return 0.0
+    x0 = max(0, x - margin)
+    y0 = max(0, y - margin)
+    x1 = min(width, x + w + margin)
+    y1 = min(height, y + h + margin)
+    outer = bgr[y0:y1, x0:x1]
+    inside = bgr[y:y + h, x:x + w]
+    if inside.size == 0 or outer.size == 0:
+        return 0.0
+    mask = np.ones(outer.shape[:2], dtype=bool)
+    mask[y - y0:y - y0 + h, x - x0:x - x0 + w] = False
+    ring = outer[mask]
+    if ring.size < 16:
+        return 0.0
+    inside_mean = np.mean(inside.reshape(-1, 3), axis=0)
+    ring_mean = np.mean(ring.reshape(-1, 3), axis=0)
+    dist = float(np.linalg.norm(inside_mean - ring_mean) / 255.0)
+    return float(np.clip(dist, 0.0, 1.0))
+
+
+def _print_pattern_discontinuity(
+    gray: np.ndarray,
+    bbox: BBox,
+    margin: int = 8,
+) -> float:
+    """Gradient-orientation histogram difference: print vs candidate interior."""
+    x, y, w, h = bbox
+    height, width = gray.shape[:2]
+    x0 = max(0, x - margin)
+    y0 = max(0, y - margin)
+    x1 = min(width, x + w + margin)
+    y1 = min(height, y + h + margin)
+    inside = gray[y:y + h, x:x + w]
+    ring_img = gray[y0:y1, x0:x1]
+    if inside.size < 16 or ring_img.size < 16:
+        return 0.0
+
+    def _orient_hist(img: np.ndarray) -> np.ndarray:
+        gx = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
+        ang = (np.rad2deg(np.arctan2(gy, gx)) + 180.0).astype(np.float32)
+        hist, _ = np.histogram(ang, bins=8, range=(0, 360), density=True)
+        return hist.astype(np.float32)
+
+    h_in = _orient_hist(inside)
+    h_ring = _orient_hist(ring_img)
+    return float(np.clip(np.linalg.norm(h_in - h_ring) / 2.0, 0.0, 1.0))
+
+
 def _candidate_score(
     gray: np.ndarray,
     bbox: BBox,
     rectangularity: float,
+    bgr: Optional[np.ndarray] = None,
 ) -> Tuple[float, dict]:
     edge = _edge_discontinuity_score(gray, bbox)
     border = _border_edge_strength(gray, bbox)
@@ -274,6 +335,9 @@ def _candidate_score(
     # unusually strong.
     score *= 0.55 + 0.45 * aspect
 
+    color = _color_boundary_score(bgr, bbox) if bgr is not None else 0.0
+    pattern = _print_pattern_discontinuity(gray, bbox)
+
     signals = {
         "edge_discontinuity": round(edge, 4),
         "border_edge_strength": round(border, 4),
@@ -282,6 +346,8 @@ def _candidate_score(
         "sharpness_mismatch": round(sharp_mismatch, 4),
         "rectangularity": round(rectangularity, 4),
         "aspect_plausibility": round(aspect, 4),
+        "color_boundary": round(color, 4),
+        "print_pattern_discontinuity": round(pattern, 4),
     }
     return float(np.clip(score, 0.0, 1.0)), signals
 
@@ -379,7 +445,12 @@ def detect_sticker_regions(
             continue
 
         bbox = _clip_bbox((x, y, w, h), width, height)
-        score, signals = _candidate_score(gray, bbox, rectangularity)
+        score, signals = _candidate_score(
+            gray,
+            bbox,
+            rectangularity,
+            bgr=image_bgr if image_bgr.ndim == 3 else None,
+        )
 
         # Require at least two meaningful visual signals, rather than allowing
         # a single strong edge to create a review flag.
@@ -416,6 +487,14 @@ def detect_sticker_regions(
         if signals["sharpness_mismatch"] >= 0.25:
             reason_parts.append(
                 f"print-sharpness ratio {signals['sharpness_ratio']:.2f}"
+            )
+        if signals.get("color_boundary", 0.0) >= 0.18:
+            reason_parts.append(
+                f"color-boundary {signals['color_boundary']:.2f}"
+            )
+        if signals.get("print_pattern_discontinuity", 0.0) >= 0.20:
+            reason_parts.append(
+                f"print-pattern discontinuity {signals['print_pattern_discontinuity']:.2f}"
             )
 
         candidates.append(

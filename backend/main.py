@@ -36,7 +36,7 @@ import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
@@ -73,6 +73,11 @@ from rag_grounding import (
     get_canonical_rule_versions,
 )
 from router import router as regulatory_router
+from evidence_view import build_evidence_chain
+from consumer_scan import (
+    SlidingWindowRateLimiter,
+    to_consumer_response,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +94,10 @@ app = FastAPI(
 )
 
 app.include_router(regulatory_router)
+
+_CONSUMER_LIMITER = SlidingWindowRateLimiter(
+    getattr(config, "CONSUMER_SCAN_RPM", 10)
+)
 
 # CORS origins are read from configuration (ALLOWED_ORIGINS env var). Do not
 # use "*" once authentication is enabled — wildcard origins + bearer tokens is
@@ -520,6 +529,23 @@ def _prepare_extractions(classified: Dict[str, dict]) -> Dict[str, RawExtraction
     }
 
 
+def _persist_parallel_fssai(result: ProductInspection) -> None:
+    """FSSAI is a parallel domain. Failures must not change the LMPC verdict."""
+    if not getattr(config, "ENABLE_FSSAI", False):
+        return
+    try:
+        from fssai.engine import evaluate_fssai, module_status
+
+        findings = evaluate_fssai(result)
+        db.save_fssai_results(
+            result.inspection_id,
+            module_status(findings),
+            [finding.model_dump(mode="json") for finding in findings],
+        )
+    except Exception:
+        logging.exception("FSSAI parallel evaluation failed; LMPC result unchanged")
+
+
 PERISHABLE_CATEGORIES = {"food", "beverage", "dairy", "bakery", "confectionery"}
 
 
@@ -661,6 +687,7 @@ def inspect(
 
     db.save_inspection(result, mrp=req.mrp)
     db.set_inspection_attribution(result.inspection_id, created_by=current_user.username)
+    _persist_parallel_fssai(result)
     db.record_audit_event(
         action="inspection_created", actor_username=current_user.username,
         resource_type="inspection", resource_id=result.inspection_id,
@@ -1368,6 +1395,7 @@ async def scan(
         resource_type="inspection", resource_id=result.inspection_id,
         detail=f"via /scan, sale_type={sale_type}, images={len(upload_list)}",
     )
+    _persist_parallel_fssai(result)
 
     return {
         "inspection": result,
@@ -1736,6 +1764,7 @@ def finalize_session(
         resource_type="inspection_session", resource_id=session_id,
         detail=f"-> inspection {result.inspection_id}, {len(captures)} captures",
     )
+    _persist_parallel_fssai(result)
 
     return result
 
@@ -1773,6 +1802,116 @@ def get_inspection(
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
     return detail
+
+
+@app.get("/inspections/{inspection_id}/evidence")
+def get_inspection_evidence(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+    return build_evidence_chain(detail).model_dump(mode="json")
+
+
+@app.get("/inspections/{inspection_id}/image")
+def get_inspection_image(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+    image_path = detail.get("image_path")
+    if not image_path or not Path(str(image_path)).is_file():
+        raise HTTPException(status_code=404, detail="No stored image for this inspection.")
+    return FileResponse(str(image_path))
+
+
+@app.get("/inspections/{inspection_id}/fssai")
+def get_inspection_fssai(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """Parallel FSSAI module status. Not merged into ProductInspection.overall_status."""
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+    row = db.get_latest_fssai_result(inspection_id)
+    if not row:
+        return {
+            "inspection_id": inspection_id,
+            "module": "fssai",
+            "module_status": "NOT_RUN",
+            "findings": [],
+            "note": "FSSAI is a parallel domain. Enable LMPC_ENABLE_FSSAI to persist results.",
+        }
+    findings = row.get("findings_json")
+    if isinstance(findings, str):
+        import json as _json
+        findings = _json.loads(findings)
+    return {
+        "inspection_id": inspection_id,
+        "module": "fssai",
+        "module_status": row["module_status"],
+        "findings": findings or [],
+        "disclaimer": (
+            "FSSAI findings are a parallel food-safety screen, not a Legal "
+            "Metrology verdict. They are not merged into overall_status."
+        ),
+    }
+
+
+@app.post("/consumer/scan")
+async def consumer_scan(
+    request: Request,
+    file: Optional[UploadFile] = File(default=None),
+    product_category: str = Form("food"),
+    sale_type: str = Form("retail"),
+):
+    """Public consumer scan. Flag-gated. No new RBAC role. Rate-limited."""
+    if not getattr(config, "ENABLE_CONSUMER_SCAN", False):
+        raise HTTPException(status_code=404, detail="Consumer scan is not enabled.")
+    if file is None or not getattr(file, "filename", None):
+        raise HTTPException(status_code=400, detail="An image file is required.")
+    client_key = request.client.host if request.client else "unknown"
+    if not _CONSUMER_LIMITER.allow(client_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many consumer scans from this address. Try again later.",
+        )
+    _, _img, pil_img = await _read_image_upload(file)
+    ocr_lines = run_ocr(pil_img)
+    classified = classify_fields(ocr_lines)
+    extractions = _prepare_extractions(classified)
+    scan_id = f"con-{uuid.uuid4().hex[:16]}"
+    suspects = detect_sticker_regions(_img)
+    result = run_inspection(
+        inspection_id=scan_id,
+        sale_type=sale_type,
+        product_category=product_category,
+        net_quantity_value=None,
+        net_quantity_unit=None,
+        mrp=None,
+        extractions=extractions,
+        sticker_suspects=suspects,
+    )
+    payload = to_consumer_response(result, scan_id=scan_id)
+    body = payload.model_dump(mode="json")
+    body["client_key"] = client_key
+    try:
+        db.save_consumer_scan(body)
+    except Exception:
+        logging.exception("consumer_scans persist failed; returning live result")
+    db.record_audit_event(
+        action="consumer_scan_created",
+        actor_username="consumer",
+        resource_type="consumer_scan",
+        resource_id=scan_id,
+        ip_address=client_key,
+    )
+    return payload
 
 
 @app.post("/inspections/{inspection_id}/review")

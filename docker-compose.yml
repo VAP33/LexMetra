@@ -104,10 +104,17 @@ services:
 
       # OCR
       LMPC_ENABLE_PADDLEOCR:       ${LMPC_ENABLE_PADDLEOCR:-false}
+      LMPC_OCR_LANGUAGES:           ${LMPC_OCR_LANGUAGES:-eng}
       LMPC_MAX_UPLOAD_BYTES:        ${LMPC_MAX_UPLOAD_BYTES:-12582912}
       LMPC_OCR_MAX_PASSES:          ${LMPC_OCR_MAX_PASSES:-8}
       LMPC_OCR_MAX_REGIONS:         ${LMPC_OCR_MAX_REGIONS:-24}
       LMPC_ENABLE_REGION_FIRST_OCR: ${LMPC_ENABLE_REGION_FIRST_OCR:-true}
+      OPENL_BASE_URL:               ${OPENL_BASE_URL:-http://openl:8080}
+      LMPC_ENABLE_OPENL:            ${LMPC_ENABLE_OPENL:-false}
+      OPENL_EXEMPTION_PATH:         ${OPENL_EXEMPTION_PATH:-lmpc-exemption/lmpc-exemption}
+      LMPC_ENABLE_CONSUMER_SCAN:    ${LMPC_ENABLE_CONSUMER_SCAN:-false}
+      LMPC_CONSUMER_SCAN_RPM:       ${LMPC_CONSUMER_SCAN_RPM:-10}
+      LMPC_ENABLE_FSSAI:            ${LMPC_ENABLE_FSSAI:-false}
 
       # Optional VLM providers (leave blank to disable)
       VLM_VERIFICATION_ENABLED: ${VLM_VERIFICATION_ENABLED:-false}
@@ -125,6 +132,27 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+
+  # -------------------------------------------------------------------------
+  # OpenL Tablets RuleServices (RULE-01). Off unless the `openl` profile is
+  # enabled: `podman compose --profile openl up` or `docker compose --profile openl up`.
+  # Image tag and repo-zip deploy path are the ones RULE-01 verified.
+  # -------------------------------------------------------------------------
+  openl:
+    image: docker.io/openltablets/ws:6.4.0
+    profiles: ["openl"]
+    restart: unless-stopped
+    ports:
+      - "${OPENL_PORT:-8080}:8080"
+    volumes:
+      - ./backend/openl/config/application-prod.properties:/opt/openl/application.properties:ro
+      - ./backend/openl/dist/lmpc-exemption.zip:/opt/openl/local/repositories/zipped/lmpc-exemption.zip:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
 
 # ---------------------------------------------------------------------------
 # Named volumes — persisted across container restarts

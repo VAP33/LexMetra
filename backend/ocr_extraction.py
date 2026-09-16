@@ -60,6 +60,9 @@ class OcrLine:
     # Which detected region produced this reading. Diagnostic, and it lets the
     # agreement post-pass explain an attribution failure.
     region_id: Optional[str] = None
+    # OCR-01 provenance: which engine produced this line. "tesseract",
+    # "paddleocr", or "fused". None means the legacy whole-image path.
+    source_engine: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +73,12 @@ def _clamp_confidence(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
+def _tesseract_lang_flag() -> str:
+    langs = str(getattr(config, "OCR_LANGUAGES", "eng") or "eng")
+    parts = [p.strip() for p in langs.replace(",", "+").split("+") if p.strip()]
+    return "+".join(parts) or "eng"
+
+
 def _ocr_single(image: Image.Image, psm: int = 6) -> List[OcrLine]:
     """
     Run Tesseract once and preserve its line geometry.
@@ -77,11 +86,22 @@ def _ocr_single(image: Image.Image, psm: int = 6) -> List[OcrLine]:
     psm=6 is useful for package panels containing multiple text blocks.
     psm=11 is useful for sparse labels. Both are used by run_ocr().
     """
-    data = pytesseract.image_to_data(
-        image,
-        output_type=pytesseract.Output.DICT,
-        config=f"--psm {psm}",
-    )
+    lang = _tesseract_lang_flag()
+    try:
+        data = pytesseract.image_to_data(
+            image,
+            output_type=pytesseract.Output.DICT,
+            config=f"-l {lang} --psm {psm}",
+        )
+    except Exception:
+        if lang != "eng":
+            data = pytesseract.image_to_data(
+                image,
+                output_type=pytesseract.Output.DICT,
+                config=f"-l eng --psm {psm}",
+            )
+        else:
+            raise
 
     lines: Dict[Tuple[int, int, int], List[int]] = {}
     for i, raw_text in enumerate(data["text"]):
@@ -143,7 +163,12 @@ def _ocr_single(image: Image.Image, psm: int = 6) -> List[OcrLine]:
         )
 
         result.append(
-            OcrLine(text=text, bbox=bbox, confidence=confidence)
+            OcrLine(
+                text=text,
+                bbox=bbox,
+                confidence=confidence,
+                source_engine="tesseract",
+            )
         )
 
     return result

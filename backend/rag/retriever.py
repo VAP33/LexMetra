@@ -89,3 +89,41 @@ class HybridRetriever:
 
     def to_sources(self,hits):
         return [RAGSource(chunk_id=h.chunk.id,document_id=h.chunk.document_id,rule_id=h.chunk.rule_id,page=h.chunk.page,effective_from=h.chunk.effective_from,effective_to=h.chunk.effective_to,score=h.score,retrieval_method=h.method,source_reference=h.chunk.source_reference) for h in hits]
+
+    def retrieve_with_vectors(self, query, context, top_k=8, vectors=None):
+        """Lexical BM25/TF-IDF fused with optional semantic vectors via RRF.
+
+        ``retrieve()`` is unchanged (TEST-BASELINE). This path is additive.
+        When ``vectors`` is None or empty, the result is lexical-only RRF of
+        BM25 and TF-IDF — BM25 is never disabled.
+        """
+        lexical = self.retrieve(query, context, top_k=max(top_k * 4, 8))
+        if not lexical:
+            return []
+        bm25_ranking = [id(h.chunk) for h in sorted(lexical, key=lambda h: h.score, reverse=True)]
+        rankings = [bm25_ranking]
+        if vectors:
+            from rag.embeddings import cosine, embed_text
+            qv = embed_text(query)
+            semantic = sorted(
+                lexical,
+                key=lambda h: cosine(qv, vectors.get(h.chunk.id) or embed_text(h.chunk.text)),
+                reverse=True,
+            )
+            rankings.append([id(h.chunk) for h in semantic])
+        fused = reciprocal_rank_fusion(rankings)
+        by_id = {id(h.chunk): h for h in lexical}
+        ordered = sorted(by_id.keys(), key=lambda i: fused.get(i, 0.0), reverse=True)[:top_k]
+        method = "hybrid_bm25_tfidf_rrf_semantic" if vectors else "hybrid_bm25_tfidf_rrf"
+        return [
+            RetrievalHit(by_id[i].chunk, round(fused[i], 6), method)
+            for i in ordered
+        ]
+
+
+def reciprocal_rank_fusion(rankings, k=60):
+    scores = {}
+    for ranking in rankings:
+        for rank, idx in enumerate(ranking, start=1):
+            scores[idx] = scores.get(idx, 0.0) + 1.0 / (k + rank)
+    return scores

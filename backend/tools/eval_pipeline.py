@@ -39,12 +39,10 @@ import capture_session
 from main import _prepare_extractions, _infer_applicability_context, _resolve_quantity, _resolve_mrp
 
 
+from dataset_paths import REAL_IMAGES
+
 REPO_ROOT = _BACKEND_DIR.parent
-PHOTOS_DIR = REPO_ROOT / "images dataset"
-if not PHOTOS_DIR.exists():
-    PHOTOS_DIR = REPO_ROOT / "DEPENDENCIES" / "images dataset"
-if not PHOTOS_DIR.exists():
-    PHOTOS_DIR = REPO_ROOT / "CLAUDE 2" / "proj" / "dataset" / "real_photos"
+PHOTOS_DIR = REAL_IMAGES
 
 GT_FILE = REPO_ROOT / "dataset" / "real_photos_ground_truth.json"
 if not GT_FILE.exists():

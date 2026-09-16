@@ -37,3 +37,13 @@
   - `frontend/react-app/src/index.css`, `frontend/react-app/tailwind.config.js`
   - `docs/cdd/00-REPOSITORY-BASELINE.md`
   - `docs/cdd/agents/FE-01/*`
+
+## 2026-09-16 — Evidence client + TypeScript restore
+- What I did:
+  - Added `getInspectionEvidence`. Accidentally dropped `getInspectionDetail`; restored it. EvidenceView uses chain honesty banners and `chain.image_url` fallback.
+- What I verified:
+  - `node node_modules/typescript/bin/tsc --noEmit` → **exit 0**.
+- What I did NOT verify:
+  - Live API still down.
+- Files touched:
+  - `frontend/react-app/src/lib/api-client.ts`, `frontend/react-app/src/components/evidence/EvidenceView.tsx`

@@ -1,15 +1,11 @@
 # STATE — RULE-01
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 ## Current phase
-implementing — Steps 1–3 of the package DONE and verified. First rule migrated to
-OpenL with proven differential parity. Now at the package's designed handoff point:
-TEST-01 builds the official harness; remaining rules (step 4) are gated on it.
+partial — exemption OpenL + resolver exist; remaining rules and `/inspect`/`/scan` cutover **not** done
 
 ## What exists right now (verified by me, not assumed)
-- **OpenL RuleServices running** (`openl-rules`, `docker.io/openltablets/ws` v6.4.0,
-  host :8080). `GET /` 200, `GET /admin/services` shows `lmpc_exemption` = DEPLOYED,
-  health endpoints 200.
+- **OpenL RuleServices (verified 2026-09-15, not re-probed this session):** image `openltablets/ws:6.4.0`. `test_openl_differential.py` skipped here (readiness not 200).
 - **First rule migrated**: Rule 3 scope/exemption + Rule 26(a) small-pack as an OpenL
   decision table. Deployed and callable at
   `POST http://localhost:8080/lexmetra/lexmetra/classifyExemption` (JSON body).
@@ -19,8 +15,8 @@ TEST-01 builds the official harness; remaining rules (step 4) are gated on it.
   `backend/openl/dist/exemption_differential.json`.
 - **Two deploy methods verified**: dev REST deployer (POST /admin/deploy) and
   production repo-zip volume mount (deployer OFF).
-- **Additive-only**: `git status` shows RULE-01 added only `backend/openl/` and
-  `docs/cdd/agents/RULE-01/`. No feature code touched.
+- **Additive-only (2026-09-15)**: first RULE-01 commit added `backend/openl/` + packet.
+- **2026-09-16 resolver (no production cutover):** `backend/openl/resolver.py` can call OpenL then fall back to `exemption.py`. `LMPC_ENABLE_OPENL` defaults **false**. `/inspect` and `/scan` still use `rule_engine.py`.
 - Working files:
   - `backend/openl/scripts/build_exemption_project.py` — generates the xlsx+zip from rules.json.
   - `backend/openl/openl_client.py` — HTTP client + type→verdict mapping (httpx).
@@ -30,13 +26,9 @@ TEST-01 builds the official harness; remaining rules (step 4) are gated on it.
 
 ## What is NOT done yet
 - Remaining rules (Rule 6 declarations, 6(11) unit price, 7(2) numeral height, 8 placement,
-  24 wholesale, 26 partial-relaxation, Second Schedule, etc.) — NOT migrated. Step 4,
-  gated on TEST-01's official harness per package ordering.
-- The full `RuleSet Resolver → OpenL` in the backend + feature flag + `/inspect`,`/scan`
-  wiring — step 6, only "once all rules pass differential testing".
-- `01-CONTRACTS.md` §2.4 byte-level JSON — to be finalized WITH ARCH-01 now that a first
-  table is deployed (request/response samples below in HANDOFF).
-- DEVOPS-01 compose service — recommended config is ready in HANDOFF (their call to add).
+  24 wholesale, 26 partial-relaxation, Second Schedule, etc.) — **NOT migrated**.
+- Production cutover of `/inspect` and `/scan` — **not done** (flag default false, by design).
+- DEVOPS-01 compose profile `openl` is now in `docker-compose.yml` (was HANDOFF-only).
 
 ## Blocked on
 - Nothing hard-blocking RULE-01. Step 4 (migrate remaining rules with per-rule diff) is

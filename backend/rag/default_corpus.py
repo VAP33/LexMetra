@@ -4,6 +4,7 @@ import json
 from datetime import date
 from pathlib import Path
 from regulatory.models import KnowledgeChunk
+from rag.legal_sources import provenance_for_rule
 RULES_PATH=Path(__file__).resolve().parents[2]/"rules"/"rules.json"
 def build_default_chunks()->list[KnowledgeChunk]:
     if not RULES_PATH.exists(): return []
@@ -15,6 +16,7 @@ def build_default_chunks()->list[KnowledgeChunk]:
         parts=[str(rule.get(k) or "") for k in ("source","clause","rule_type","legal_note")]
         parts += [str(req.get("description") or req.get("id") or "") for req in rule.get("requirements",[])]
         text=" ".join(x for x in parts if x).strip()
+        provenance=provenance_for_rule(rid)
         chunks.append(KnowledgeChunk(
             id=f"rules-json:{rid}",module="lmpc",department="Department of Consumer Affairs",
             regulation="Legal Metrology (Packaged Commodities) Rules, 2011",
@@ -24,8 +26,10 @@ def build_default_chunks()->list[KnowledgeChunk]:
             effective_to=date.fromisoformat(rule["effective_to"]) if rule.get("effective_to") else None,
             index_version="rules-json-bootstrap-v1",section=str(rule.get("clause") or ""),
             language="en",jurisdiction="IN",text=text,source_reference=f"rules.json:{rid}",
+            source_url=(provenance.get("intended_urls") or [None])[0],
             metadata={"authority":data.get("_meta",{}).get("authority"),
                       "verification_status":rule.get("verification_status"),
                       "legal_boundary":data.get("_meta",{}).get("legal_boundary"),
-                      "bootstrap_corpus":True}))
+                      "bootstrap_corpus":True,
+                      **provenance}))
     return chunks

@@ -172,9 +172,24 @@ existing verdict shape** so nothing downstream changes:
   the load-bearing fact: OpenL is a JVM service, not a `pip` package.)
 - **Endpoint/JSON shape:** documented to the byte **once RULE-01 deploys the first
   decision table**. Until then this section is intentionally shape-level only.
+- **Byte-level exemption slice (RULE-01, 2026-09-15, verified against
+  `openltablets/ws:6.4.0`):**
+  - Request `POST /{service}/classifyExemption` (`application/json`):
+    `{"saleType","productCategory","massG","volumeMl","quantityEstablished",
+      "isPrepackagedFalse","directIndInst","isExportOnly"}`
+    `massG`/`volumeMl` use `-1.0` as "not applicable" (no JSON nulls into OpenL).
+  - Response: JSON string `exemption_type` ∈ {`not_prepackaged`,
+    `industrial_or_institutional_direct_sale`, `export_only_transaction`,
+    `rule_3_quantity_exclusion`, `rule_26_small_pack`, `quantity_not_established`,
+    `different_declaration_regime`, `unknown_sale_type`, `none`}.
+  - Python maps that string onto `ExemptionResult` / `RuleFinding`. Full resolver
+    aggregation across remaining LMPC rules is **not** cut over (`LMPC_ENABLE_OPENL`
+    defaults false).
 - **Config:** the OpenL base URL is an env var read by `config.py`; DEVOPS-01 adds the
   `openltablets/ws` service to `docker-compose.yml` **only after RULE-01 confirms the
   exact image tag and rule-deployment path** (see DEVOPS-01 package item 4).
+  Confirmed: image `openltablets/ws:6.4.0`, compose profile `openl`, repo-zip mount of
+  `backend/openl/dist/lmpc-exemption.zip`.
 
 ### 2.5 Cutover safety (binds RULE-01 + TEST-01)
 
@@ -194,3 +209,58 @@ existing verdict shape** so nothing downstream changes:
 | `ExtractedFact` / `ProductInspection` (`schema.py`) | ARCH-01 | — (exists) | OCR, CV, RULE-*, DB-01, EVID-01, report gen, FE-*, CON-*, AUTH-* |
 | `RegulatoryContext` (`backend/models.py`) | ARCH-01 | — (exists) | RULE-*, RAG-*, FSSAI-01 |
 | RuleSet Resolver → OpenL | ARCH-01 | RULE-01 | DEVOPS-01 (compose), TEST-01 (diff harness), report/DB/FE (unchanged by design) |
+| Consumer scan response (`consumer_scan.ConsumerScanResponse`) | ARCH-01 (shape) | CON-01 | CON-02, AUTH-01, FE-02 |
+| Evidence chain (`GET /inspections/{id}/evidence`) | EVID-01 | EVID-01 | FE-01, later FE-02 simplified |
+| FSSAI module status (`GET /inspections/{id}/fssai`) | ARCH-01 SCR | FSSAI-01 | FE-02 / reports — **not** merged into `overall_status` |
+
+---
+
+## Proposed / draft contracts (Wave 2) — not frozen §1 fields
+
+These are **additive** and do **not** change `ExtractedFact` / `ProductInspection`
+(`extra="forbid"` stays). Implementers of CON-02 / FE-02 / AUTH-01 should build
+against these drafts.
+
+### CON-01 — `POST /consumer/scan` → `ConsumerScanResponse`
+
+Flag: `LMPC_ENABLE_CONSUMER_SCAN` (default false). No new RBAC role (SCR: keep
+inspector/reviewer/admin). Rate-limited by client address (`LMPC_CONSUMER_SCAN_RPM`).
+
+```
+scan_id: str
+overall_status: PASS | FAIL | UNCERTAIN | EXEMPT   # UNCERTAIN is first-class
+headline / plain_language: str
+disclaimer: str   # same legal disclaimer as ProductInspection
+review_required: bool
+items[]: {label, observed, outcome, plain_language}
+source: "consumer"
+evidentially_weaker_than_inspector: true
+```
+
+Must not include bboxes, per-engine confidence, or rule IDs. Persisted in
+`consumer_scans`, not `inspections`.
+
+**ARCH-01 SCR (public access):** unauthenticated compute is allowed only behind
+the feature flag + IP rate limit. No `consumer` role. CAPTCHA not implemented.
+
+### FSSAI-01 — per-module status (SCR, not added to ProductInspection)
+
+`ProductInspection.overall_status` remains the **LMPC** verdict. FSSAI results
+live in `fssai_inspection_results` and `GET /inspections/{id}/fssai`:
+
+```
+module: "fssai"
+module_status: PASS | FAIL | UNCERTAIN | EXEMPT | NOT_APPLICABLE | NOT_RUN
+findings: RuleFinding[]   # same four-status invariant
+```
+
+Proposed later additive field (blocked until ARCH-01 signs):
+`module_statuses: Optional[Dict[str, FactStatus]]` on ProductInspection.
+Not implemented in this pass because `extra="forbid"`.
+
+### RAG-02 — embeddings table
+
+`knowledge_chunk_embeddings(chunk_id, embedding_json, backend)`. JSONB so
+postgres:16-alpine works without pgvector. `CREATE EXTENSION vector` is attempted
+and ignored when missing. BM25 path in `HybridRetriever.retrieve()` is unchanged.
+

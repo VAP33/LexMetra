@@ -13,7 +13,7 @@ The Inspector surface is `frontend/react-app/`. The three `dashboard.html` tabs 
 
 ## What I own that is still in flux (do NOT depend on this yet)
 - Authenticated end-to-end of Scan → History → Review Queue → Mark reviewed (needs a running API).
-- Evidence overlays on *stored* inspections (list/detail payloads often have no image data URL; EVID-01's dedicated evidence endpoint is the real fix).
+- Evidence overlays on *stored* inspections when the evidence HTTP call fails (scan-payload fallback). Live authenticated round-trip still outstanding.
 - `capture.html` integration (explicitly not done).
 
 ## Contracts I changed

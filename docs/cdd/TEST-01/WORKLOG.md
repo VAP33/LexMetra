@@ -22,3 +22,18 @@
   - `docs/cdd/TEST-01/STATE.md`, `WORKLOG.md`, `DECISIONS.md`, `HANDOFF.md` (new)
   - Artifacts: `test_baseline_clean_output.log`, `test_baseline_full_output.log`, `test_baseline_clean.xml`, `coverage.json`, `skip_reasons.txt`.
   - No production/test code changed.
+
+## 2026-09-16 — OpenL skip-if-down harness; host without Tesseract
+- What I did:
+  - Adopted RULE-01 exemption client as `test_openl_differential.py` (skip if OpenL down).
+  - Barcode/API tests retargeted to `dataset/images dataset` and `dataset/real images` via `dataset_paths`.
+- What I verified:
+  - Focused Wave 1/2: **24 passed, 3 skipped, 0 failed**.
+  - `test_openl_pipeline.py`: **3 passed**.
+  - Full suite earlier this session: **489 passed, 19 skipped, 3 failed** (`test_ocr_engine.py`, no tesseract).
+  - Re-run excluding `test_ocr_engine.py`: **437 passed, 18 skipped, 0 failed** in 12.84s.
+- What I did NOT verify:
+  - Coverage % of new modules.
+  - Unskipped OpenL sample (service down).
+- Files touched:
+  - `backend/tests/test_openl_differential.py`, barcode/API/tool path retargets.

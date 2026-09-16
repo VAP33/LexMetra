@@ -35,10 +35,12 @@ app.dependency_overrides[auth.require_inspector] = lambda: fake_user
 
 client = TestClient(app)
 
+from dataset_paths import REAL_IMAGES, find_named_image
+
 workspace_root = backend_dir.parent
-dataset_dir = workspace_root / "images dataset" if (workspace_root / "images dataset").exists() else workspace_root / "DEPENDENCIES" / "images dataset"
-img1_path = dataset_dir / "Screenshot_2026-09-06-22-06-12-38_92460851df6f172a4592fca41cc2d2e6.jpg"
-img2_path = dataset_dir / "Screenshot_2026-09-06-22-06-22-17_92460851df6f172a4592fca41cc2d2e6.jpg"
+dataset_dir = REAL_IMAGES
+img1_path = find_named_image("Screenshot_2026-09-06-22-06-12-38_92460851df6f172a4592fca41cc2d2e6.jpg") or (dataset_dir / "Screenshot_2026-09-06-22-06-12-38_92460851df6f172a4592fca41cc2d2e6.jpg")
+img2_path = find_named_image("Screenshot_2026-09-06-22-06-22-17_92460851df6f172a4592fca41cc2d2e6.jpg") or (dataset_dir / "Screenshot_2026-09-06-22-06-22-17_92460851df6f172a4592fca41cc2d2e6.jpg")
 
 assert img1_path.exists(), f"Image 1 not found: {img1_path}"
 assert img2_path.exists(), f"Image 2 not found: {img2_path}"

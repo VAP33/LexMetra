@@ -18,8 +18,7 @@ PR that drops a file's pass count or introduces a failure fails review.
   read-back works with poppler; Postgres round-trips confirmed.
 
 ## What I own that is still in flux (do NOT depend on this yet)
-- The differential (legacy `rule_engine.py` vs OpenL) harness — not built yet;
-  interface sketched only. Do not assume an OpenL regression gate exists.
+- The differential (legacy `rule_engine.py` vs OpenL) harness — **exists** as skip-if-down (`test_openl_differential.py`). Not a CI gate yet.
 
 ## Contracts I changed
 - None. No production or test code was modified by TEST-01. Only new docs under

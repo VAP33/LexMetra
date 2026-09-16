@@ -51,8 +51,10 @@ import cv2  # noqa: E402
 
 import ocr_engine  # noqa: E402
 
+from dataset_paths import REAL_IMAGES  # noqa: E402
+
 _ROOT = _BACKEND.parent
-DEFAULT_DATASET = _ROOT / "images dataset" if (_ROOT / "images dataset").exists() else _ROOT / "DEPENDENCIES" / "images dataset"
+DEFAULT_DATASET = REAL_IMAGES
 
 
 def dataset_images(folder: Path) -> List[Path]:

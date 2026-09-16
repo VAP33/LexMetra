@@ -26,3 +26,14 @@
   - `docs/cdd/02-DEPENDENCIES-CLASSIFICATION.md`
   - `docs/cdd/AGENT-EXECUTION-GUIDE.md`
   - `docs/cdd/agents/ARCH-01/{DECISIONS,STATE,WORKLOG,HANDOFF}.md`
+
+## 2026-09-16 — Fold TEST-01 numbers; record Wave 2 SCRs
+- What I did:
+  - Folded TEST-BASELINE into `00-REPOSITORY-BASELINE.md` §6. Recorded CV-01 inventory (50/30/50). Published CON-01 / FSSAI / RAG-02 drafts in `01-CONTRACTS.md`. Locked D-06/D-07/D-08.
+- What I verified:
+  - Dataset inventory command (50 synthetic, 30 real, 50 synthetic annotations).
+  - Did not mutate `schema.py`.
+- What I did NOT verify:
+  - Live OpenL JSON round-trip this session (copied from RULE-01 2026-09-15 verified samples).
+- Files touched:
+  - `docs/cdd/00-REPOSITORY-BASELINE.md`, `docs/cdd/01-CONTRACTS.md`, `docs/cdd/agents/ARCH-01/DECISIONS.md`

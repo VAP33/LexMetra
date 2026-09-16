@@ -395,3 +395,73 @@ CREATE INDEX IF NOT EXISTS idx_session_captures_session
 ALTER TABLE inspections ADD COLUMN IF NOT EXISTS declarations_json JSONB;
 ALTER TABLE inspection_sessions ALTER COLUMN net_quantity_value DROP NOT NULL;
 ALTER TABLE inspection_sessions ALTER COLUMN net_quantity_unit DROP NOT NULL;
+
+-- DB-01 / CON-01: consumer scans are evidentially weaker than inspector captures.
+-- Distinct table on purpose — do not mix into inspections without a source flag.
+CREATE TABLE IF NOT EXISTS consumer_scans (
+    scan_id                 TEXT PRIMARY KEY,
+    overall_status          TEXT NOT NULL,
+    -- PASS | FAIL | UNCERTAIN | EXEMPT
+    headline                TEXT,
+    plain_language          TEXT NOT NULL,
+    disclaimer              TEXT NOT NULL,
+    review_required         BOOLEAN NOT NULL DEFAULT TRUE,
+    payload_json            JSONB NOT NULL,
+    client_key              TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_consumer_scans_created
+    ON consumer_scans(created_at DESC);
+
+-- DB-01 / FSSAI-01: parallel domain results. Never overwrite LMPC overall_status.
+CREATE TABLE IF NOT EXISTS fssai_inspection_results (
+    id                      SERIAL PRIMARY KEY,
+    inspection_id           TEXT NOT NULL,
+    module_status           TEXT NOT NULL,
+    findings_json           JSONB NOT NULL,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fssai_results_inspection
+    ON fssai_inspection_results(inspection_id);
+
+-- DB-01 / RULE-02: immutable OpenL zip versions. File manifest is source of
+-- record for local/dev; this table is the durable copy when Postgres is up.
+CREATE TABLE IF NOT EXISTS openl_deploy_manifest (
+    id                      SERIAL PRIMARY KEY,
+    rule_family             TEXT NOT NULL,
+    rule_ids_json           JSONB NOT NULL,
+    rule_version            TEXT,
+    effective_from          DATE NOT NULL,
+    zip_path                TEXT NOT NULL,
+    zip_sha256              TEXT NOT NULL,
+    rules_json_sha256       TEXT,
+    deployed_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deploy_method           TEXT,
+    module                  TEXT NOT NULL DEFAULT 'lmpc',
+    notes                   TEXT
+);
+
+-- RAG-02 embeddings. Stored as JSONB so the stock postgres:16-alpine image
+-- works without pgvector. CREATE EXTENSION vector is attempted below and is
+-- allowed to no-op when the extension is absent.
+CREATE TABLE IF NOT EXISTS knowledge_chunk_embeddings (
+    chunk_id                TEXT PRIMARY KEY,
+    embedding_json          JSONB NOT NULL,
+    backend                 TEXT NOT NULL,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+DO $$
+BEGIN
+    BEGIN
+        CREATE EXTENSION IF NOT EXISTS vector;
+    EXCEPTION WHEN OTHERS THEN
+        -- pgvector is not in the default postgres:16-alpine image.
+        NULL;
+    END;
+END $$;
+
+-- DB-01 stubs for Wave 3 (NOT created): complaints/consumer_reports (CON-02),
+-- authority_cases (AUTH-01). See backend/db/WAVE23_STUBS.md.

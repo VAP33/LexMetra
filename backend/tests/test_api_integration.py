@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-DATASET_IMAGE = (
+from dataset_paths import find_named_image
+
+DATASET_IMAGE = find_named_image("prod001_compliant.png") or (
     Path(__file__).resolve().parent.parent.parent
-    / "dataset" / "images" / "prod001_compliant.png"
+    / "dataset" / "images dataset" / "prod001_compliant.png"
 )
 
 

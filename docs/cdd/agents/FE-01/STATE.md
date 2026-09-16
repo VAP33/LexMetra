@@ -11,11 +11,11 @@ done (parity implemented + build verified; live authenticated API round-trip sti
 - Component split: `InspectionApp.tsx` is now a thin orchestrator. Screens live under `components/{auth,home,history,scan,result,evidence,report}/`. EVID-01 hook is `components/evidence/EvidenceView.tsx`.
 - `frontend/dashboard.html` is **not deleted**. Marked FROZEN in `docs/cdd/00-REPOSITORY-BASELINE.md`.
 - `frontend/capture.html` left in place (out of FE-01 scope — calibrated mm capture, not the Inspector dashboard).
+- EVID-01: `getInspectionEvidence` + EvidenceView fetch of `GET /inspections/{id}/evidence`. `getInspectionDetail` restored after a mid-edit drop. `tsc --noEmit` exit 0 (2026-09-16).
 
 ## What is NOT done yet
-- Live side-by-side against a running FastAPI+Postgres instance (backend was down this session: `curl localhost:8000/health` failed). Authenticated Scan → History → Review Queue → Mark reviewed has not been HTTP-verified.
-- TEST-01 has not signed a frontend regression gate (none exists yet; TEST-BASELINE is backend pytest).
-- EVID-01's `GET /inspections/{id}/evidence` is not built — EvidenceView currently overlays bboxes already present on the scan/session payload.
+- Live authenticated Scan → History → Review Queue → Mark reviewed (backend down: `curl localhost:8000/health` failed).
+- TEST-01 has not signed a frontend regression gate (TEST-BASELINE is backend pytest).
 
 ## Blocked on
 - nothing for the remaining FE-01 code work

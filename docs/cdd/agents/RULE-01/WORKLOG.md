@@ -74,3 +74,13 @@ Append-only. Never delete entries. This is the "why", not just the "what".
 - Files touched (all new): `backend/openl/{openl_client.py,config/*.properties,
   scripts/*.py,dist/*}`. Installed build/test tooling into `backend/.venv`
   (openpyxl; httpx already present).
+
+## 2026-09-16 — Resolver without production cutover
+- What I did:
+  - Added `openl/resolver.py` that can call OpenL and fall back to `exemption.py`. Left `LMPC_ENABLE_OPENL` default false. Did **not** migrate Rule 6/7/8/24/26-partial/Second Schedule (honesty: that is remaining step 4).
+- What I verified:
+  - `test_openl_pipeline.py` 3 passed. `test_openl_differential.py` skipped (OpenL not up).
+- What I did NOT verify:
+  - 1532-case harness re-run against a live JVM this session.
+- Files touched:
+  - `backend/openl/resolver.py`, `backend/config.py` (`OPENL_*`, `ENABLE_OPENL`)
