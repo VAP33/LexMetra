@@ -4,6 +4,7 @@ title LexMetra Compliance Inspector - Full Stack Launcher
 
 echo ===============================================================================
 echo                LEXMETRA UNIFIED COMPLIANCE INSPECTION PLATFORM
+echo               Department of Consumer Affairs * Legal Metrology
 echo ===============================================================================
 echo Active Subsystems:
 echo   [*] Semantic Authority    : Qwen 3.8 27B (Multimodal Perception Pipeline)
@@ -11,6 +12,7 @@ echo   [*] Evidence Localization : Sanskruti CV (PaddleOCR PP-OCRv6 Vector Polyg
 echo   [*] Regulatory Engine     : Arya Generic Engine (IN-LMPC-2011:2011-consolidated)
 echo   [*] Multi-Panel DB        : PostgreSQL 18 Local Cluster (Port 5433)
 echo   [*] Interactive Web UI    : React 18 + Vite + SVG Polygon Overlays (Port 5173)
+echo   [*] Intelligence Engine   : 13-Stage Public Social Grievance Surveillance
 echo ===============================================================================
 echo.
 
@@ -24,41 +26,47 @@ set "ENABLE_LOCALIZATION_YOLO=false"
 set "OPENROUTER_MODEL=qwen/qwen3.8-27b"
 
 REM -------------------------------------------------------------------------------
-REM 1. Check & Start Local PostgreSQL 18 on Port 5433
+REM 1. Check & Start Local PostgreSQL on Port 5433
 REM -------------------------------------------------------------------------------
 echo [1/3] Checking PostgreSQL Database (Port 5433)...
 netstat -ano | findstr ":5433 " >nul 2>&1
 if errorlevel 1 (
-    echo [!] PostgreSQL not running on port 5433. Starting cluster...
+    echo [!] PostgreSQL not listening on port 5433. Launching dedicated local cluster...
 
     if exist "%~dp0backend\db\data_local\postmaster.pid" (
         del /f /q "%~dp0backend\db\data_local\postmaster.pid" 2>nul
     )
 
-    set "PGCTL="
-    if exist "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" set "PGCTL=C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe"
-    if not defined PGCTL if exist "C:\Program Files\PostgreSQL\17\bin\pg_ctl.exe" set "PGCTL=C:\Program Files\PostgreSQL\17\bin\pg_ctl.exe"
-    if not defined PGCTL if exist "C:\Program Files\PostgreSQL\16\bin\pg_ctl.exe" set "PGCTL=C:\Program Files\PostgreSQL\16\bin\pg_ctl.exe"
-    if not defined PGCTL (
-        for /f "delims=" %%I in ('where pg_ctl 2^>nul') do (
-            if not defined PGCTL set "PGCTL=%%I"
+    set "PGEXE="
+    if exist "C:\Program Files\PostgreSQL\18\bin\postgres.exe" set "PGEXE=C:\Program Files\PostgreSQL\18\bin\postgres.exe"
+    if not defined PGEXE if exist "C:\Program Files\PostgreSQL\17\bin\postgres.exe" set "PGEXE=C:\Program Files\PostgreSQL\17\bin\postgres.exe"
+    if not defined PGEXE if exist "C:\Program Files\PostgreSQL\16\bin\postgres.exe" set "PGEXE=C:\Program Files\PostgreSQL\16\bin\postgres.exe"
+    if not defined PGEXE (
+        for /f "delims=" %%I in ('where postgres 2^>nul') do (
+            if not defined PGEXE set "PGEXE=%%I"
         )
     )
 
-    if defined PGCTL (
-        set "PGCTL=!PGCTL:"=!"
-        echo     Using pg_ctl: "!PGCTL!"
-        "!PGCTL!" start -D "%~dp0backend\db\data_local" -o "-p 5433" -l "%~dp0backend\db\data_local\logfile.txt" -s -w
+    if defined PGEXE (
+        set "PGEXE=!PGEXE:"=!"
+        echo     Launching PostgreSQL: "!PGEXE!" -D "%~dp0backend\db\data_local" -p 5433
+        start "LexMetra PostgreSQL Cluster" /min "!PGEXE!" -D "%~dp0backend\db\data_local" -p 5433
+        timeout /t 3 /nobreak >nul
+
+        netstat -ano | findstr ":5433 " >nul 2>&1
         if errorlevel 1 (
-            echo [ERROR] pg_ctl failed to start PostgreSQL. Check logfile:
-            echo         %~dp0backend\db\data_local\logfile.txt
-            pause
-            exit /b 1
+            echo [WARN] PostgreSQL still initializing, waiting 3 additional seconds...
+            timeout /t 3 /nobreak >nul
         )
-        echo [OK] PostgreSQL cluster started successfully on port 5433.
-        timeout /t 2 /nobreak >nul
+
+        netstat -ano | findstr ":5433 " >nul 2>&1
+        if errorlevel 1 (
+            echo [ERROR] PostgreSQL failed to bind to port 5433. Please check permissions or data directory.
+        ) else (
+            echo [OK] PostgreSQL cluster is active and listening on port 5433.
+        )
     ) else (
-        echo [ERROR] pg_ctl.exe not found. Ensure PostgreSQL 18 is installed.
+        echo [ERROR] postgres.exe not found. Ensure PostgreSQL 18 is installed.
         pause
         exit /b 1
     )
@@ -108,10 +116,11 @@ echo  Default Inspector Credentials:
 echo    Username : admin
 echo    Password : password123
 echo.
-echo  Active Integration Subsystems:
-echo    [+] Evidence Localizer : sanskruti (PaddleOCR tight vector polygons)
-echo    [+] Regulatory Engine  : generic (Arya IN-LMPC-2011 Ruleset Report)
-echo    [+] Semantic Provider  : Qwen 3.8-27B (multimodal OpenRouter inference)
+echo  Role Portals Available:
+echo    [+] Government Inspector : http://localhost:5173 (Command Center)
+echo    [+] Citizen Scans Portal : http://localhost:5173 (Grievance Submission)
+echo    [+] Senior Regional Intel: http://localhost:5173 (Geographic Surveillance)
+echo    [+] Social Media Intel   : http://localhost:5173 (13-Stage Public Stream)
 echo ===============================================================================
 echo.
 
