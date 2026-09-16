@@ -2975,21 +2975,34 @@ def get_regional_intelligence(
     return regional_analytics.get_regional_intelligence_summary(language=language)
 
 
+@app.get("/social/summary")
+def get_social_summary(
+    language: str = "en",
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """Grounded AI synthesis and regional cluster distribution from public social intelligence."""
+    return social_intelligence.get_social_intelligence_summary(language=language)
+
+
 @app.get("/social/mentions")
 def get_social_mentions(
     domain: Optional[str] = None,
     severity: Optional[str] = None,
     status: Optional[str] = None,
+    city: Optional[str] = None,
     current_user: auth.CurrentUser = Depends(auth.require_inspector),
 ):
     """Returns public social media & consumer grievance intelligence items."""
-    return social_intelligence.list_social_mentions(domain=domain, severity=severity, status=status)
+    return social_intelligence.list_social_mentions(
+        domain=domain, severity=severity, status=status, city=city
+    )
 
 
 class SocialMentionStatusInput(BaseModel):
     new_status: str
     officer_notes: Optional[str] = None
     linked_case_id: Optional[str] = None
+    assigned_officer: Optional[str] = None
 
 
 @app.post("/social/mentions/{mention_id}/action")
@@ -3004,10 +3017,24 @@ def take_social_mention_action(
         new_status=req.new_status,
         officer_notes=req.officer_notes,
         linked_case_id=req.linked_case_id,
+        assigned_officer=req.assigned_officer or current_user.username,
     )
     if not res:
         raise HTTPException(status_code=404, detail="Social mention not found.")
     return res
+
+
+@app.post("/social/pipeline/reprocess")
+def reprocess_social_pipeline(
+    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+):
+    """Trigger live execution of the 13-stage NLP and dynamic prioritization pipeline."""
+    signals = social_intelligence.run_intelligence_pipeline()
+    return {
+        "status": "success",
+        "processed_signals_count": len(signals),
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 

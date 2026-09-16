@@ -837,15 +837,21 @@ export async function getRegionalIntelligence(language: "en" | "hi" | "mr" = "en
   return request(`/regional/intelligence?language=${encodeURIComponent(language)}`);
 }
 
+export async function getSocialSummary(language: "en" | "hi" | "mr" = "en"): Promise<any> {
+  return request(`/social/summary?language=${encodeURIComponent(language)}`);
+}
+
 export async function listSocialMentions(params?: {
   domain?: string;
   severity?: string;
   status?: string;
+  city?: string;
 }): Promise<any[]> {
   const q = new URLSearchParams();
   if (params?.domain) q.set("domain", params.domain);
   if (params?.severity) q.set("severity", params.severity);
   if (params?.status) q.set("status", params.status);
+  if (params?.city) q.set("city", params.city);
   const qs = q.toString();
   return request<any[]>(`/social/mentions${qs ? `?${qs}` : ""}`);
 }
@@ -856,6 +862,7 @@ export async function takeSocialMentionAction(
     new_status: string;
     officer_notes?: string;
     linked_case_id?: string;
+    assigned_officer?: string;
   }
 ): Promise<any> {
   return request(`/social/mentions/${encodeURIComponent(mentionId)}/action`, {
@@ -864,4 +871,11 @@ export async function takeSocialMentionAction(
     body: JSON.stringify(payload),
   });
 }
+
+export async function reprocessSocialPipeline(): Promise<any> {
+  return request("/social/pipeline/reprocess", {
+    method: "POST",
+  });
+}
+
 

@@ -3,12 +3,24 @@ import {
   Building2,
   CheckCircle2,
   ChevronRight,
+  ExternalLink,
+  Layers,
   MapPin,
+  Play,
   RefreshCw,
+  ShieldAlert,
+  Sparkles,
   Store,
   TrendingUp,
+  Users,
 } from "lucide-react";
-import { getRegionalIntelligence, listSocialMentions, takeSocialMentionAction } from "@/lib/api-client";
+import {
+  getRegionalIntelligence,
+  getSocialSummary,
+  listSocialMentions,
+  reprocessSocialPipeline,
+  takeSocialMentionAction,
+} from "@/lib/api-client";
 
 interface RegionalData {
   total_cases: number;
@@ -35,9 +47,32 @@ interface RegionalData {
   timestamp: string;
 }
 
+interface SocialSummaryData {
+  data_classification: string;
+  total_signals_analyzed: number;
+  region_breakdown: Array<{ city: string; count: number }>;
+  domain_distribution: Record<string, number>;
+  category_distribution: Record<string, number>;
+  active_clusters: Array<{
+    cluster_label: string;
+    count: number;
+    members: Array<{
+      mention_id: string;
+      author: string;
+      city: string;
+      brand?: string;
+      priority_score: number;
+    }>;
+  }>;
+  top_region: string;
+  top_category: string;
+  ai_regional_summary: string;
+  timestamp: string;
+}
+
 export function SeniorRegionalDashboard({
   onBack,
-  onOpenInspection: _onOpenInspection,
+  onOpenInspection,
 }: {
   onBack: () => void;
   onOpenInspection?: (id: string) => void;
@@ -49,8 +84,11 @@ export function SeniorRegionalDashboard({
 
   // Social Intelligence State
   const [mentions, setMentions] = useState<any[]>([]);
+  const [socialSummary, setSocialSummary] = useState<SocialSummaryData | null>(null);
   const [socialLoading, setSocialLoading] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
   const [domainFilter, setDomainFilter] = useState("ALL");
+  const [cityFilter, setCityFilter] = useState("ALL");
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,7 +99,7 @@ export function SeniorRegionalDashboard({
     if (activeTab === "SOCIAL_INTEL") {
       loadSocial();
     }
-  }, [activeTab, domainFilter]);
+  }, [activeTab, domainFilter, cityFilter, lang]);
 
   async function loadRegional() {
     setLoading(true);
@@ -81,8 +119,15 @@ export function SeniorRegionalDashboard({
   async function loadSocial() {
     setSocialLoading(true);
     try {
-      const res = await listSocialMentions({ domain: domainFilter });
-      setMentions(res);
+      const [mRes, sRes] = await Promise.all([
+        listSocialMentions({
+          domain: domainFilter !== "ALL" ? domainFilter : undefined,
+          city: cityFilter !== "ALL" ? cityFilter : undefined,
+        }),
+        getSocialSummary(lang),
+      ]);
+      setMentions(mRes);
+      setSocialSummary(sRes);
     } catch (err) {
       console.error("Failed to load social intelligence:", err);
     } finally {
@@ -90,15 +135,52 @@ export function SeniorRegionalDashboard({
     }
   }
 
+  async function handleReprocessPipeline() {
+    setReprocessing(true);
+    try {
+      await reprocessSocialPipeline();
+      await loadSocial();
+    } catch (e: any) {
+      alert("Pipeline reprocess failed: " + e?.message);
+    } finally {
+      setReprocessing(false);
+    }
+  }
+
   async function handleConvertMention(mentionId: string) {
     try {
       await takeSocialMentionAction(mentionId, {
         new_status: "CONVERTED_TO_CASE",
-        officer_notes: "Converted to official Legal Metrology Investigation Docket by Senior Inspector.",
+        officer_notes: "Converted to official Legal Metrology Investigation Docket by Senior Officer.",
       });
       loadSocial();
     } catch (e: any) {
       alert("Failed to convert mention: " + e?.message);
+    }
+  }
+
+  async function handleAssignInspector(mentionId: string) {
+    try {
+      await takeSocialMentionAction(mentionId, {
+        new_status: "ASSIGNED_TO_INSPECTOR",
+        officer_notes: "Dispatched field inspector for surprise physical audit and verification.",
+        assigned_officer: "field_inspector_squad",
+      });
+      loadSocial();
+    } catch (e: any) {
+      alert("Failed to assign inspector: " + e?.message);
+    }
+  }
+
+  async function handleDismissMention(mentionId: string) {
+    try {
+      await takeSocialMentionAction(mentionId, {
+        new_status: "DISMISSED",
+        officer_notes: "Dismissed by reviewing officer as unsubstantiated or non-statutory.",
+      });
+      loadSocial();
+    } catch (e: any) {
+      alert("Failed to dismiss mention: " + e?.message);
     }
   }
 
@@ -114,10 +196,10 @@ export function SeniorRegionalDashboard({
             <span className="text-xs text-muted-foreground">Department of Consumer Affairs</span>
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
-            Senior Inspector Regional Intelligence & Geographic Surveillance
+            Senior Inspector Regional Intelligence & Surveillance Center
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Surveillance of non-compliance concentrations, district-level violations, and public social grievance shortlisting.
+            Regional non-compliance concentration, district-level enforcement, and public social grievance shortlisting.
           </p>
         </div>
 
@@ -150,9 +232,9 @@ export function SeniorRegionalDashboard({
           <button
             type="button"
             onClick={onBack}
-            className="rounded-xl border border-border bg-card px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            className="rounded-xl border border-border bg-card px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition"
           >
-            Back to Dashboard
+            Back to Command Center
           </button>
         </div>
       </div>
@@ -182,6 +264,9 @@ export function SeniorRegionalDashboard({
         >
           <TrendingUp className="h-4 w-4" />
           Social / Public Report Intelligence Engine (USP)
+          <span className="rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.2 text-[9px] font-bold uppercase">
+            Live Engine
+          </span>
         </button>
       </div>
 
@@ -192,6 +277,7 @@ export function SeniorRegionalDashboard({
               Loading regional surveillance data...
             </div>
           )}
+
           {/* Grounded AI Regional Analysis Banner */}
           {data?.ai_regional_analysis && (
             <div className="rounded-2xl border border-brand/30 bg-brand/5 p-5 shadow-sm space-y-2">
@@ -324,7 +410,7 @@ export function SeniorRegionalDashboard({
               </div>
 
               <div className="rounded-xl border border-border/60 bg-muted/20 p-3.5 text-xs space-y-2 pt-3">
-                <p className="font-bold text-foreground">Geographic Coordinates:</p>
+                <p className="font-bold text-foreground">Geographic Coordinates ({selectedCity}):</p>
                 <p className="text-muted-foreground font-mono text-[11px]">
                   Lat: {data?.city_breakdown?.find(c => c.city === selectedCity)?.lat.toFixed(4) || "18.5204"}, 
                   Lng: {data?.city_breakdown?.find(c => c.city === selectedCity)?.lng.toFixed(4) || "73.8567"}
@@ -340,107 +426,282 @@ export function SeniorRegionalDashboard({
 
       {/* Tab 2: Social Media / Public Report Intelligence Engine */}
       {activeTab === "SOCIAL_INTEL" && (
-        <div className="space-y-5">
+        <div className="space-y-6">
+          {/* Prominent Demo & Regulatory Attribution Notice */}
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs space-y-1">
+            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 font-bold">
+              <ShieldAlert className="h-4 w-4" />
+              <span>SIMULATED PUBLIC INTELLIGENCE / DEMONSTRATION ENGINE</span>
+            </div>
+            <p className="text-amber-800 dark:text-amber-200 text-[11px] leading-relaxed">
+              This pipeline demonstrates how LexMetra ingests, deduplicates, clusters, and dynamically prioritizes public consumer posts from X/Twitter, NCH, and FoSCoS mentions into actionable enforcement cases. Simulated data is strictly partitioned from verified statutory inspections.
+            </p>
+          </div>
+
+          {/* Grounded AI Narrative from Processed Dataset */}
+          {socialSummary?.ai_regional_summary && (
+            <div className="rounded-2xl border border-brand/30 bg-brand/5 p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-brand" />
+                  <span className="rounded-full bg-brand/15 px-2.5 py-0.5 text-[10px] font-bold text-brand uppercase">
+                    AI Public Intelligence Synthesis
+                  </span>
+                  <span className="text-[11px] text-muted-foreground font-medium">
+                    Grounded strictly in {socialSummary.total_signals_analyzed} processed public signals
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleReprocessPipeline}
+                  disabled={reprocessing}
+                  className="rounded-xl border border-brand/30 bg-background px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Play className={`h-3 w-3 ${reprocessing ? "animate-spin" : ""}`} />
+                  {reprocessing ? "Reprocessing Pipeline…" : "Re-run 13-Stage Pipeline"}
+                </button>
+              </div>
+              <p className="text-xs leading-relaxed text-foreground whitespace-pre-line font-medium">
+                {socialSummary.ai_regional_summary}
+              </p>
+            </div>
+          )}
+
+          {/* Active Hotspot Clusters Grid */}
+          {socialSummary?.active_clusters && socialSummary.active_clusters.length > 0 && (
+            <div className="rounded-2xl border border-border/70 bg-card p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-brand" />
+                  <h3 className="text-sm font-bold text-foreground">Detected Multi-Post Recurrent Clusters</h3>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Grouped by Brand, Region & Violation Pattern
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {socialSummary.active_clusters.map((c, idx) => (
+                  <div key={idx} className="rounded-xl border border-destructive/20 bg-destructive/5 p-3.5 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="rounded-full bg-destructive/15 text-destructive font-bold px-2 py-0.5 text-[10px]">
+                        {c.count} Related Public Grievances
+                      </span>
+                      <span className="text-[11px] font-bold text-foreground">Cluster #{idx + 1}</span>
+                    </div>
+                    <p className="font-semibold text-foreground text-xs">{c.cluster_label}</p>
+                    <div className="flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                      {c.members.map((m) => (
+                        <span key={m.mention_id} className="rounded bg-background border border-border/60 px-1.5 py-0.5">
+                          {m.author} ({m.city}) • Priority {m.priority_score}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Filter Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border/60 pb-3">
             <div>
-              <h2 className="text-base font-bold text-foreground">
-                Public Mention Ingestion & Case Shortlisting Engine
+              <h2 className="text-sm font-bold text-foreground">
+                Shortlisted Grievance Cases ({mentions.length})
               </h2>
-              <p className="text-xs text-muted-foreground">
-                NLP entity extraction across citizen tweets, NCH complaints, and FoSCoS portal mentions.
+              <p className="text-[11px] text-muted-foreground">
+                Sorted by dynamic statutory priority score (0–100) calculated via safety impact, evidence, and clustering.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground font-semibold">Domain:</span>
-              {["ALL", "LMPC", "FSSAI", "COUNTERFEIT"].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDomainFilter(d)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                    domainFilter === d
-                      ? "bg-foreground text-background"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Region Filter */}
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-muted-foreground font-semibold">Region:</span>
+                <select
+                  value={cityFilter}
+                  onChange={(e) => setCityFilter(e.target.value)}
+                  className="rounded-lg border border-border bg-background px-2 py-1 text-xs font-semibold text-foreground"
                 >
-                  {d}
-                </button>
-              ))}
+                  <option value="ALL">All Regions</option>
+                  <option value="Pune">Pune</option>
+                  <option value="Mumbai">Mumbai</option>
+                  <option value="Nashik">Nashik</option>
+                  <option value="Nagpur">Nagpur</option>
+                  <option value="Chhatrapati Sambhajinagar">Chhatrapati Sambhajinagar</option>
+                  <option value="Thane">Thane</option>
+                  <option value="Gurugram">Gurugram</option>
+                </select>
+              </div>
+
+              {/* Domain Filter */}
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-muted-foreground font-semibold">Domain:</span>
+                {["ALL", "LMPC", "FSSAI", "COUNTERFEIT"].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDomainFilter(d)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                      domainFilter === d
+                        ? "bg-foreground text-background"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
+          {/* Shortlisted Cases Cards Grid */}
           <div className="grid gap-4 md:grid-cols-2">
             {socialLoading ? (
-              <p className="text-xs text-muted-foreground">Ingesting public mentions…</p>
-            ) : mentions.map((m) => (
-              <div
-                key={m.mention_id}
-                className="rounded-2xl border border-border/70 bg-card p-5 space-y-3 shadow-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-mono font-bold text-muted-foreground">
-                      {m.source_platform}
+              <p className="text-xs text-muted-foreground py-8">Ingesting and prioritizing public mentions…</p>
+            ) : mentions.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-8 col-span-2 text-center">
+                No public signals matching active filters.
+              </p>
+            ) : (
+              mentions.map((m) => (
+                <div
+                  key={m.mention_id}
+                  className="rounded-2xl border border-border/70 bg-card p-5 space-y-3.5 shadow-xs flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    {/* Top Row: Platform, Author, Dynamic Priority Score Badge */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-mono font-bold text-muted-foreground">
+                          {m.source_platform}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-semibold">{m.author_handle}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                            m.severity === "CRITICAL"
+                              ? "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
+                              : m.severity === "HIGH"
+                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                              : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                          }`}
+                        >
+                          {m.severity} • {m.priority_score}/100
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Complaint Text */}
+                    <p className="text-xs leading-relaxed text-foreground bg-muted/30 p-3 rounded-xl border border-border/40 font-medium">
+                      "{m.clean_text}"
+                    </p>
+
+                    {/* Entity Matrix */}
+                    <div className="grid grid-cols-2 gap-2 text-[11px] rounded-xl bg-muted/40 p-3">
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold">Product / Brand</span>
+                        <strong className="text-foreground">{m.product_brand || "Packaged Commodity"}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold">Location</span>
+                        <strong className="text-foreground">📍 {m.district_or_city}, {m.state}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold">Statutory Domain</span>
+                        <span className="text-foreground font-semibold">{m.regulatory_domain}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-bold">Category</span>
+                        <span className="text-foreground font-semibold">{m.complaint_category}</span>
+                      </div>
+                    </div>
+
+                    {/* Evidence & Dynamic Prioritization Rationale */}
+                    <div className="rounded-xl border border-border/60 bg-background/50 p-2.5 text-[11px] space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-bold">
+                        <span className="text-muted-foreground uppercase">Dynamic Prioritization Rationale:</span>
+                        {m.has_evidence && (
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            📎 Evidence Attached ({m.evidence_type})
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-muted-foreground leading-relaxed">
+                        {m.prioritization_rationale}
+                      </p>
+                      {m.cluster_label && (
+                        <span className="inline-block mt-1 rounded bg-brand/10 text-brand px-1.5 py-0.5 text-[10px] font-bold">
+                          {m.cluster_label}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Related Correlated Inspection link */}
+                    {m.related_inspection_id && (
+                      <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5 text-[11px]">
+                        <span className="text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Correlated Ground Inspection Found
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onOpenInspection?.(m.related_inspection_id)}
+                          className="font-bold text-brand hover:underline inline-flex items-center gap-0.5"
+                        >
+                          View Docket <ExternalLink className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Human Officer Review Actions */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-3 border-t border-border/50 text-xs mt-2">
+                    <span className="text-muted-foreground text-[11px]">
+                      Status: <strong className="text-foreground">{m.review_status}</strong>
                     </span>
-                    <span className="text-xs text-muted-foreground font-semibold">{m.author_handle}</span>
-                  </div>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      m.severity === "CRITICAL"
-                        ? "bg-red-500/10 text-red-500"
-                        : m.severity === "HIGH"
-                        ? "bg-amber-500/10 text-amber-500"
-                        : "bg-blue-500/10 text-blue-500"
-                    }`}
-                  >
-                    {m.severity} SEVERITY
-                  </span>
-                </div>
 
-                <p className="text-xs leading-relaxed text-foreground bg-muted/30 p-3 rounded-xl border border-border/40">
-                  "{m.clean_text}"
-                </p>
-
-                <div className="grid grid-cols-2 gap-2 text-[11px] rounded-lg bg-muted/40 p-2.5">
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Brand Extracted:</span>
-                    <strong className="text-foreground">{m.product_brand || "General"}</strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Location Pin:</span>
-                    <strong className="text-foreground">📍 {m.detected_location}</strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Statutory Domain:</span>
-                    <span className="text-foreground font-medium">{m.regulatory_domain}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">AI Confidence:</span>
-                    <span className="text-brand font-bold">{(m.confidence_score * 100).toFixed(0)}%</span>
+                    {m.review_status === "SHORTLISTED" ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleConvertMention(m.mention_id)}
+                          className="rounded-xl bg-destructive text-destructive-foreground font-bold px-2.5 py-1 text-[11px] hover:bg-destructive/90 transition shadow-2xs"
+                        >
+                          Convert to Case
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAssignInspector(m.mention_id)}
+                          className="rounded-xl border border-border bg-background text-foreground font-bold px-2.5 py-1 text-[11px] hover:bg-muted transition"
+                        >
+                          Dispatch Field Squad
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDismissMention(m.mention_id)}
+                          className="text-muted-foreground hover:text-foreground text-[11px] px-1"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    ) : m.review_status === "CONVERTED_TO_CASE" ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold inline-flex items-center gap-1 text-[11px]">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Converted to Formal Investigation Docket
+                      </span>
+                    ) : m.review_status === "ASSIGNED_TO_INSPECTOR" ? (
+                      <span className="text-blue-600 dark:text-blue-400 font-bold inline-flex items-center gap-1 text-[11px]">
+                        <Users className="h-3.5 w-3.5" /> Field Inspection Squad Dispatched
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground font-semibold text-[11px]">
+                        Dismissed as Noise
+                      </span>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
-                  <span className="text-muted-foreground text-[11px]">
-                    Status: <strong>{m.review_status}</strong>
-                  </span>
-                  {m.review_status === "SHORTLISTED" ? (
-                    <button
-                      type="button"
-                      onClick={() => handleConvertMention(m.mention_id)}
-                      className="rounded-xl bg-destructive text-destructive-foreground font-bold px-3 py-1.5 text-xs hover:bg-destructive/90 transition"
-                    >
-                      Convert to Formal Case
-                    </button>
-                  ) : (
-                    <span className="text-emerald-500 font-bold inline-flex items-center gap-1 text-[11px]">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Investigation Docket Created
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       )}
