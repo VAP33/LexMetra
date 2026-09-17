@@ -70,6 +70,8 @@ CLAUDE 2/
 CLAUDE 3/
 CLAUDE 4/
 CLAUDE 5/
+S1/
+S2/
 
 # Internal AI prompt / state tracking files
 CLAUDE.md
