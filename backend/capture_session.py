@@ -415,7 +415,7 @@ def build_raw_extraction(field: str, data: Dict[str, Any]) -> "RawExtraction":
             note = "Region located by OCR/CV extraction in original image coordinates."
         if image_id == UNATTRIBUTED_IMAGE_ID:
             note = (
-                "Region evidenced by multimodal perception (Qwen), but no source image was recorded."
+                "Region evidenced by multimodal perception (Qwen), but no source image was recorded. Provenance is incomplete."
                 if is_vlm else
                 "Region located by OCR/CV extraction, but no source image was recorded for this observation. Provenance is incomplete."
             )

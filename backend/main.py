@@ -33,6 +33,7 @@ if _BACKEND_DIR not in sys.path:
 from typing import Any, Dict, List, Optional
 
 import cv2
+import httpx
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -134,9 +135,12 @@ def startup() -> None:
         if config.BOOTSTRAP_DEMO_USERS and config.DEV_MODE:
             for u, p, r, n in [
                 ("admin", "password123", "admin", "System Admin"),
+                ("senior_inspector", "password123", "senior_inspector", "Senior Metrology Officer"),
                 ("inspector", "password123", "inspector", "Field Inspector"),
                 ("reviewer", "password123", "reviewer", "Metrology Reviewer"),
+                ("customer", "password123", "customer", "Citizen Consumer"),
             ]:
+
                 if not db.get_user_by_username(u):
                     try:
                         db.create_user(
@@ -2583,6 +2587,12 @@ class AssistantQueryInput(BaseModel):
     inspection_context: Optional[Dict[str, Any]] = None
 
 
+class AssistantTtsInput(BaseModel):
+    text: str
+    language: str = "en"
+    speaker: str = "neha"
+
+
 @app.get("/inspections/{inspection_id}")
 def get_inspection(
     inspection_id: str,
@@ -2730,8 +2740,9 @@ def get_authority_case(
 def take_case_action(
     case_id: str,
     req: AuthorityActionInput,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_senior_inspector),
 ):
+
     officer = req.officer_username or current_user.username
     updated = consumer_reporting.record_officer_action(
         case_id=case_id,
@@ -2765,6 +2776,62 @@ def assistant_chat(
         language=req.language,
         inspection_context=ctx,
     )
+
+
+@app.post("/assistant/tts")
+async def assistant_tts(req: AssistantTtsInput):
+    """Synthesize natural Indian voice speech using Sarvam AI Bulbul v3."""
+    sarvam_key = getattr(config, "SARVAM_API_KEY", None) or os.getenv("SARVAM_API_KEY")
+    if not sarvam_key:
+        raise HTTPException(status_code=503, detail="SARVAM_API_KEY not configured.")
+
+    lang_map = {
+        "en": "en-IN",
+        "hi": "hi-IN",
+        "mr": "mr-IN",
+        "en-in": "en-IN",
+        "hi-in": "hi-IN",
+        "mr-in": "mr-IN",
+    }
+    target_lang = lang_map.get(req.language.lower(), "en-IN")
+    speaker = req.speaker or "neha"
+    clean_text = req.text.strip()[:500]
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Empty text for TTS.")
+
+    payload = {
+        "inputs": [clean_text],
+        "target_language_code": target_lang,
+        "speaker": speaker,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.sarvam.ai/text-to-speech",
+                json=payload,
+                headers={
+                    "api-subscription-key": sarvam_key,
+                    "Content-Type": "application/json",
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                audios = data.get("audios", [])
+                if audios:
+                    return {
+                        "status": "ok",
+                        "audio_base64": audios[0],
+                        "format": "wav",
+                        "speaker": speaker,
+                        "language": target_lang,
+                    }
+            return JSONResponse(
+                status_code=resp.status_code,
+                content={"error": "Sarvam API returned error", "details": resp.text},
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS synthesis error: {str(e)}")
 
 
 @app.post("/inspections/{inspection_id}/review")
@@ -2969,7 +3036,7 @@ import social_intelligence
 @app.get("/regional/intelligence")
 def get_regional_intelligence(
     language: str = "en",
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_senior_inspector),
 ):
     """Answers: WHERE ARE PROBLEMS OCCURRING across districts and retailers."""
     return regional_analytics.get_regional_intelligence_summary(language=language)
@@ -2978,7 +3045,7 @@ def get_regional_intelligence(
 @app.get("/social/summary")
 def get_social_summary(
     language: str = "en",
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_senior_inspector),
 ):
     """Grounded AI synthesis and regional cluster distribution from public social intelligence."""
     return social_intelligence.get_social_intelligence_summary(language=language)
@@ -2990,7 +3057,7 @@ def get_social_mentions(
     severity: Optional[str] = None,
     status: Optional[str] = None,
     city: Optional[str] = None,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_senior_inspector),
 ):
     """Returns public social media & consumer grievance intelligence items."""
     return social_intelligence.list_social_mentions(
@@ -3009,7 +3076,7 @@ class SocialMentionStatusInput(BaseModel):
 def take_social_mention_action(
     mention_id: str,
     req: SocialMentionStatusInput,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_senior_inspector),
 ):
     """Officer converts public grievance into formal enforcement case or dismisses."""
     res = social_intelligence.update_mention_status(
@@ -3026,8 +3093,9 @@ def take_social_mention_action(
 
 @app.post("/social/pipeline/reprocess")
 def reprocess_social_pipeline(
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_senior_inspector),
 ):
+
     """Trigger live execution of the 13-stage NLP and dynamic prioritization pipeline."""
     signals = social_intelligence.run_intelligence_pipeline()
     return {

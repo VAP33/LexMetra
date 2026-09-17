@@ -20,6 +20,7 @@ import {
   listAuthorityCases,
   takeAuthorityCaseAction,
   askAssistant,
+  synthesizeSpeech,
   type IntegrityReportData,
   type FssaiVerificationData,
   type AuthorityCaseData,
@@ -919,9 +920,35 @@ export function MultilingualAssistantWidget({
     }
   }
 
-  // Text-to-Speech support
-  function speakText(text: string) {
-    if (!window.speechSynthesis) return;
+  // Text-to-Speech support: Sarvam AI Bulbul v3 with fallback to browser speechSynthesis
+  async function speakText(text: string) {
+    if (!text) return;
+    setIsSpeaking(true);
+
+    try {
+      const audioUrl = await synthesizeSpeech(text, lang);
+      if (audioUrl) {
+        const audio = new Audio(audioUrl);
+        audio.onended = () => setIsSpeaking(false);
+        audio.onerror = () => {
+          setIsSpeaking(false);
+          fallbackBrowserSpeech(text);
+        };
+        await audio.play();
+        return;
+      }
+    } catch {
+      // fallback
+    }
+
+    fallbackBrowserSpeech(text);
+  }
+
+  function fallbackBrowserSpeech(text: string) {
+    if (!window.speechSynthesis) {
+      setIsSpeaking(false);
+      return;
+    }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";

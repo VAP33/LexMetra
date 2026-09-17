@@ -4,19 +4,21 @@
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 222.2 47% 11%;
+    --background: 0 0% 100%; /* Crisp Pure White Base */
+    --foreground: 222 47% 11%; /* Dark Slate #0F172A */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 47% 11%;
-    --primary: 222.2 47% 14%;
-    --primary-foreground: 210 40% 98%;
-    --muted: 210 30% 96%;
-    --muted-foreground: 215 16% 47%;
-    --border: 214.3 32% 91%;
+    --card-foreground: 222 47% 11%;
+    --primary: 271 76% 36%; /* LexMetra Royal Brand Purple (#6B21A8) */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 25 100% 50%; /* National Saffron (#FF671F) */
+    --secondary-foreground: 0 0% 100%;
+    --muted: 270 20% 97%;
+    --muted-foreground: 215 25% 30%; /* High-contrast Dark Slate #334155 */
+    --border: 271 45% 88%; /* Brand Purple Accent Border */
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-white text-slate-900;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
@@ -28,5 +30,29 @@
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  .tricolor-stripe {
+    background: linear-gradient(90deg, #FF671F 0%, #FF671F 33.33%, #FFFFFF 33.33%, #FFFFFF 66.66%, #046A38 66.66%, #046A38 100%);
+  }
+
+  .tricolor-glow {
+    box-shadow: 0 0 15px -3px rgba(255, 103, 31, 0.3), 0 0 15px -3px rgba(4, 106, 56, 0.3);
+  }
+
+  .gov-gradient-header {
+    background: linear-gradient(135deg, #3B0764 0%, #581C87 50%, #1E1B4B 100%);
+  }
+
+  .gov-gradient-saffron {
+    background: linear-gradient(135deg, #FF671F 0%, #EA580C 100%);
+  }
+
+  .gov-gradient-green {
+    background: linear-gradient(135deg, #046A38 0%, #065F46 100%);
+  }
+
+  .gov-gradient-purple {
+    background: linear-gradient(135deg, #6B21A8 0%, #4C1D95 100%);
   }
 }

@@ -103,9 +103,22 @@ class PaddleTextDetector:
 
         detected: List[DetectedPolygon] = []
         try:
-            ocr_output = self._engine.ocr(image_bgr)
+            h, w = image_bgr.shape[:2]
+            scale = 1.0
+            max_side = 960
+            if max(h, w) > max_side:
+                scale = max_side / float(max(h, w))
+                new_w = max(1, int(round(w * scale)))
+                new_h = max(1, int(round(h * scale)))
+                img_for_det = cv2.resize(image_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            else:
+                img_for_det = image_bgr
+
+            ocr_output = self._engine.ocr(img_for_det)
             if not ocr_output:
                 return []
+
+            inv_scale = 1.0 / scale if scale > 0 else 1.0
 
             # Format 1: PaddleOCR 3.x dict
             first_item = ocr_output[0] if isinstance(ocr_output, list) and len(ocr_output) > 0 else None
@@ -115,7 +128,7 @@ class PaddleTextDetector:
                 rec_texts = first_item.get("rec_texts", [])
 
                 for idx, poly in enumerate(rec_polys):
-                    pts = np.array(poly, dtype=np.float32)
+                    pts = np.array(poly, dtype=np.float32) * inv_scale
                     conf = float(rec_scores[idx]) if idx < len(rec_scores) else 0.8
                     text = str(rec_texts[idx]).strip() if idx < len(rec_texts) else None
                     if conf < min_confidence:
@@ -137,6 +150,7 @@ class PaddleTextDetector:
                     ))
                 return detected
 
+
             # Format 2: PaddleOCR 2.x nested list
             page_results = ocr_output[0] if isinstance(ocr_output, list) and len(ocr_output) > 0 else []
             if isinstance(page_results, list):
@@ -147,7 +161,7 @@ class PaddleTextDetector:
                         if confidence < min_confidence:
                             continue
 
-                        pts = np.array(poly, dtype=np.float32)
+                        pts = np.array(poly, dtype=np.float32) * inv_scale
                         x_min = int(np.min(pts[:, 0]))
                         x_max = int(np.max(pts[:, 0]))
                         y_min = int(np.min(pts[:, 1]))

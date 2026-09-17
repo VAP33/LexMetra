@@ -23,6 +23,7 @@ from schema import (
     SurfaceObservation,
     UNATTRIBUTED_IMAGE_ID,
     ValidationDetails,
+    CANONICAL_DECLARATION_DEFINITIONS,
 )
 from rule_engine import RawExtraction, _build_canonical_declarations, run_inspection
 from report import build_inspection_report_pdf, _get
@@ -104,6 +105,20 @@ def test_a_all_applicable_declarations_verified():
             confidence=0.86,
             evidence=_dummy_ev(),
         ),
+        ExtractedFact(
+            field="product_id",
+            extracted_value="PROD-HUL-101",
+            status=FactStatus.PASS,
+            confidence=0.90,
+            evidence=_dummy_ev(),
+        ),
+        ExtractedFact(
+            field="marketer_name",
+            extracted_value="Hindustan Unilever Limited",
+            status=FactStatus.PASS,
+            confidence=0.90,
+            evidence=_dummy_ev(),
+        ),
     ]
     context = {
         "best_before_applicable": True,
@@ -114,8 +129,8 @@ def test_a_all_applicable_declarations_verified():
         facts=facts, extractions={}, context=context, captures=[]
     )
 
-    assert summary["applicable"] == 9
-    assert summary["verified"] == 9
+    assert summary["applicable"] == 11
+    assert summary["verified"] == 11
     assert summary["review_required"] == 0
     assert summary["non_compliant"] == 0
 
@@ -193,6 +208,22 @@ def test_b_mixed_verified_and_review_required():
             reason="Confidence below threshold",
             evidence=_dummy_ev(),
         ),
+        ExtractedFact(
+            field="product_id",
+            extracted_value="PROD-?",
+            status=FactStatus.UNCERTAIN,
+            confidence=0.40,
+            reason="Unclear code",
+            evidence=_dummy_ev(),
+        ),
+        ExtractedFact(
+            field="marketer_name",
+            extracted_value="Unilever?",
+            status=FactStatus.UNCERTAIN,
+            confidence=0.40,
+            reason="Unclear marketer",
+            evidence=_dummy_ev(),
+        ),
     ]
     context = {
         "best_before_applicable": True,
@@ -203,9 +234,9 @@ def test_b_mixed_verified_and_review_required():
         facts=facts, extractions={}, context=context, captures=[]
     )
 
-    assert summary["applicable"] == 9
+    assert summary["applicable"] == 11
     assert summary["verified"] == 4
-    assert summary["review_required"] == 5
+    assert summary["review_required"] == 7
 
 
 def test_c_not_applicable_fields_excluded_from_denominator():
@@ -219,9 +250,9 @@ def test_c_not_applicable_fields_excluded_from_denominator():
         facts=[], extractions={}, context=context, captures=[]
     )
 
-    # 11 total definitions, 2 are NOT_APPLICABLE -> applicable == 9
-    assert len(decls) == 11
-    assert summary["applicable"] == 9
+    # 13 total definitions, 2 are NOT_APPLICABLE -> applicable == 11
+    assert len(decls) == len(CANONICAL_DECLARATION_DEFINITIONS)
+    assert summary["applicable"] == 11
 
     standard_pack = next(d for d in decls if d.field == "standard_pack_size")
     assert standard_pack.status == CanonicalStatus.NOT_APPLICABLE
@@ -329,7 +360,7 @@ def test_h_api_and_pdf_status_consistency():
     assert pdf_bytes.startswith(b"%PDF")
     # Both API summary and PDF summary use the exact same counts
     assert summary["verified"] == 1
-    assert summary["applicable"] == 9
+    assert summary["applicable"] == 11
 
 
 def test_i_duplicate_declarations_deduplicated():

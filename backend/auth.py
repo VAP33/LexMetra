@@ -37,7 +37,13 @@ from db import persistence as db
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
-ROLE_HIERARCHY = {"inspector": 0, "reviewer": 1, "admin": 2}
+ROLE_HIERARCHY = {
+    "customer": 0,
+    "inspector": 1,
+    "reviewer": 2,
+    "senior_inspector": 2,
+    "admin": 3,
+}
 
 
 class TokenData(BaseModel):
@@ -205,6 +211,9 @@ def require_role(minimum_role: str):
     return _check
 
 
+require_customer = require_role("customer")
 require_inspector = require_role("inspector")
+require_senior_inspector = require_role("senior_inspector")
 require_reviewer = require_role("reviewer")
 require_admin = require_role("admin")
+

@@ -186,6 +186,7 @@ GROQ_MODEL: str = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 OPENROUTER_API_KEY: str | None = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY2")
 OPENROUTER_MODEL: str = os.environ.get("OPENROUTER_MODEL", "qwen/qwen3.8-27b")
 OPENROUTER_ENDPOINT: str = os.environ.get("OPENROUTER_ENDPOINT", "https://openrouter.ai/api/v1/chat/completions")
+SARVAM_API_KEY: str | None = os.environ.get("SARVAM_API_KEY")
 
 LOG_DIR: Path = Path(os.environ.get("LOG_DIR", Path(__file__).resolve().parent / "logs"))
 try:
