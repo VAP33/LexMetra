@@ -72,8 +72,9 @@ import {
   type SurfaceType,
   preprocessParallel,
   resolveImageUrl,
+  scanPackagesMulti,
 } from "@/lib/api-client";
-import { fromFinalizedInspection, fromInspectionRow, createOfflineInspection } from "@/lib/adapters";
+import { fromFinalizedInspection, fromInspectionRow, fromScanResponse, createOfflineInspection } from "@/lib/adapters";
 import { dataUrlToBlob } from "@/lib/data-url";
 import { type Language, getTranslation } from "@/lib/i18n";
 import { TeslaScannerAnimation } from "./TeslaScannerAnimation";
@@ -3864,21 +3865,7 @@ export function InspectionApp() {
       ? overrideImages
       : (canonicalImages.length > 0 ? canonicalImages : pendingImages);
     try {
-      const session = await createSession({
-        productId: details.productId,
-        saleType: details.saleType,
-        productCategory: details.productCategory,
-        netQuantityValue: details.netQuantityValue,
-        netQuantityUnit: details.netQuantityUnit,
-        mrp: details.mrp,
-        pdpAreaCm2: details.pdpAreaCm2,
-        isExportOnly: details.isExportOnly,
-        retailBundleCount: details.retailBundleCount,
-        isImported: details.isImported,
-      });
-
-      const surfaceForIndex = (i: number): SurfaceType => `Face ${i + 1}`;
-
+      const blobs: Blob[] = [];
       for (let i = 0; i < targetImages.length; i++) {
         const imgRef = targetImages[i];
         let blob: Blob;
@@ -3889,13 +3876,14 @@ export function InspectionApp() {
           const fetched = await fetch(fullUrl);
           blob = await fetched.blob();
         }
-        await addSessionCapture(session.session_id, blob, surfaceForIndex(i));
+        blobs.push(blob);
       }
 
-      const inspection = await finalizeSession(session.session_id);
-      return fromFinalizedInspection(inspection, { productId: details.productId }, targetImages[0] || pendingImages[0]);
+      // Execute single fast Groq multi-image scan endpoint (/scan)
+      const rawScanRes = await scanPackagesMulti(blobs, details);
+      return fromScanResponse(rawScanRes, { productId: details.productId }, targetImages[0] || pendingImages[0]);
     } catch (err) {
-      console.warn("[Offline Engine Active] Server unreachable, running local client-side LMPC statutory engine:", err);
+      console.warn("[Inspection Flow Fallback] /scan failed, running statutory check:", err);
       return createOfflineInspection(details, targetImages);
     }
   }

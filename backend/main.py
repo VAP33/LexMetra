@@ -58,6 +58,7 @@ from schema import (
     SurfaceType,
 )
 from rule_engine import RawExtraction, run_inspection
+import groq_vision_service
 
 from sticker_detection import detect_sticker_regions
 from geometry import CoordinateSpace, CoordinateTransform
@@ -1565,52 +1566,40 @@ async def scan(
 
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
-    # ------------------------- Qwen Multimodal Perception ----------------
-    # Qwen reasons across all canonical faces together (Section 2, 5, 6)
-    provider = qwen_perception.get_qwen_provider()
-    if provider.is_available() and faces_for_qwen:
-        try:
-            perception_res = await provider.perceive(faces_for_qwen)
-            qwen_fields = qwen_perception.perception_to_classified_fields(perception_res)
-            if qwen_fields:
-                for fld, fld_data in qwen_fields.items():
-                    if isinstance(fld_data, dict):
-                        tf = fld_data.get("face", "Face 1")
-                        for idx, (img_id, _) in enumerate(images_cv):
-                            if f"Face {idx+1}" == tf:
-                                fld_data["image_id"] = img_id
-                                fld_data["surface_id"] = f"face_{idx+1}"
-                                image_id_owning_label[fld] = img_id
-                                break
-                # Clean up legacy batch keys if Qwen provides batch
-                if qwen_fields.get("batch_code", {}).get("value") or qwen_fields.get("batch_no", {}).get("value"):
-                    for legacy_batch_key in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch", "batch_code", "batch_no"):
-                        accumulated_fields.pop(legacy_batch_key, None)
+    # ------------------------- Dedicated Groq Multimodal Perception ----------------
+    # Send all uploaded images (up to 3) in ONE Groq request
+    groq_fields = {}
+    try:
+        groq_images_input = [(f"Face {idx+1}", c_bgr) for idx, (_, c_bgr, _) in enumerate(faces_for_qwen)]
+        if not groq_images_input and images_cv:
+            groq_images_input = [(f"Face {idx+1}", img) for idx, (_, img) in enumerate(images_cv)]
+        
+        groq_res = await groq_vision_service.inspect_package_with_groq(
+            images=groq_images_input,
+            timeout_secs=25.0
+        )
+        groq_fields = groq_vision_service.groq_result_to_classified_fields(groq_res)
+        if groq_fields:
+            for fld, fld_data in groq_fields.items():
+                if isinstance(fld_data, dict):
+                    tf = fld_data.get("face", "Face 1")
+                    for idx, (img_id, _) in enumerate(images_cv):
+                        if f"Face {idx+1}" == tf:
+                            fld_data["image_id"] = img_id
+                            fld_data["surface_id"] = f"face_{idx+1}"
+                            image_id_owning_label[fld] = img_id
+                            break
 
-                for fld, fld_data in qwen_fields.items():
-                    if isinstance(fld_data, dict) and fld_data.get("value"):
-                        # Guard against net_quantity hallucinations: do not let Qwen overwrite package declaration 150g with 100
-                        if fld == "net_quantity":
-                            existing_nq = accumulated_fields.get("net_quantity")
-                            if existing_nq and isinstance(existing_nq, dict):
-                                ex_num = existing_nq.get("numeric_value")
-                                ex_val = str(existing_nq.get("value", "")).lower()
-                                ex_raw = str(existing_nq.get("raw_text", "")).lower()
-                                qwen_num = fld_data.get("numeric_value")
-                                qwen_str = str(fld_data.get("value", "")).lower()
-                                if (ex_num == 150.0 or "150" in ex_val or "150" in ex_raw) and (qwen_num == 100.0 or "100" in qwen_str):
-                                    print(f"[*] Guarding net_quantity in /scan: preserving package declaration 150 g over Qwen hallucination {qwen_str}")
-                                    continue
-                        accumulated_fields[fld] = fld_data
+            for fld, fld_data in groq_fields.items():
+                if isinstance(fld_data, dict) and fld_data.get("value"):
+                    accumulated_fields[fld] = fld_data
 
-                # Product ID: keep if present in either Qwen or accumulated OCR fields
-                if not qwen_fields.get("product_id", {}).get("value") and not accumulated_fields.get("product_id", {}).get("value"):
-                    accumulated_fields.pop("product_id", None)
-                print(f"[+] [scan] Qwen fields applied ({len(qwen_fields)}): {list(qwen_fields.keys())}", flush=True)
-        except Exception as e:
-            import traceback as _tb
-            logger.warning("Qwen perception failed in /scan: %s\n%s", e, _tb.format_exc())
-            print(f"[!] [scan] Qwen FAILED — OCR fields will be used: {e}", flush=True)
+            print(f"[+] [/scan] Groq multimodal fields applied ({len(groq_fields)}): {list(groq_fields.keys())}", flush=True)
+    except Exception as e:
+        import traceback as _tb
+        logger.error("Groq vision perception failed in /scan: %s\n%s", e, _tb.format_exc())
+        print(f"[!] [/scan] Groq Multimodal FAILED: {e}", flush=True)
+        raise HTTPException(status_code=502, detail=f"Groq vision inspection failed: {e}")
 
 
     # 0. Split-field reconstruction across multi-surface captures (only if Qwen was not used)
@@ -1665,19 +1654,8 @@ async def scan(
     if pdp_area_cm2 is None and computed_pdp_area_cm2 is not None:
         pdp_area_cm2 = computed_pdp_area_cm2
 
-    if config.VLM_VERIFICATION_ENABLED and first_pil_img and ("qwen_fields" not in locals() or not qwen_fields):
-        weak_fields = {
-            k: v for k, v in accumulated_fields.items()
-            if isinstance(v, dict) and (not v.get("value") or float(v.get("confidence", 0.0) or 0.0) < 0.62)
-        }
-        if weak_fields:
-            try:
-                visual_candidates = recover_fields_from_image(
-                    first_pil_img, weak_fields, image_id=first_image_id or "face_1", surface_id="face_1"
-                )
-                accumulated_fields = merge_visual_candidates(accumulated_fields, visual_candidates)
-            except Exception:
-                pass
+    # Secondary VLM verification disabled from critical /scan path to ensure <10s response time
+    # (Groq is the designated semantic authority for multimodal package inspection)
 
     extractions = _prepare_extractions(accumulated_fields)
     if primary_symbol and "barcode" not in extractions:
@@ -1863,8 +1841,8 @@ async def scan(
             result.product_identity.product_id = resolved_product_id
 
 
-    # ------------------------- Legal advisory VLM verification -----------
-    vlm_notes = _apply_vlm_verification(result, first_pil_img) if first_pil_img is not None else []
+    # ------------------------- Advisory verification ---------------------
+    vlm_notes = []
 
     # ------------------------- Persistence ------------------------------
     primary_image_rel = f"/uploads/{first_stored_filename}" if first_stored_filename else first_image_id
@@ -2259,8 +2237,9 @@ async def finalize_session(
                     faces_multi.append((f"Face {i+1}", c_bgr, t))
             if faces_multi:
                 try:
-                    multi_res = await provider.perceive(faces_multi)
-                    multi_fields = qwen_perception.perception_to_classified_fields(multi_res)
+                    groq_inputs = [(fid, bgr) for (fid, bgr, _) in faces_multi]
+                    groq_res = await groq_vision_service.inspect_package_with_groq(groq_inputs, timeout_secs=25.0)
+                    multi_fields = groq_vision_service.groq_result_to_classified_fields(groq_res)
                     if multi_fields:
                         for fld, fld_data in multi_fields.items():
                             if isinstance(fld_data, dict):
@@ -2274,38 +2253,15 @@ async def finalize_session(
                                     fld_data["image_id"] = captures[0].get("image_id", "face_1") if captures else "face_1"
                                     fld_data["surface_id"] = "face_1"
 
-                        # Qwen is authoritative: directly overwrite OCR values for every
-                        # field Qwen detected. OCR values only survive for fields Qwen
-                        # did not observe at all.
-                        if multi_fields.get("batch_code", {}).get("value") or multi_fields.get("batch_no", {}).get("value"):
-                            for legacy_batch_key in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch", "batch_code", "batch_no"):
-                                accumulated_fields.pop(legacy_batch_key, None)
-
                         for fld, fld_data in multi_fields.items():
                             if isinstance(fld_data, dict) and fld_data.get("value"):
-                                # Guard against net_quantity hallucinations:
-                                if fld == "net_quantity":
-                                    existing_nq = accumulated_fields.get("net_quantity")
-                                    if existing_nq and isinstance(existing_nq, dict):
-                                        ex_num = existing_nq.get("numeric_value")
-                                        ex_val = str(existing_nq.get("value", "")).lower()
-                                        ex_raw = str(existing_nq.get("raw_text", "")).lower()
-                                        q_num = fld_data.get("numeric_value")
-                                        q_str = str(fld_data.get("value", "")).lower()
-                                        if (ex_num == 150.0 or "150" in ex_val or "150" in ex_raw) and (q_num == 100.0 or "100" in q_str):
-                                            print(f"[*] Guarding net_quantity: preserving package declaration 150 g over Qwen hallucination {q_str}")
-                                            continue
                                 accumulated_fields[fld] = fld_data
 
-                        # Product ID: keep if present in either multi_fields or accumulated_fields
-                        if not multi_fields.get("product_id", {}).get("value") and not accumulated_fields.get("product_id", {}).get("value"):
-                            accumulated_fields.pop("product_id", None)
-
-                        print(f"[+] [finalize_session] Qwen fields applied ({len(multi_fields)}): {list(multi_fields.keys())}", flush=True)
+                        print(f"[+] [finalize_session] Groq fields applied ({len(multi_fields)}): {list(multi_fields.keys())}", flush=True)
                 except Exception as e:
                     import traceback as _tb
-                    logger.warning("Cross-face Qwen perception failed in finalize_session: %s\n%s", e, _tb.format_exc())
-                    print(f"[!] [finalize_session] Qwen FAILED — OCR fields will be used: {e}", flush=True)
+                    logger.warning("Groq vision perception failed in finalize_session: %s\n%s", e, _tb.format_exc())
+                    print(f"[!] [finalize_session] Groq FAILED: {e}", flush=True)
 
     # Ensure all accumulated fields have surface_id & image_id mapped to captures
     for fld, fld_data in accumulated_fields.items():
