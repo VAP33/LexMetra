@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { type Inspection } from "@/lib/types";
 import { type Language } from "@/lib/i18n";
+import { LexMetraLogo } from "./InspectionApp";
 
 interface CustomerDashboardProps {
   inspections?: Inspection[];
@@ -86,24 +87,15 @@ export function CustomerDashboard({
                 <ArrowLeft className="h-5 w-5" />
               </button>
             )}
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center rounded-2xl bg-white p-1.5 shadow-sm border border-slate-200 ring-1 ring-slate-100">
-                <img
-                  src="/dca-logo.png"
-                  alt="Department of Consumer Affairs, Govt of India"
-                  className="h-10 w-auto object-contain max-w-[140px] sm:max-w-[180px]"
-                />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-black tracking-widest text-slate-900">CONSUMER SUVIDHA</span>
-                  <span className="rounded-full bg-saffron-50 border border-saffron-200 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-saffron-700">
-                    Jago Grahak Jago
-                  </span>
-                </div>
-                <p className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase">
-                  Citizen Package Verification & Consumer Rights Portal · Dept. of Consumer Affairs
-                </p>
+            <div className="flex items-center justify-center rounded-2xl bg-white p-1 sm:p-1.5 shadow-sm ring-1 ring-purple-300/30">
+              <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[130px] sm:max-w-[180px]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-black tracking-widest text-white">CONSUMER SUVIDHA</span>
+                <span className="rounded-full bg-saffron-500/30 border border-saffron-400/50 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-saffron-300">
+                  Jago Grahak Jago
+                </span>
               </div>
             </div>
           </div>

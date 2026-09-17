@@ -72,22 +72,35 @@ class PaddleTextDetector:
             self._weights_ready = True
             self._initialized = True
             self._fallback_reason = None
+            self._engine_type = "paddleocr"
             return True
         except Exception as e:
-            self._available = False
-            self._weights_ready = False
-            self._fallback_reason = f"PaddleOCR initialization failed: {e}"
-            print(f"[!] [PaddleTextDetector] Initialization failed: {e}", flush=True)
-            return False
+            try:
+                from ultralytics import YOLO
+                self._yolo = YOLO("yolov8n.pt")
+                self._available = True
+                self._weights_ready = True
+                self._initialized = True
+                self._engine_type = "yolov8+cv"
+                self._fallback_reason = None
+                print("[+] [PaddleTextDetector] Using YOLOv8 + OpenCV Region Proposer engine.", flush=True)
+                return True
+            except Exception as e2:
+                self._available = False
+                self._weights_ready = False
+                self._fallback_reason = f"PaddleOCR ({e}) and YOLO ({e2}) failed"
+                print(f"[!] [PaddleTextDetector] Initialization failed: {e}; YOLO fallback: {e2}", flush=True)
+                return False
 
     def health(self) -> Dict[str, Any]:
         available = self._init_engine()
+        engine_name = getattr(self, "_engine_type", "unavailable" if not available else "yolov8+cv")
         return {
             "available": available,
-            "engine": "paddleocr" if available else "unavailable",
+            "engine": engine_name,
             "polygon_output_verified": available,
             "weights_ready": self._weights_ready,
-            "yolo_enabled": False,
+            "yolo_enabled": True,
             "fallback_reason": self._fallback_reason,
         }
 
@@ -95,8 +108,39 @@ class PaddleTextDetector:
         """
         Run detection on image_bgr and return list of DetectedPolygon objects with canonical coordinates.
         """
-        if not self._init_engine() or self._engine is None:
+        if not self._init_engine():
             return []
+
+        if getattr(self, "_engine_type", None) == "yolov8+cv" or self._engine is None:
+            from localization.sanskruti.region_proposer import propose_text_regions
+            regions = propose_text_regions(image_bgr)
+            detected_proposals: List[DetectedPolygon] = []
+            for r in regions:
+                x, y, bw, bh = r.bbox
+                poly = [[float(x), float(y)], [float(x+bw), float(y)], [float(x+bw), float(y+bh)], [float(x), float(y+bh)]]
+                detected_proposals.append(DetectedPolygon(
+                    polygon=poly,
+                    bbox_xywh=(x, y, bw, bh),
+                    confidence=float(r.confidence),
+                    text=None,
+                ))
+            if hasattr(self, "_yolo") and self._yolo is not None:
+                try:
+                    y_res = self._yolo(image_bgr, verbose=False)
+                    for b in y_res[0].boxes:
+                        bx, by, bw, bh = [int(v) for v in b.xywh[0]]
+                        x1 = max(0, bx - bw // 2)
+                        y1 = max(0, by - bh // 2)
+                        poly = [[float(x1), float(y1)], [float(x1+bw), float(y1)], [float(x1+bw), float(y1+bh)], [float(x1), float(y1+bh)]]
+                        detected_proposals.append(DetectedPolygon(
+                            polygon=poly,
+                            bbox_xywh=(x1, y1, bw, bh),
+                            confidence=float(b.conf[0]),
+                            text=None,
+                        ))
+                except Exception:
+                    pass
+            return detected_proposals
 
         if image_bgr is None or image_bgr.size == 0 or image_bgr.shape[0] < 6 or image_bgr.shape[1] < 6:
             return []

@@ -192,7 +192,14 @@ const statusStyles: Record<
   EXEMPT: { dot: "bg-brand", text: "text-brand", bg: "bg-brand-soft", border: "border-brand/20", icon: ShieldCheck },
 };
 
-function statusLabel(status: InspectionStatus) {
+function statusLabel(status: InspectionStatus, lang?: Language) {
+  if (lang) {
+    const t = getTranslation(lang);
+    if (status === "COMPLIANT") return t.compliant;
+    if (status === "VIOLATION") return t.violation;
+    if (status === "UNCERTAIN") return t.reviewRequired;
+    if (status === "EXEMPT") return t.exempt;
+  }
   return statusCopy[status].label;
 }
 
@@ -252,18 +259,20 @@ function ProductThumb({ inspection, large = false }: { inspection: Inspection; l
   );
 }
 
-function StatusBadge({ status, compact = false }: { status: InspectionStatus; compact?: boolean }) {
+function StatusBadge({ status, compact = false, lang }: { status: InspectionStatus; compact?: boolean; lang?: Language }) {
   const style = statusStyles[status];
   const Icon = style.icon;
+  const label = lang ? statusLabel(status, lang) : (compact ? statusCopy[status].short : statusLabel(status));
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-[.08em] ${style.bg} ${style.text} ${style.border}`}>
       <Icon className="h-3.5 w-3.5" />
-      {compact ? statusCopy[status].short : statusLabel(status)}
+      {label}
     </span>
   );
 }
 
-function InspectionRow({ inspection, onOpen }: { inspection: Inspection; onOpen: (inspection: Inspection) => void }) {
+function InspectionRow({ inspection, onOpen, lang }: { inspection: Inspection; onOpen: (inspection: Inspection) => void; lang?: Language }) {
+  const needsReviewText = lang === "hi" ? "समीक्षा अपेक्षित" : lang === "mr" ? "तपासणी आवश्यक" : "Needs review";
   return (
     <button type="button" onClick={() => onOpen(inspection)} className="group flex w-full items-center gap-3 border-b border-border/70 py-4 text-left last:border-0 hover:bg-muted/40">
       <ProductThumb inspection={inspection} />
@@ -272,17 +281,109 @@ function InspectionRow({ inspection, onOpen }: { inspection: Inspection; onOpen:
         <p className="mt-1 truncate text-xs text-muted-foreground">{inspection.dateLabel} · {inspection.summary}</p>
       </div>
       <div className="flex flex-col items-end gap-1">
-        <StatusBadge status={inspection.status} compact />
-        {inspection.reviewRequired && !inspection.reviewed && <span className="text-[10px] font-bold text-warning">Needs review</span>}
+        <StatusBadge status={inspection.status} compact lang={lang} />
+        {inspection.reviewRequired && !inspection.reviewed && <span className="text-[10px] font-bold text-warning">{needsReviewText}</span>}
         <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
       </div>
     </button>
   );
 }
 
+export function LexMetraLogo({ className = "h-8 sm:h-9 w-auto" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 420 100"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-label="LexMetra Statutory AI"
+    >
+      <defs>
+        <linearGradient id="shieldGradLM" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#1E3A8A" />
+          <stop offset="100%" stopColor="#0F172A" />
+        </linearGradient>
+        <linearGradient id="tricolorLM" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#FF9933" />
+          <stop offset="50%" stopColor="#CBD5E1" />
+          <stop offset="100%" stopColor="#138808" />
+        </linearGradient>
+      </defs>
+
+      {/* Emblem Icon (Left) */}
+      <g transform="translate(10, 10)">
+        <path
+          d="M40 0 L72 18 L72 58 L40 78 L8 58 L8 18 Z"
+          fill="url(#shieldGradLM)"
+          stroke="#3B82F6"
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+        />
+        <line x1="16" y1="28" x2="22" y2="28" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="16" y1="36" x2="25" y2="36" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
+        <line x1="16" y1="44" x2="22" y2="44" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="16" y1="52" x2="25" y2="52" stroke="#10B981" strokeWidth="2" strokeLinecap="round" />
+
+        {/* Scales of Justice / Legal Metrology */}
+        <path d="M40 16 L40 62" stroke="#E2E8F0" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M26 26 L54 26" stroke="#F59E0B" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M26 26 L22 40 L30 40 Z" fill="none" stroke="#CBD5E1" strokeWidth="1.5" />
+        <path d="M20 40 Q26 46 32 40" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
+        <path d="M54 26 L50 40 L58 40 Z" fill="none" stroke="#CBD5E1" strokeWidth="1.5" />
+        <path d="M48 40 Q54 46 60 40" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="40" cy="26" r="3.5" fill="#38BDF8" stroke="#0F172A" strokeWidth="1" />
+
+        {/* Tricolor Ribbon at Base */}
+        <rect x="22" y="66" width="36" height="3" rx="1.5" fill="url(#tricolorLM)" />
+      </g>
+
+      {/* Brand Typography */}
+      <text
+        x="100"
+        y="46"
+        fontFamily="system-ui, -apple-system, sans-serif"
+        fontSize="34"
+        fontWeight="900"
+        letterSpacing="3"
+        fill="#0F172A"
+      >
+        LEX<tspan fill="#2563EB">METRA</tspan>
+      </text>
+
+      {/* DCA AI Pill */}
+      <rect x="306" y="24" width="68" height="24" rx="6" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="1.5" />
+      <text
+        x="340"
+        y="40"
+        fontFamily="system-ui, -apple-system, sans-serif"
+        fontSize="11"
+        fontWeight="800"
+        fill="#1D4ED8"
+        textAnchor="middle"
+        letterSpacing="1"
+      >
+        DCA AI
+      </text>
+
+      {/* Subtitle */}
+      <text
+        x="102"
+        y="70"
+        fontFamily="system-ui, -apple-system, sans-serif"
+        fontSize="10"
+        fontWeight="700"
+        letterSpacing="2"
+        fill="#047857"
+      >
+        LEGAL METROLOGY DIVISION · GOVT OF INDIA
+      </text>
+    </svg>
+  );
+}
+
 function Header({
   title,
-  eyebrow = "GOVT OF INDIA · Department of Consumer Affairs",
+  eyebrow,
   onMenu,
   online,
   lang = "en",
@@ -295,30 +396,59 @@ function Header({
   lang?: Language;
   onLanguageChange?: (l: Language) => void;
 }) {
+  const [fontScale, setFontScale] = useState<"sm" | "md" | "lg">("md");
+  const [isHighContrast, setIsHighContrast] = useState(false);
+
+  const changeFontScale = (scale: "sm" | "md" | "lg") => {
+    setFontScale(scale);
+    document.documentElement.classList.remove("font-scale-sm", "font-scale-md", "font-scale-lg", "font-scale-xl");
+    if (scale !== "md") {
+      document.documentElement.classList.add(`font-scale-${scale}`);
+    }
+  };
+
+  const toggleContrast = () => {
+    const next = !isHighContrast;
+    setIsHighContrast(next);
+    if (next) {
+      document.body.classList.add("high-contrast");
+    } else {
+      document.body.classList.remove("high-contrast");
+    }
+  };
+
+  const defaultEyebrow =
+    lang === "hi"
+      ? "भारत सरकार · उपभोक्ता मामले विभाग"
+      : lang === "mr"
+      ? "भारत सरकार · ग्राहक व्यवहार विभाग"
+      : "GOVT OF INDIA · DEPARTMENT OF CONSUMER AFFAIRS";
+
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white text-slate-900 shadow-xs">
+    <header className="sticky top-0 z-30 border-b border-brand-900/60 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white shadow-md">
+      {/* GIGW 3.0 Skip Link */}
+      <a href="#main-content" className="skip-link">
+        Skip to Main Content
+      </a>
+      {/* DBIM National Tricolor Band */}
       <div className="h-1.5 w-full tricolor-stripe" />
-      <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3.5">
-          <button type="button" aria-label="Open navigation" onClick={onMenu} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden">
+      <div className="mx-auto flex min-h-[64px] sm:h-[76px] max-w-7xl items-center justify-between px-2.5 sm:px-6 lg:px-8 py-1.5 flex-wrap sm:flex-nowrap gap-1.5 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3.5">
+          <button type="button" aria-label="Open navigation" onClick={onMenu} className="rounded-lg p-1.5 text-brand-200 hover:bg-white/10 md:hidden">
             <Menu className="h-5 w-5" />
           </button>
-          
-          {/* Official DCA Logo in Left Corner */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center rounded-xl bg-white p-1.5 shadow-sm border border-slate-200 ring-1 ring-slate-100">
-              <img
-                src="/dca-logo.png"
-                alt="Department of Consumer Affairs, Govt of India"
-                className="h-9 w-auto object-contain max-w-[140px] sm:max-w-[180px]"
-              />
+
+          {/* LexMetra Generated Brand Logo */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center justify-center rounded-xl bg-white p-1 sm:p-1.5 shadow-sm ring-1 ring-brand-300/30">
+              <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[140px] sm:max-w-[190px]" />
             </div>
             <div className="hidden sm:block">
               <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-saffron-500 animate-pulse" />
-                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-saffron-600">{eyebrow}</p>
+                <span className="h-2 w-2 rounded-full bg-saffron-400 animate-pulse" />
+                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-saffron-300">{eyebrow || defaultEyebrow}</p>
               </div>
-              <h1 className="text-base font-bold tracking-tight text-slate-900 flex items-center gap-2">
+              <h1 className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
                 <span>{title}</span>
                 <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-govgreen border border-emerald-200">
                   LMPC 2011 Verified
@@ -328,28 +458,77 @@ function Header({
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          {/* Global Header Language Switcher */}
+        <div className="flex items-center gap-1 sm:gap-2 flex-wrap sm:flex-nowrap justify-end">
+          {/* GIGW 3.0 Accessibility Controls: Font Resizer & High Contrast */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-brand-700/60 bg-brand-950/70 p-0.5 text-xs font-semibold shadow-inner">
+            <button
+              type="button"
+              onClick={() => changeFontScale("sm")}
+              title="Decrease text size (A-)"
+              className={`rounded px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold transition ${fontScale === "sm" ? "bg-brand-600 text-white" : "text-brand-200 hover:text-white"}`}
+            >
+              A-
+            </button>
+            <button
+              type="button"
+              onClick={() => changeFontScale("md")}
+              title="Normal text size (A)"
+              className={`rounded px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold transition ${fontScale === "md" ? "bg-brand-600 text-white" : "text-brand-200 hover:text-white"}`}
+            >
+              A
+            </button>
+            <button
+              type="button"
+              onClick={() => changeFontScale("lg")}
+              title="Increase text size (A+)"
+              className={`rounded px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold transition ${fontScale === "lg" ? "bg-brand-600 text-white" : "text-brand-200 hover:text-white"}`}
+            >
+              A+
+            </button>
+            <div className="h-3 w-px bg-brand-700/60 mx-0.5" />
+            <button
+              type="button"
+              onClick={toggleContrast}
+              title="Toggle high contrast accessibility"
+              className={`rounded px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold transition ${isHighContrast ? "bg-amber-400 text-slate-950 font-black" : "text-brand-200 hover:text-white"}`}
+            >
+              ◐<span className="hidden sm:inline ml-1">{isHighContrast ? "Standard" : "Contrast"}</span>
+            </button>
+          </div>
+
+          {/* Global Header Language Switcher - Responsive Pill */}
           {onLanguageChange && (
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
+            <div className="inline-flex items-center gap-0.5 rounded-2xl border border-slate-200/90 bg-white/95 p-0.5 sm:p-1 text-xs font-semibold shadow-xs">
               <button
                 type="button"
                 onClick={() => onLanguageChange("en")}
-                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "en" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
+                className={`rounded-xl px-2 sm:px-3 py-0.5 sm:py-1 transition-all text-[10px] sm:text-xs ${
+                  lang === "en"
+                    ? "bg-[#7C3AED] text-white font-bold shadow-xs"
+                    : "text-slate-800 hover:text-slate-950 font-semibold"
+                }`}
               >
                 EN
               </button>
               <button
                 type="button"
                 onClick={() => onLanguageChange("hi")}
-                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "hi" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
+                className={`rounded-xl px-2 sm:px-3 py-0.5 sm:py-1 transition-all text-[10px] sm:text-xs ${
+                  lang === "hi"
+                    ? "bg-[#7C3AED] text-white font-bold shadow-xs"
+                    : "text-slate-800 hover:text-slate-950 font-semibold"
+                }`}
               >
                 हिन्दी
               </button>
               <button
                 type="button"
                 onClick={() => onLanguageChange("mr")}
-                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "mr" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
+                className={`rounded-xl px-2 sm:px-3 py-0.5 sm:py-1 transition-all text-[10px] sm:text-xs ${
+                  lang === "mr"
+                    ? "bg-[#7C3AED] text-white font-bold shadow-xs"
+                    : "text-slate-800 hover:text-slate-950 font-semibold"
+                }`}
               >
                 मराठी
               </button>
@@ -357,16 +536,16 @@ function Header({
           )}
 
           {online === false ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 border border-red-200">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/20 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold text-red-300 border border-destructive/30">
               <WifiOff className="h-3 w-3" />Offline
             </span>
           ) : (
-            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-govgreen border border-emerald-200">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />Central Live
+            <span className="hidden md:inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold text-emerald-300 border border-emerald-400/30">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />Central Live
             </span>
           )}
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-800 border border-slate-200 shadow-xs hover:bg-slate-200 transition-colors">
-            <UserRound className="h-4 w-4 text-purple-700" />
+          <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20 shadow-sm hover:bg-white/20 transition-colors">
+            <UserRound className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-saffron-300" />
           </div>
         </div>
       </div>
@@ -379,22 +558,17 @@ const AppHeader = Header;
 function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNavigate: (view: View) => void; lang?: Language; role?: string }) {
   const currentNavItems = getNavItems(lang, role);
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-purple-200/80 bg-white px-4 py-5 md:flex shadow-sm">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-5 md:flex shadow-sm">
       <div className="h-1.5 w-full tricolor-stripe mb-4 rounded-full" />
-      
-      {/* Official DCA Logo Banner */}
-      <div className="mb-6 rounded-2xl border border-purple-200/80 bg-gradient-to-b from-purple-50/50 to-white p-3 shadow-xs">
-        <img
-          src="/dca-logo.png"
-          alt="Department of Consumer Affairs"
-          className="h-11 w-auto mx-auto object-contain"
-        />
-        <div className="mt-2 text-center border-t border-purple-100 pt-2">
+
+      {/* LexMetra Sidebar Card */}
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-gradient-to-b from-brand-50/40 to-white p-3.5 shadow-xs">
+        <div className="text-center">
           <div className="flex items-center justify-center gap-1.5">
-            <p className="text-xs font-black tracking-widest text-brand-900">LEXMETRA</p>
-            <span className="rounded bg-saffron-soft border border-saffron/40 px-1.5 py-0.2 text-[8px] font-extrabold text-saffron-700">DCA AI</span>
+            <p className="text-sm font-black tracking-widest text-brand-900">LEXMETRA</p>
+            <span className="rounded bg-saffron-soft border border-saffron/40 px-1.5 py-0.5 text-[9px] font-extrabold text-saffron-700">DCA AI</span>
           </div>
-          <p className="text-[9px] font-bold uppercase tracking-[.06em] text-govgreen">Dept of Consumer Affairs</p>
+          <p className="text-[10px] font-bold uppercase tracking-[.06em] text-govgreen mt-0.5">Dept of Consumer Affairs</p>
         </div>
       </div>
 
@@ -407,11 +581,10 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
               key={item.view}
               type="button"
               onClick={() => onNavigate(item.view)}
-              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition-all ${
-                active
-                  ? "bg-gradient-to-r from-brand-800 via-brand-700 to-purple-700 text-white shadow-md shadow-brand/25 font-bold"
-                  : "text-slate-600 hover:bg-purple-50/80 hover:text-brand-900"
-              }`}
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition-all ${active
+                  ? "bg-gradient-to-r from-brand-900 via-brand-800 to-brand-700 text-white shadow-md shadow-brand/25 font-bold"
+                  : "text-slate-600 hover:bg-brand-50/70 hover:text-brand-900"
+                }`}
             >
               <span className="flex items-center gap-3">
                 <Icon className={`h-[18px] w-[18px] ${active ? "text-saffron-300" : "text-slate-400"}`} />
@@ -423,7 +596,7 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
         })}
       </nav>
 
-      <div className="mt-auto rounded-2xl bg-gradient-to-b from-purple-50/70 to-purple-100/40 border border-purple-200/80 p-4 text-xs">
+      <div className="mt-auto rounded-2xl bg-gradient-to-b from-slate-50 to-brand-50/30 border border-slate-200 p-4 text-xs">
         <div className="flex items-center gap-2 font-bold text-brand-950">
           <ShieldCheck className="h-4 w-4 text-govgreen" />
           <span>Statutory Authority Unit</span>
@@ -433,7 +606,6 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
         </p>
         <div className="mt-2.5 flex items-center gap-1.5 text-[10px] font-bold text-saffron-700">
           <span className="h-1.5 w-1.5 rounded-full bg-govgreen" />
-          <span>Govt of India Official Portal</span>
         </div>
       </div>
     </aside>
@@ -499,8 +671,217 @@ function DisclaimerBanner({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Home
+// Dashboard Multilingual Localization Dictionary (EN / HI / MR)
 // ---------------------------------------------------------------------------
+
+const dashboardTranslations: Record<
+  Language,
+  {
+    govDca: string;
+    enforcementUnit: string;
+    fieldOperations: string;
+    fieldSub: string;
+    newScan: string;
+    regionalIntel: string;
+    authorityDockets: string;
+    inspectionsToday: string;
+    ofTotalLogged: string;
+    violationsFlagged: string;
+    rule6NonCompliance: string;
+    pendingReviews: string;
+    requiresInspectorReview: string;
+    packageIntegrity: string;
+    tamperAlerts: string;
+    registerHealth: string;
+    compliantRatio: string;
+    priorityQueueTitle: string;
+    fullQueue: string;
+    manufacturerNotDetected: string;
+    pendingOfficerReview: string;
+    review: string;
+    allPriorityProcessed: string;
+    recentInspections: string;
+    liveStatutoryRecords: string;
+    viewAll: string;
+    noInspectionsYet: string;
+    noInspectionsDesc: string;
+    regulatoryUpdates: string;
+    ruleEngine: string;
+    lmpcRule6: string;
+    lmpcRule6Desc: string;
+    gsrQrCode: string;
+    gsrQrCodeDesc: string;
+    active: string;
+    gazette: string;
+    interAgencyCheck: string;
+    fssaiVerification: string;
+    fssaiDesc: string;
+    fssaiStatus: string;
+    integrityModel: string;
+    integrityDesc: string;
+    integrityStatus: string;
+    specializedPortals: string;
+    dualMode: string;
+    seniorOfficer: string;
+    seniorOfficerDesc: string;
+    citizenConsumer: string;
+    citizenDesc: string;
+  }
+> = {
+  en: {
+    govDca: "Government of India · DCA",
+    enforcementUnit: "Enforcement Unit: Zone 4 Surveillance",
+    fieldOperations: "Legal Metrology Field Operations",
+    fieldSub: "Statutory verification under Legal Metrology (Packaged Commodities) Rules, 2011 & FSSAI Standards",
+    newScan: "New Scan",
+    regionalIntel: "Regional Intel",
+    authorityDockets: "Authority Dockets",
+    inspectionsToday: "Inspections Today",
+    ofTotalLogged: "of {total} total logged",
+    violationsFlagged: "Violations Flagged",
+    rule6NonCompliance: "Rule 6 non-compliance",
+    pendingReviews: "Pending Reviews",
+    requiresInspectorReview: "Requires inspector review",
+    packageIntegrity: "Package Integrity",
+    tamperAlerts: "Tamper/sticker alerts",
+    registerHealth: "Register Health",
+    compliantRatio: "Compliant ratio",
+    priorityQueueTitle: "Priority Review Queue",
+    fullQueue: "Full Queue",
+    manufacturerNotDetected: "Manufacturer not detected",
+    pendingOfficerReview: "Pending officer review",
+    review: "Review",
+    allPriorityProcessed: "All priority review cases have been processed.",
+    recentInspections: "Recent Verified Inspections",
+    liveStatutoryRecords: "Live statutory records in local registry",
+    viewAll: "View All",
+    noInspectionsYet: "No inspections yet",
+    noInspectionsDesc: "Scan your first package label to populate the local operational register.",
+    regulatoryUpdates: "Regulatory Updates",
+    ruleEngine: "Rule Engine",
+    lmpcRule6: "LMPC 2011 · Rule 6 (Consolidated)",
+    lmpcRule6Desc: "Mandatory MRP, Unit Sale Price (USP), Net Quantity font height, Batch & Manufacturer details enforcement.",
+    gsrQrCode: "G.S.R. 594(E) QR Code Provision",
+    gsrQrCodeDesc: "Electronic declarations permitted via registered QR codes on commodities with PDP under 100 cm².",
+    active: "ACTIVE",
+    gazette: "GAZETTE",
+    interAgencyCheck: "Inter-Agency Cross-Check",
+    fssaiVerification: "FSSAI License Verification",
+    fssaiDesc: "14-digit FoSCoS registry validation",
+    fssaiStatus: "ONLINE",
+    integrityModel: "Package Integrity Model",
+    integrityDesc: "Dual-contour sticker & price tamper check",
+    integrityStatus: "ACTIVE",
+    specializedPortals: "Specialized Portals",
+    dualMode: "Dual Mode",
+    seniorOfficer: "Senior Officer",
+    seniorOfficerDesc: "Regional surveillance",
+    citizenConsumer: "Citizen Portal",
+    citizenDesc: "Public scan & report",
+  },
+  hi: {
+    govDca: "भारत सरकार · उपभोक्ता मामले विभाग",
+    enforcementUnit: "प्रवर्तन इकाई: जोन 4 निगरानी",
+    fieldOperations: "विधिक मापविज्ञान क्षेत्रीय संचालन",
+    fieldSub: "विधिक मापविज्ञान (पैक की गई वस्तुएं) नियम, 2011 एवं FSSAI मानकों के तहत वैधानिक सत्यापन",
+    newScan: "नई जांच (स्कैन)",
+    regionalIntel: "क्षेत्रीय आसूचना",
+    authorityDockets: "प्राधिकरण डॉकेट्स",
+    inspectionsToday: "आज की जांच",
+    ofTotalLogged: "कुल {total} दर्ज में से",
+    violationsFlagged: "उल्लंघन दर्ज",
+    rule6NonCompliance: "नियम 6 का गैर-अनुपालन",
+    pendingReviews: "लंबित समीक्षाएं",
+    requiresInspectorReview: "अधिकारी समीक्षा आवश्यक",
+    packageIntegrity: "पैकेज अखंडता",
+    tamperAlerts: "छेड़छाड़ / स्टिकर चेतावनी",
+    registerHealth: "रजिस्टर स्वास्थ्य",
+    compliantRatio: "अनुपालन अनुपात",
+    priorityQueueTitle: "प्राथमिकता समीक्षा कतार",
+    fullQueue: "पूरी कतार",
+    manufacturerNotDetected: "निर्माता विवरण अप्राप्य",
+    pendingOfficerReview: "अधिकारी समीक्षा लंबित",
+    review: "समीक्षा करें",
+    allPriorityProcessed: "सभी प्राथमिकता समीक्षा मामलों का निपटारा हो चुका है।",
+    recentInspections: "हाल ही में सत्यापित जांच",
+    liveStatutoryRecords: "स्थानीय रजिस्टर में लाइव वैधानिक रिकॉर्ड",
+    viewAll: "सभी देखें",
+    noInspectionsYet: "अभी तक कोई जांच नहीं",
+    noInspectionsDesc: "स्थानीय संचालन रजिस्टर शुरू करने के लिए अपना पहला पैकेज लेबल स्कैन करें।",
+    regulatoryUpdates: "नियामक अद्यतन",
+    ruleEngine: "नियम इंजन",
+    lmpcRule6: "LMPC 2011 · नियम 6 (समेकित)",
+    lmpcRule6Desc: "अनिवार्य एमआरपी, प्रति इकाई विक्रय मूल्य (USP), शुद्ध मात्रा फ़ॉन्ट ऊंचाई, बैच एवं निर्माता विवरण का प्रवर्तन।",
+    gsrQrCode: "G.S.R. 594(E) क्यूआर कोड प्रावधान",
+    gsrQrCodeDesc: "100 सेमी² से कम पीडीपी वाले सामानों पर पंजीकृत क्यूआर कोड के माध्यम से इलेक्ट्रॉनिक घोषणा की अनुमति।",
+    active: "सक्रिय",
+    gazette: "राजपत्र",
+    interAgencyCheck: "अंतर-विभागीय क्रॉस-सत्यापन",
+    fssaiVerification: "FSSAI लाइसेंस सत्यापन",
+    fssaiDesc: "14-अंकीय FoSCoS रजिस्ट्री सत्यापन",
+    fssaiStatus: "ऑनलाइन",
+    integrityModel: "पैकेज अखंडता मॉडल",
+    integrityDesc: "दोहरी-समोच्च स्टिकर व मूल्य छेड़छाड़ जांच",
+    integrityStatus: "सक्रिय",
+    specializedPortals: "विशेष पोर्टल",
+    dualMode: "दोहरी प्रणाली",
+    seniorOfficer: "वरिष्ठ अधिकारी",
+    seniorOfficerDesc: "क्षेत्रीय निगरानी एवं प्रवर्तन",
+    citizenConsumer: "नागरिक पोर्टल",
+    citizenDesc: "सार्वजनिक स्कैन व रिपोर्ट",
+  },
+  mr: {
+    govDca: "भारत सरकार · ग्राहक व्यवहार विभाग",
+    enforcementUnit: "अंमलबजावणी कक्ष: विभाग 4 देखरेख",
+    fieldOperations: "कायदेशीर मापनशास्त्र क्षेत्रीय कामकाज",
+    fieldSub: "कायदेशीर मापनशास्त्र (पॅकबंद वस्तू) नियम, 2011 आणि FSSAI मानकांनुसार वैधानिक पडताळणी",
+    newScan: "नवीन स्कॅन",
+    regionalIntel: "प्रादेशिक माहिती",
+    authorityDockets: "प्राधिकरण दस्तऐवज",
+    inspectionsToday: "आजच्या तपासण्या",
+    ofTotalLogged: "नोंदवहीत एकूण {total} पैकी",
+    violationsFlagged: "आढळलेली उल्लंघने",
+    rule6NonCompliance: "नियम 6 चे उल्लंघन",
+    pendingReviews: "प्रलंबित फेरतपासण्या",
+    requiresInspectorReview: "निरीक्षक तपासणी आवश्यक",
+    packageIntegrity: "पॅकेज अखंडता",
+    tamperAlerts: "स्टिकर / फेरफार चेतावणी",
+    registerHealth: "रजिस्टर आरोग्य",
+    compliantRatio: "अनुपालन गुणोत्तर",
+    priorityQueueTitle: "प्राधान्य तपासणी यादी",
+    fullQueue: "संपूर्ण यादी",
+    manufacturerNotDetected: "उत्पादक माहिती उपलब्ध नाही",
+    pendingOfficerReview: "अधिकारी फेरतपासणी प्रलंबित",
+    review: "तपासा",
+    allPriorityProcessed: "सर्व प्राधान्य प्रकरणांची तपासणी पूर्ण झाली आहे.",
+    recentInspections: "अलीकडील सत्यापित तपासण्या",
+    liveStatutoryRecords: "स्थानिक नोंदवहीतील थेट वैधानिक नोंदी",
+    viewAll: "सर्व पहा",
+    noInspectionsYet: "अद्याप कोणतीही तपासणी नाही",
+    noInspectionsDesc: "स्थानिक नोंदवही भरण्यासाठी पहिले पॅकेज लेबल स्कॅन करा.",
+    regulatoryUpdates: "नियामक अद्यतने",
+    ruleEngine: "नियम यंत्रणा",
+    lmpcRule6: "LMPC 2011 · नियम 6 (एकत्रित)",
+    lmpcRule6Desc: "अनिवार्य MRP, विक्री एकक दर (USP), निव्वळ प्रमाण फॉन्ट उंची, बॅच व उत्पादक तपशीलांची अंमलबजावणी.",
+    gsrQrCode: "G.S.R. 594(E) क्यूआर कोड तरतूद",
+    gsrQrCodeDesc: "100 सेमी² पेक्षा लहान PDP असलेल्या वस्तूंवर नोंदणीकृत QR कोडद्वारे इलेक्ट्रॉनिक घोषणांची परवानगी.",
+    active: "सक्रिय",
+    gazette: "राजपत्र",
+    interAgencyCheck: "आंतर-विभागीय पडताळणी",
+    fssaiVerification: "FSSAI परवाना पडताळणी",
+    fssaiDesc: "14-अंकी FoSCoS नोंदणी पडताळणी",
+    fssaiStatus: "ऑनलाइन",
+    integrityModel: "पॅकेज अखंडता मॉडेल",
+    integrityDesc: "दुहेरी-समोच्च स्टिकर व किंमत फेरफार तपासणी",
+    integrityStatus: "सक्रिय",
+    specializedPortals: "विशेष पोर्टल्स",
+    dualMode: "दुहेरी प्रणाली",
+    seniorOfficer: "वरिष्ठ अधिकारी",
+    seniorOfficerDesc: "प्रादेशिक देखरेख व अंमलबजावणी",
+    citizenConsumer: "नागरिक पोर्टल",
+    citizenDesc: "सार्वजनिक स्कॅन व तक्रार",
+  },
+};
 
 function HomeView({
   inspections,
@@ -524,6 +905,7 @@ function HomeView({
   onSetLang?: (l: Language) => void;
 }) {
   const t = getTranslation(lang);
+  const dt = dashboardTranslations[lang] || dashboardTranslations.en;
   const scanned = inspections.length;
   const compliant = inspections.filter((item) => item.status === "COMPLIANT").length;
   const violations = inspections.filter((item) => item.status === "VIOLATION").length;
@@ -582,31 +964,31 @@ function HomeView({
           <div>
             <div className="flex items-center gap-2">
               <span className="rounded-md bg-brand-soft px-2 py-0.5 text-[10px] font-bold text-brand uppercase tracking-wider">
-                Government of India · DCA
+                {dt.govDca}
               </span>
               <span className="text-xs text-muted-foreground">·</span>
-              <span className="text-xs font-semibold text-muted-foreground">Enforcement Unit: Zone 4 Surveillance</span>
+              <span className="text-xs font-semibold text-muted-foreground">{dt.enforcementUnit}</span>
             </div>
             <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
-              Legal Metrology Field Operations
+              {dt.fieldOperations}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Statutory verification under Legal Metrology (Packaged Commodities) Rules, 2011 & FSSAI Standards
+              {dt.fieldSub}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <Button onClick={() => onNavigate("scan")} variant="primary" className="shadow-sm">
               <ScanLine className="h-4 w-4" />
-              {t.scan}
+              {dt.newScan}
             </Button>
             <Button onClick={() => onNavigate("seniorRegional")} variant="secondary">
               <Globe className="h-4 w-4" />
-              Regional Intel
+              {dt.regionalIntel}
             </Button>
             <Button onClick={() => onNavigate("authority")} variant="secondary">
               <ShieldCheck className="h-4 w-4" />
-              Authority Dockets
+              {dt.authorityDockets}
             </Button>
           </div>
         </section>
@@ -628,25 +1010,25 @@ function HomeView({
 
             {/* Language Selector (EN / HI / MR) */}
             {onSetLang && (
-              <div className="inline-flex rounded-lg border border-purple-200 bg-white p-0.5 text-xs font-semibold shadow-xs">
+              <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold shadow-xs">
                 <button
                   type="button"
                   onClick={() => onSetLang("en")}
-                  className={`rounded-md px-3 py-1.5 transition ${lang === "en" ? "bg-purple-700 text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
+                  className={`rounded-md px-3 py-1.5 transition ${lang === "en" ? "bg-brand text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
                 >
                   English
                 </button>
                 <button
                   type="button"
                   onClick={() => onSetLang("hi")}
-                  className={`rounded-md px-3 py-1.5 transition ${lang === "hi" ? "bg-purple-700 text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
+                  className={`rounded-md px-3 py-1.5 transition ${lang === "hi" ? "bg-brand text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
                 >
                   हिन्दी
                 </button>
                 <button
                   type="button"
                   onClick={() => onSetLang("mr")}
-                  className={`rounded-md px-3 py-1.5 transition ${lang === "mr" ? "bg-purple-700 text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
+                  className={`rounded-md px-3 py-1.5 transition ${lang === "mr" ? "bg-brand text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
                 >
                   मराठी
                 </button>
@@ -662,33 +1044,33 @@ function HomeView({
         {/* Dense 5-Metric Operational Ticker */}
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <div className="rounded-xl border border-border/70 bg-card p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Inspections Today</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{dt.inspectionsToday}</p>
             <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">{loading ? "…" : inspectionsToday}</p>
-            <span className="mt-1 block text-[10px] text-muted-foreground">of {scanned} total logged</span>
+            <span className="mt-1 block text-[10px] text-muted-foreground">{dt.ofTotalLogged.replace("{total}", String(scanned))}</span>
           </div>
 
           <div className="rounded-xl border border-destructive/20 bg-danger-soft/30 p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-destructive">Violations Flagged</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-destructive">{dt.violationsFlagged}</p>
             <p className="mt-1 text-2xl font-bold tracking-tight text-destructive">{loading ? "…" : violations}</p>
-            <span className="mt-1 block text-[10px] text-destructive/80">Rule 6 non-compliance</span>
+            <span className="mt-1 block text-[10px] text-destructive/80">{dt.rule6NonCompliance}</span>
           </div>
 
           <div className="rounded-xl border border-warning/20 bg-warning-soft/30 p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-warning">Pending Reviews</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-warning">{dt.pendingReviews}</p>
             <p className="mt-1 text-2xl font-bold tracking-tight text-warning">{loading ? "…" : (uncertainCases + pendingReviews)}</p>
-            <span className="mt-1 block text-[10px] text-warning/80">Requires inspector review</span>
+            <span className="mt-1 block text-[10px] text-warning/80">{dt.requiresInspectorReview}</span>
           </div>
 
           <div className="rounded-xl border border-border/70 bg-card p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Package Integrity</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{dt.packageIntegrity}</p>
             <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">{loading ? "…" : integrityAlerts}</p>
-            <span className="mt-1 block text-[10px] text-muted-foreground">Tamper/sticker alerts</span>
+            <span className="mt-1 block text-[10px] text-muted-foreground">{dt.tamperAlerts}</span>
           </div>
 
           <div className="rounded-xl border border-success/20 bg-success-soft/30 p-4 shadow-xs col-span-2 sm:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-success">Register Health</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-success">{dt.registerHealth}</p>
             <p className="mt-1 text-2xl font-bold tracking-tight text-success">{loading ? "…" : `${registerHealth}%`}</p>
-            <span className="mt-1 block text-[10px] text-success/80">Compliant ratio</span>
+            <span className="mt-1 block text-[10px] text-success/80">{dt.compliantRatio}</span>
           </div>
         </section>
 
@@ -702,7 +1084,7 @@ function HomeView({
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-destructive" />
                   <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                    Priority Review Queue ({urgentQueue.length})
+                    {dt.priorityQueueTitle} ({urgentQueue.length})
                   </h3>
                 </div>
                 <button
@@ -710,7 +1092,7 @@ function HomeView({
                   onClick={() => onNavigate("reviewQueue")}
                   className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
                 >
-                  Full Queue <ChevronRight className="h-3 w-3" />
+                  {dt.fullQueue} <ChevronRight className="h-3 w-3" />
                 </button>
               </div>
 
@@ -724,17 +1106,17 @@ function HomeView({
                           <span className="font-mono text-[10px] text-muted-foreground">#{item.id}</span>
                         </div>
                         <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                          {item.manufacturer || "Manufacturer not detected"} · {item.summary || "Pending officer review"}
+                          {item.manufacturer || dt.manufacturerNotDetected} · {item.summary || dt.pendingOfficerReview}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <StatusBadge status={item.status} compact />
+                        <StatusBadge status={item.status} compact lang={lang} />
                         <Button
                           variant="secondary"
                           className="h-8 px-2.5 text-xs"
                           onClick={() => onOpen(item)}
                         >
-                          Review
+                          {dt.review}
                         </Button>
                       </div>
                     </div>
@@ -742,7 +1124,7 @@ function HomeView({
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground py-4 text-center">
-                  All priority review cases have been processed.
+                  {dt.allPriorityProcessed}
                 </p>
               )}
             </section>
@@ -752,16 +1134,16 @@ function HomeView({
               <div className="flex items-center justify-between border-b border-border/70 pb-3 mb-3">
                 <div>
                   <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                    Recent Verified Inspections
+                    {dt.recentInspections}
                   </h3>
-                  <p className="text-[11px] text-muted-foreground">Live statutory records in local registry</p>
+                  <p className="text-[11px] text-muted-foreground">{dt.liveStatutoryRecords}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => onNavigate("history")}
                   className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
                 >
-                  View All ({scanned}) <ArrowRight className="h-3 w-3" />
+                  {dt.viewAll} ({scanned}) <ArrowRight className="h-3 w-3" />
                 </button>
               </div>
 
@@ -774,13 +1156,13 @@ function HomeView({
               ) : inspections.length ? (
                 <div className="divide-y divide-border/60">
                   {inspections.slice(0, 4).map((inspection) => (
-                    <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} />
+                    <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} lang={lang} />
                   ))}
                 </div>
               ) : (
                 <EmptyState
-                  title="No inspections yet"
-                  description="Scan your first package label to populate the local operational register."
+                  title={dt.noInspectionsYet}
+                  description={dt.noInspectionsDesc}
                   onAction={() => onNavigate("scan")}
                 />
               )}
@@ -795,7 +1177,7 @@ function HomeView({
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-brand" />
                   <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                    Regulatory Updates
+                    {dt.regulatoryUpdates}
                   </h3>
                 </div>
                 <button
@@ -803,28 +1185,28 @@ function HomeView({
                   onClick={() => onNavigate("regulatory")}
                   className="text-[11px] font-semibold text-brand hover:underline"
                 >
-                  Rule Engine
+                  {dt.ruleEngine}
                 </button>
               </div>
 
               <div className="space-y-2.5 text-xs">
                 <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
                   <div className="flex items-center justify-between font-semibold">
-                    <span>LMPC 2011 · Rule 6 (Consolidated)</span>
-                    <span className="rounded bg-success-soft text-success px-1.5 py-0.2 text-[9px] font-bold">ACTIVE</span>
+                    <span>{dt.lmpcRule6}</span>
+                    <span className="rounded bg-success-soft text-success px-1.5 py-0.2 text-[9px] font-bold">{dt.active}</span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-                    Mandatory MRP, Unit Sale Price (USP), Net Quantity font height, Batch &amp; Manufacturer details enforcement.
+                    {dt.lmpcRule6Desc}
                   </p>
                 </div>
 
                 <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
                   <div className="flex items-center justify-between font-semibold">
-                    <span>G.S.R. 594(E) QR Code Provision</span>
-                    <span className="rounded bg-brand-soft text-brand px-1.5 py-0.2 text-[9px] font-bold">GAZETTE</span>
+                    <span>{dt.gsrQrCode}</span>
+                    <span className="rounded bg-brand-soft text-brand px-1.5 py-0.2 text-[9px] font-bold">{dt.gazette}</span>
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-                    Electronic declarations permitted via registered QR codes on commodities with PDP under 100 cm².
+                    {dt.gsrQrCodeDesc}
                   </p>
                 </div>
               </div>
@@ -836,7 +1218,7 @@ function HomeView({
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-emerald-500" />
                   <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                    Inter-Agency Cross-Check
+                    {dt.interAgencyCheck}
                   </h3>
                 </div>
                 <span className="text-[10px] font-mono text-muted-foreground">DOCA · FSSAI</span>
@@ -845,21 +1227,21 @@ function HomeView({
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between rounded-xl bg-muted/40 p-3 border border-border/60">
                   <div>
-                    <p className="font-semibold text-foreground">FSSAI License Verification</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">14-digit FoSCoS registry validation</p>
+                    <p className="font-semibold text-foreground">{dt.fssaiVerification}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{dt.fssaiDesc}</p>
                   </div>
                   <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-bold text-success">
-                    ONLINE
+                    {dt.fssaiStatus}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between rounded-xl bg-muted/40 p-3 border border-border/60">
                   <div>
-                    <p className="font-semibold text-foreground">Package Integrity Model</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">Dual-contour sticker &amp; price tamper check</p>
+                    <p className="font-semibold text-foreground">{dt.integrityModel}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{dt.integrityDesc}</p>
                   </div>
                   <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-bold text-brand">
-                    ACTIVE
+                    {dt.integrityStatus}
                   </span>
                 </div>
               </div>
@@ -869,9 +1251,9 @@ function HomeView({
             <section className="rounded-2xl border border-brand/20 bg-muted/30 p-4 space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="font-bold uppercase tracking-wider text-muted-foreground text-[10px]">
-                  Specialized Portals
+                  {dt.specializedPortals}
                 </span>
-                <span className="text-[10px] text-brand font-semibold">Dual Mode</span>
+                <span className="text-[10px] text-brand font-semibold">{dt.dualMode}</span>
               </div>
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
@@ -880,8 +1262,8 @@ function HomeView({
                   className="rounded-xl border border-border/80 bg-card p-2.5 text-left hover:border-brand transition group"
                 >
                   <Globe className="h-4 w-4 text-brand mb-1 group-hover:scale-110 transition-transform" />
-                  <p className="font-semibold text-foreground">Senior Officer</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Regional surveillance</p>
+                  <p className="font-semibold text-foreground">{dt.seniorOfficer}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{dt.seniorOfficerDesc}</p>
                 </button>
                 <button
                   type="button"
@@ -889,8 +1271,8 @@ function HomeView({
                   className="rounded-xl border border-border/80 bg-card p-2.5 text-left hover:border-brand transition group"
                 >
                   <ScanLine className="h-4 w-4 text-brand mb-1 group-hover:scale-110 transition-transform" />
-                  <p className="font-semibold text-foreground">Citizen Portal</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Public scan &amp; report</p>
+                  <p className="font-semibold text-foreground">{dt.citizenConsumer}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{dt.citizenDesc}</p>
                 </button>
               </div>
             </section>
@@ -1123,7 +1505,7 @@ function ScanView({
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="text-center">
-            <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-purple-700">
+            <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-brand-700">
               {t.multiAngleCapture}
             </p>
             <h1 className="mt-0.5 text-lg font-bold text-slate-900">
@@ -1141,7 +1523,7 @@ function ScanView({
 
         {/* Camera Viewfinder Enclosure */}
         <div className="flex flex-1 flex-col justify-center py-6">
-          <div className="relative mx-auto aspect-[4/5] w-full max-w-md overflow-hidden rounded-3xl border-2 border-purple-200 bg-slate-950 shadow-xl">
+          <div className="relative mx-auto aspect-[4/5] w-full max-w-md overflow-hidden rounded-3xl border-2 border-slate-200 bg-slate-950 shadow-xl">
             <video
               ref={videoRef}
               autoPlay
@@ -1151,13 +1533,13 @@ function ScanView({
             />
             {/* Viewfinder Target Reticle */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="relative h-[76%] w-[76%] rounded-2xl border border-purple-300/40">
+              <div className="relative h-[76%] w-[76%] rounded-2xl border border-brand-300/40">
                 <span className="absolute -left-px -top-px h-8 w-8 rounded-tl-xl border-l-4 border-t-4 border-saffron" />
                 <span className="absolute -right-px -top-px h-8 w-8 rounded-tr-xl border-r-4 border-t-4 border-saffron" />
-                <span className="absolute -bottom-px -left-px h-8 w-8 rounded-bl-xl border-b-4 border-l-4 border-purple-500" />
-                <span className="absolute -bottom-px -right-px h-8 w-8 rounded-br-xl border-b-4 border-r-4 border-purple-500" />
+                <span className="absolute -bottom-px -left-px h-8 w-8 rounded-bl-xl border-b-4 border-l-4 border-brand-500" />
+                <span className="absolute -bottom-px -right-px h-8 w-8 rounded-br-xl border-b-4 border-r-4 border-brand-500" />
                 {cameraActive && (
-                  <div className="scan-line absolute inset-x-4 top-1/2 h-0.5 bg-gradient-to-r from-saffron via-white to-purple-500 shadow-[0_0_18px_#a855f7]" />
+                  <div className="scan-line absolute inset-x-4 top-1/2 h-0.5 bg-gradient-to-r from-saffron via-white to-brand-500 shadow-[0_0_18px_#0A369D]" />
                 )}
               </div>
             </div>
@@ -1165,7 +1547,7 @@ function ScanView({
             {/* Inactive State Prompt */}
             {!cameraActive && (
               <div className="absolute inset-x-8 bottom-8 rounded-2xl border border-slate-700/80 bg-slate-900/90 p-5 text-center text-white backdrop-blur shadow-2xl">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-950 border border-purple-500/40 text-purple-300 mb-2">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-950 border border-brand-500/40 text-brand-300 mb-2">
                   <Camera className="h-6 w-6" />
                 </div>
                 <p className="text-sm font-bold text-white">{t.cameraPreview}</p>
@@ -1174,7 +1556,7 @@ function ScanView({
                 </p>
                 <Button
                   variant="primary"
-                  className="mt-4 bg-purple-700 hover:bg-purple-800 text-white font-bold px-5 shadow-lg ring-2 ring-purple-400/30"
+                  className="mt-4 bg-brand hover:bg-brand-800 text-white font-bold px-5 shadow-lg ring-2 ring-brand-400/30"
                   onClick={startCamera}
                 >
                   <Camera className="h-4 w-4 mr-1.5" />
@@ -1207,10 +1589,10 @@ function ScanView({
               {captured.map((img, index) => (
                 <div
                   key={index}
-                  className="relative h-20 w-16 shrink-0 overflow-hidden rounded-xl border-2 border-purple-300 bg-white shadow-sm ring-1 ring-purple-200/50"
+                  className="relative h-20 w-16 shrink-0 overflow-hidden rounded-xl border-2 border-brand-300 bg-white shadow-sm ring-1 ring-brand-200/50"
                 >
                   <img src={img} alt={`Face ${index + 1}`} className="h-full w-full object-cover" />
-                  <span className="absolute left-1 top-1 rounded bg-purple-700 px-1 py-0.5 text-[8px] font-extrabold text-white shadow-xs">
+                  <span className="absolute left-1 top-1 rounded bg-brand px-1 py-0.5 text-[8px] font-extrabold text-white shadow-xs">
                     F{index + 1}
                   </span>
                   <button
@@ -1233,9 +1615,9 @@ function ScanView({
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={captured.length >= 6}
-            className="flex w-24 flex-col items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-purple-900 disabled:opacity-40 transition-colors"
+            className="flex w-24 flex-col items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-brand-900 disabled:opacity-40 transition-colors"
           >
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white border border-slate-200 text-purple-700 shadow-sm hover:bg-purple-50 transition">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white border border-slate-200 text-brand shadow-sm hover:bg-brand-50 transition">
               <ImageIcon className="h-5 w-5" />
             </span>
             {t.gallery}
@@ -1245,7 +1627,7 @@ function ScanView({
             onClick={capture}
             aria-label="Capture inspection image"
             disabled={!cameraActive || captured.length >= 6}
-            className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-purple-100 bg-purple-700 text-white shadow-xl hover:bg-purple-800 active:scale-95 disabled:opacity-40 transition-all"
+            className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-brand-100 bg-brand text-white shadow-xl hover:bg-brand-800 active:scale-95 disabled:opacity-40 transition-all"
           >
             <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/60 bg-white/10">
               <Camera className="h-6 w-6" />
@@ -1255,16 +1637,14 @@ function ScanView({
             type="button"
             onClick={() => captured.length && onCaptured(captured)}
             disabled={!captured.length}
-            className={`flex w-24 flex-col items-center gap-1.5 text-xs font-bold ${
-              captured.length ? "text-purple-700 hover:text-purple-900" : "text-slate-400"
-            } disabled:opacity-40 transition-colors`}
+            className={`flex w-24 flex-col items-center gap-1.5 text-xs font-bold ${captured.length ? "text-brand hover:text-brand-900" : "text-slate-400"
+              } disabled:opacity-40 transition-colors`}
           >
             <span
-              className={`flex h-12 w-12 items-center justify-center rounded-full transition-all ${
-                captured.length
-                  ? "bg-purple-700 text-white hover:bg-purple-800 shadow-md ring-2 ring-purple-300"
+              className={`flex h-12 w-12 items-center justify-center rounded-full transition-all ${captured.length
+                  ? "bg-brand text-white hover:bg-brand-800 shadow-md ring-2 ring-brand-300"
                   : "bg-white border border-slate-200 text-slate-400 shadow-xs"
-              }`}
+                }`}
             >
               <ArrowRight className="h-5 w-5" />
             </span>
@@ -1984,13 +2364,13 @@ function ResultView({
   const total = inspection.declarations.length;
   const headline =
     inspection.status === "COMPLIANT" ? "Compliant" :
-    inspection.status === "VIOLATION" ? "Compliance issue found" :
-    inspection.status === "EXEMPT" ? "Exempt from these rules" : "Needs review";
+      inspection.status === "VIOLATION" ? "Compliance issue found" :
+        inspection.status === "EXEMPT" ? "Exempt from these rules" : "Needs review";
   const body =
     inspection.status === "COMPLIANT" ? "Required declarations were detected and validated against the applicable rules." :
-    inspection.status === "VIOLATION" ? "Some required information was not detected or needs an officer review." :
-    inspection.status === "EXEMPT" ? (inspection.exemptReason || "This package falls outside the scope of these rules.") :
-    "Some information could not be reliably verified from the image.";
+      inspection.status === "VIOLATION" ? "Some required information was not detected or needs an officer review." :
+        inspection.status === "EXEMPT" ? (inspection.exemptReason || "This package falls outside the scope of these rules.") :
+          "Some information could not be reliably verified from the image.";
 
   const resultAiSummary = useMemo(() => {
     const prod = inspection.product || "Product";
@@ -2476,13 +2856,13 @@ function DynamicEvidenceCrop({
     const heading = isAmbiguous
       ? "Evidence location uncertain"
       : isUnavailable
-      ? "Localization service unavailable"
-      : "Evidence location unavailable";
+        ? "Localization service unavailable"
+        : "Evidence location unavailable";
     const desc = isAmbiguous
       ? `Multiple candidate text locations detected on this face for "${label}". Coarse fallback box suppressed for statutory precision.`
       : isUnavailable
-      ? "The localization engine was unavailable during this scan."
-      : `No verified tight text polygon could be localized for "${label}" on this package face. Physical verification is required.`;
+        ? "The localization engine was unavailable during this scan."
+        : `No verified tight text polygon could be localized for "${label}" on this package face. Physical verification is required.`;
 
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center bg-card rounded-xl border border-warning/30 min-h-[320px]">
@@ -2720,11 +3100,10 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
               return (
                 <div
                   key={st.surfaceId || st.surfaceType || idx}
-                  className={`flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-all ${
-                    isPanelActive
+                  className={`flex flex-col rounded-2xl border bg-card p-4 shadow-sm transition-all ${isPanelActive
                       ? "border-brand ring-2 ring-brand/30 shadow-md"
                       : "border-border/70 hover:border-border"
-                  }`}
+                    }`}
                 >
                   {/* Face Header: Sleek, decluttered minimalist toolbar */}
                   <div className="flex items-center justify-between border-b border-border/60 pb-2 mb-3">
@@ -2754,11 +3133,10 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                               [st.surfaceType]: "canonical",
                             }));
                           }}
-                          className={`rounded-md px-2.5 py-1 text-xs transition ${
-                            currentMode === "canonical"
-                              ? "bg-purple-700 text-white font-bold shadow-xs"
-                              : "text-slate-700 hover:text-slate-900 font-semibold"
-                          }`}
+                          className={`rounded-md px-2 py-0.5 transition ${currentMode === "canonical"
+                              ? "bg-background text-foreground font-bold shadow-xs"
+                              : "text-muted-foreground hover:text-foreground"
+                            }`}
                         >
                           Scan
                         </button>
@@ -2770,11 +3148,10 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                               [st.surfaceType]: "original",
                             }));
                           }}
-                          className={`rounded-md px-2.5 py-1 text-xs transition ${
-                            currentMode === "original"
-                              ? "bg-purple-700 text-white font-bold shadow-xs"
-                              : "text-slate-700 hover:text-slate-900 font-semibold"
-                          }`}
+                          className={`rounded-md px-2 py-0.5 transition ${currentMode === "original"
+                              ? "bg-background text-foreground font-bold shadow-xs"
+                              : "text-muted-foreground hover:text-foreground"
+                            }`}
                         >
                           Raw
                         </button>
@@ -2921,11 +3298,10 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                             key={r.label}
                             type="button"
                             onClick={() => handleSelectDeclaration(r.label, st.surfaceType)}
-                            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition ${
-                              isSelected
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold transition ${isSelected
                                 ? "bg-brand text-brand-foreground shadow-xs ring-1 ring-brand"
                                 : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-                            }`}
+                              }`}
                           >
                             <span>{r.label}:</span>
                             <span className="font-mono text-[9px] opacity-90 truncate max-w-[70px]">
@@ -3069,11 +3445,10 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                       key={d.field}
                       type="button"
                       onClick={() => handleSelectDeclaration(d.field)}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                        isSelected
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${isSelected
                           ? "bg-brand text-brand-foreground shadow-xs ring-1 ring-brand"
                           : "border border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      }`}
+                        }`}
                     >
                       {d.field}
                     </button>
@@ -3091,13 +3466,12 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                 <h3 className="text-xl font-bold tracking-tight text-foreground">{activeDecl?.field || selectedLabel}</h3>
               </div>
               <div className="text-right">
-                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                  activeDecl?.status === "VERIFIED"
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${activeDecl?.status === "VERIFIED"
                     ? "bg-success-soft text-success"
                     : activeDecl?.status === "MISSING"
-                    ? "bg-danger-soft text-danger"
-                    : "bg-warning-soft text-warning"
-                }`}>
+                      ? "bg-danger-soft text-danger"
+                      : "bg-warning-soft text-warning"
+                  }`}>
                   {activeDecl?.status || "DETECTED"}
                 </span>
                 <p className="mt-1 text-[11px] font-mono text-muted-foreground">
@@ -3210,19 +3584,18 @@ function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: ()
 
             {/* Verdict Banner */}
             <div
-              className={`rounded-lg p-3 text-center border font-bold text-xs sm:text-sm tracking-wide ${
-                isCompliant
+              className={`rounded-lg p-3 text-center border font-bold text-xs sm:text-sm tracking-wide ${isCompliant
                   ? "bg-emerald-50 text-emerald-800 border-emerald-600"
                   : isViolation
-                  ? "bg-rose-50 text-rose-800 border-rose-600"
-                  : "bg-amber-50 text-amber-800 border-amber-600"
-              }`}
+                    ? "bg-rose-50 text-rose-800 border-rose-600"
+                    : "bg-amber-50 text-amber-800 border-amber-600"
+                }`}
             >
               {isCompliant
                 ? "FINAL INSPECTION VERDICT: COMPLIANT — ALL MANDATORY DECLARATIONS VERIFIED"
                 : isViolation
-                ? "FINAL INSPECTION VERDICT: STATUTORY VIOLATION — NON-COMPLIANCE DETECTED"
-                : "FINAL INSPECTION VERDICT: REVIEW REQUIRED — MANUAL INSPECTION RECOMMENDED"}
+                  ? "FINAL INSPECTION VERDICT: STATUTORY VIOLATION — NON-COMPLIANCE DETECTED"
+                  : "FINAL INSPECTION VERDICT: REVIEW REQUIRED — MANUAL INSPECTION RECOMMENDED"}
             </div>
 
             {/* 2x3 Metadata Table */}
@@ -3429,9 +3802,8 @@ function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: ()
                       <div className="text-slate-400 text-xs font-mono">Surface {idx + 1} Image</div>
                     )}
                     <div
-                      className={`absolute top-0 inset-x-0 py-0.5 px-2 text-[10px] font-bold text-white uppercase text-center ${
-                        isViolation ? "bg-rose-700" : "bg-emerald-700"
-                      }`}
+                      className={`absolute top-0 inset-x-0 py-0.5 px-2 text-[10px] font-bold text-white uppercase text-center ${isViolation ? "bg-rose-700" : "bg-emerald-700"
+                        }`}
                     >
                       Legal Metrology Check: {isViolation ? "Violations Detected" : "Compliant"}
                     </div>
@@ -3506,7 +3878,15 @@ function LoginView({
     setError(undefined);
     try {
       const user = await login(username.trim(), password);
-      onLoggedIn(user, user.role === "admin" ? "seniorRegional" : "home");
+      const target: View =
+        user.role === "admin"
+          ? "seniorRegional"
+          : user.role === "reviewer" || user.role === "senior_inspector" || user.role === "authority"
+            ? "authority"
+            : user.role === "customer"
+              ? "customer"
+              : "home";
+      onLoggedIn(user, target);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in.");
     } finally {
@@ -3525,9 +3905,9 @@ function LoginView({
           <ArrowLeft className="h-4 w-4" /> Back to Overview
         </button>
       )}
-      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-3xl border-2 border-purple-200/90 bg-white p-7 shadow-xl">
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl">
         <div className="h-1.5 w-full tricolor-stripe mb-5 rounded-full" />
-        <div className="flex flex-col items-center text-center pb-4 border-b border-purple-100 mb-4">
+        <div className="flex flex-col items-center text-center pb-4 border-b border-slate-100 mb-4">
           <img
             src="/dca-logo.png"
             alt="Department of Consumer Affairs"
@@ -3540,71 +3920,75 @@ function LoginView({
           Select your statutory role or enter credentials to access Legal Metrology dashboards and inspection tools.
         </p>
 
-        {/* 1-Click Role Direct Sign-in */}
-        <div className="mt-5 space-y-2.5">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Instant Role Access (Demo):</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {/* 1-Click Role Direct Sign-in - Screenshot 1 2x2 Grid */}
+        <div className="mt-5 space-y-3">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-700">INSTANT ROLE ACCESS (DEMO):</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {/* Field Inspector */}
             <button
               type="button"
               id="quick-inspector-login"
               disabled={submitting}
               onClick={() => handleQuickLogin("inspector", "password123", "home")}
-              className="flex items-center gap-2.5 p-3 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 text-left transition-all group"
+              className="flex items-center gap-3 p-3 rounded-2xl border border-purple-200/90 bg-purple-50/30 hover:bg-purple-50/80 text-left transition-all group shadow-2xs"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <ShieldCheck className="h-4 w-4" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#6B21A8] text-white shadow-xs">
+                <ShieldCheck className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-foreground group-hover:text-primary">Field Inspector</p>
-                <p className="text-[10px] text-muted-foreground truncate">inspector / password123</p>
+                <p className="text-xs font-bold text-slate-900 group-hover:text-purple-900">Field Inspector</p>
+                <p className="text-[11px] text-slate-500 truncate">inspector / password123</p>
               </div>
             </button>
 
+            {/* Statutory Authority */}
             <button
               type="button"
               id="quick-authority-login"
               disabled={submitting}
               onClick={() => handleQuickLogin("authority", "password123", "authority")}
-              className="flex items-center gap-2.5 p-3 rounded-xl border border-purple-300/40 bg-purple-500/5 hover:bg-purple-500/10 text-left transition-all group"
+              className="flex items-center gap-3 p-3 rounded-2xl border border-purple-200/90 bg-purple-50/30 hover:bg-purple-50/80 text-left transition-all group shadow-2xs"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-700 text-white">
-                <ClipboardCheck className="h-4 w-4" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7C3AED] text-white shadow-xs">
+                <ClipboardCheck className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-foreground group-hover:text-purple-700">Statutory Authority</p>
-                <p className="text-[10px] text-muted-foreground truncate">authority / password123</p>
+                <p className="text-xs font-bold text-slate-900 group-hover:text-purple-900">Statutory Authority</p>
+                <p className="text-[11px] text-slate-500 truncate">authority / password123</p>
               </div>
             </button>
 
+            {/* Senior Admin */}
             <button
               type="button"
-              id="quick-admin-login"
+              id="quick-inspector-login"
               disabled={submitting}
               onClick={() => handleQuickLogin("admin", "password123", "seniorRegional")}
-              className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-muted/40 hover:bg-muted text-left transition-all group"
+              className="flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 text-left transition-all group shadow-2xs"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
-                <Globe className="h-4 w-4" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-800 shadow-xs">
+                <Globe className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-foreground group-hover:text-primary">Senior Admin</p>
-                <p className="text-[10px] text-muted-foreground truncate">admin / password123</p>
+                <p className="text-xs font-bold text-slate-900 group-hover:text-brand-900">Senior Admin</p>
+                <p className="text-[11px] text-slate-500 truncate">admin / password123</p>
               </div>
             </button>
 
+            {/* Citizen Consumer */}
             <button
               type="button"
-              id="quick-consumer-login"
+              id="quick-customer-login"
               disabled={submitting}
               onClick={() => handleQuickLogin("customer", "password123", "customer")}
-              className="flex items-center gap-2.5 p-3 rounded-xl border border-cyan-300/40 bg-cyan-500/5 hover:bg-cyan-500/10 text-left transition-all group"
+              className="flex items-center gap-3 p-3 rounded-2xl border border-cyan-200/90 bg-cyan-50/30 hover:bg-cyan-50/80 text-left transition-all group shadow-2xs"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-700 text-white">
-                <Users className="h-4 w-4" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0891B2] text-white shadow-xs">
+                <Users className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-foreground group-hover:text-cyan-700">Citizen Consumer</p>
-                <p className="text-[10px] text-muted-foreground truncate">customer / password123</p>
+                <p className="text-xs font-bold text-slate-900 group-hover:text-cyan-900">Citizen Consumer</p>
+                <p className="text-[11px] text-slate-500 truncate">customer / password123</p>
               </div>
             </button>
           </div>
@@ -3613,43 +3997,43 @@ function LoginView({
             <button
               type="button"
               onClick={onConsumerPortal}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl border border-border/80 bg-background hover:bg-muted/60 text-xs font-semibold text-muted-foreground hover:text-foreground transition-all"
+              className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-all shadow-2xs"
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2.5">
                 <Users className="h-4 w-4 text-cyan-600" />
                 Citizen / Consumer Portal (No login needed)
               </span>
-              <ArrowRight className="h-3.5 w-3.5" />
+              <ArrowRight className="h-4 w-4 text-slate-400" />
             </button>
           )}
         </div>
 
         <div className="my-5 flex items-center gap-3">
-          <div className="h-px flex-1 bg-border/80" />
-          <span className="text-[10px] font-bold uppercase text-muted-foreground">or manual sign in</span>
-          <div className="h-px flex-1 bg-border/80" />
+          <div className="h-px flex-1 bg-slate-200" />
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">OR MANUAL SIGN IN</span>
+          <div className="h-px flex-1 bg-slate-200" />
         </div>
 
         <div className="space-y-3.5">
           <div>
-            <label className="text-xs font-semibold text-muted-foreground">Username</label>
+            <label className="text-xs font-semibold text-slate-700">Username</label>
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
-              placeholder="e.g. admin or inspector"
-              className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              placeholder="e.g. inspector or admin"
+              className="mt-1 h-11 w-full rounded-2xl border border-blue-200/80 bg-[#EEF4FF] px-4 text-sm font-medium text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all"
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-muted-foreground">Password</label>
+            <label className="text-xs font-semibold text-slate-700">Password</label>
             <input
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               autoComplete="current-password"
               placeholder="••••••••"
-              className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              className="mt-1 h-11 w-full rounded-2xl border border-blue-200/80 bg-[#EEF4FF] px-4 text-sm font-medium text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all"
             />
           </div>
         </div>
@@ -3928,6 +4312,8 @@ export function InspectionApp() {
         onStartScan={() => go("scan")}
         onOfficerLogin={() => go("login")}
         onConsumerPortal={() => go("customer")}
+        lang={lang}
+        onLanguageChange={handleSetLang}
       />
     );
   }
@@ -3947,7 +4333,13 @@ export function InspectionApp() {
 
   const content =
     view === "landing" ? (
-      <LandingPage onStartScan={() => go("scan")} onOfficerLogin={() => go("login")} onConsumerPortal={() => go("customer")} />
+      <LandingPage
+        onStartScan={() => go("scan")}
+        onOfficerLogin={() => go("login")}
+        onConsumerPortal={() => go("customer")}
+        lang={lang}
+        onLanguageChange={handleSetLang}
+      />
     ) : view === "home" ? (
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onLogout={handleLogout} onNavigate={go} onOpen={handleOpen} lang={lang} onSetLang={handleSetLang} />
     ) : view === "history" ? (
@@ -4021,7 +4413,7 @@ export function InspectionApp() {
       {!inFocusedFlow && <div className="md:pl-64">{content}</div>}
       {inFocusedFlow && content}
       {!inFocusedFlow && <BottomNav view={view} onNavigate={go} lang={lang} />}
-      <MultilingualAssistantWidget currentInspection={selected} />
+      <MultilingualAssistantWidget currentInspection={selected || inspections[0]} lang={lang} onLanguageChange={handleSetLang} />
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-xl md:bottom-8">
           <Check className="h-4 w-4 text-success" />{toast}

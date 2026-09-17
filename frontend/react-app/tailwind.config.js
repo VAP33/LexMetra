@@ -27,18 +27,19 @@ export default {
         },
         border: "hsl(var(--border))",
         brand: {
-          DEFAULT: "#6B21A8", // Brand Royal Purple
-          50: "#FAF5FF",
-          100: "#F3E8FF",
-          200: "#E9D5FF",
-          300: "#D8B4FE",
-          400: "#A855F7",
-          500: "#8B5CF6",
-          600: "#7C3AED",
-          700: "#6B21A8",
-          800: "#581C87",
-          900: "#3B0764",
-          soft: "rgba(107, 33, 168, 0.12)",
+          DEFAULT: "#0A369D", // Indian Gov Blue (DBIM standard)
+          50: "#F0F5FF",
+          100: "#E0EBFF",
+          200: "#BAD3FF",
+          300: "#85B4FF",
+          400: "#4D8DFF",
+          500: "#1A66FF",
+          600: "#0A4DD6",
+          700: "#0A369D", // Primary Gov Blue
+          800: "#082976",
+          900: "#061C52", // Ashoka Deep Navy
+          950: "#030F2D",
+          soft: "rgba(10, 54, 157, 0.10)",
         },
         saffron: {
           DEFAULT: "#FF671F", // National Saffron (Bhagwa / Kesari)

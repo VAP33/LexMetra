@@ -5,11 +5,12 @@ Design goals:
 - OCR is evidence extraction only. It never decides legal compliance.
 - The public output shape remains compatible with the existing pipeline:
     {field: {value, confidence, bbox, numeric_value, numeric_unit, ...}}
-- Tesseract is the default OCR backend because it is already used by the MVP.
-  `run_ocr()` is intentionally isolated so PaddleOCR can replace it later.
+- Gemini Vision API is the primary OCR backend when GEMINI_API_KEY is configured,
+  for maximum speed and accuracy. Tesseract is the fallback backend.
+- `run_ocr()` is intentionally isolated so other OCR engines can replace it.
 - Multiple preprocessing variants and conservative parsing are preferred over
-  aggressive guessing. "Not observed" must not become "missing" merely because
-  OCR failed.
+- aggressive guessing. "Not observed" must not become "missing" merely because
+- OCR failed.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -29,7 +31,27 @@ import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 import config
-from declaration_graph import DeclarationGraphResolver, ResolvedDeclaration
+
+# Gemini API key is passed to the supported, explicit GenAI client. Do not rely
+# on global SDK configuration; that was part of the retired SDK surface.
+_GEMINI_API_KEY = config.GEMINI_API_KEY
+
+# Create one reusable client per process. The SDK client is thread-safe for the
+# stateless `models.generate_content` calls made by OCR.
+if _GEMINI_API_KEY:
+    try:
+        from google import genai as _genai
+        from google.genai import types as _genai_types
+        _gemini_client = _genai.Client(
+            api_key=_GEMINI_API_KEY,
+            http_options=_genai_types.HttpOptions(
+                timeout=int(config.GEMINI_OCR_TIMEOUT_SECONDS * 1000),
+            ),
+        )
+    except Exception:
+        _gemini_client = None
+else:
+    _gemini_client = None
 from semantic_parsers import (
     MoneyValue,
     BatchCandidate,
@@ -41,6 +63,7 @@ from semantic_parsers import (
     parse_role_company_block,
 )
 from temporal_reasoning import resolve_temporal_evidence, TemporalEvidence
+from declaration_graph import DeclarationGraphResolver
 
 
 @dataclass
@@ -241,32 +264,125 @@ def _dedupe_lines(lines: Iterable[OcrLine]) -> List[OcrLine]:
     return selected
 
 
+def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
+    """
+    Run Gemini Vision API for OCR extraction.
+
+    Returns OcrLine objects compatible with the existing pipeline.
+    Falls back gracefully if the API is unavailable or returns unexpected format.
+    """
+    if _gemini_client is None:
+        return []
+
+    # Convert PIL image to RGB if needed
+    rgb_image = image.convert("RGB")
+
+    # Build the prompt for declaration extraction
+    prompt = (
+        "You are an OCR extraction system for Legal Metrology packaged commodity inspection. "
+        "Extract all text visible in this image with their bounding boxes. "
+        "Return ONLY a complete JSON array where each element has: "
+        "{\"text\": \"<extracted text>\", \"x\": <int>, \"y\": <int>, \"w\": <int>, \"h\": <int>} "
+        f"x,y,w,h are integer pixels in this exact {rgb_image.width}x{rgb_image.height} image, "
+        "with (0,0) at the top-left. Never use a normalized 0-1000 coordinate system. "
+        "Include all readable text, "
+        "especially: MRP, Net Quantity, Manufacturing Date, Expiry Date, Batch Number, "
+        "Manufacturer name, Unit Sale Price, Product Name/Common Name, Country of Origin. "
+        "Do not invent or infer values not present in the image. "
+        "If a field is not visible, omit it entirely."
+    )
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model=config.GEMINI_OCR_MODEL,
+            contents=[prompt, rgb_image],
+            config=_genai_types.GenerateContentConfig(
+                temperature=0,
+                response_mime_type="application/json",
+                max_output_tokens=config.GEMINI_OCR_MAX_OUTPUT_TOKENS,
+            ),
+        )
+        text = getattr(response, "text", "") or ""
+    except Exception:
+        return []
+
+    # Parse the JSON array response
+    try:
+        # Do not repair a partial response.  Salvaging a prefix silently drops
+        # declarations, which is worse than using the deterministic fallback.
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
+        readings = json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    if not isinstance(readings, list):
+        return []
+
+    # Convert readings to OcrLine objects
+    lines: List[OcrLine] = []
+    for reading in readings:
+        if not isinstance(reading, dict):
+            continue
+        txt = str(reading.get("text", "")).strip()
+        if not txt:
+            continue
+        try:
+            x, y, w, h = (int(reading[k]) for k in ("x", "y", "w", "h"))
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        # A box is evidence.  Reject malformed/off-image geometry rather than
+        # clipping it into an apparently plausible but wrong overlay.
+        if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > rgb_image.width or y + h > rgb_image.height:
+            continue
+
+        lines.append(
+            OcrLine(
+                text=txt,
+                bbox=(int(x), int(y), int(w), int(h)),
+                # The API does not provide line confidence; this is deliberately
+                # below definitive evidence and is later localized independently.
+                confidence=0.72,
+                fusion_state="SINGLE_SOURCE",  # Single reading from Gemini
+                alternatives=(),
+                region_id=None,
+            )
+        )
+
+    return lines
+
+
 def run_ocr(image: Image.Image) -> List[OcrLine]:
     """
     Read an image and return text lines in ORIGINAL image coordinates.
 
-    Uses high-speed whole-image multi-variant OCR as the primary pass.
-    Only invokes the heavy CPU region-first pipeline if whole-image OCR
-    produced sparse results (< 8 lines), eliminating 15-20s of redundant CPU delay.
+    Uses Gemini Vision API as the primary backend when GEMINI_API_KEY is configured,
+    for maximum speed and accuracy. Falls back to Tesseract whole-image multi-variant OCR
+    if Gemini is unavailable or returns sparse results.
+
+    The whole-image approach is preferred because it avoids the complexity of region
+    proposal and is much faster for typical package labels. The region-first pipeline
+    is only invoked as a fallback when whole-image OCR produces very sparse results
+    (< 8 lines), eliminating 15-20s of redundant CPU delay.
     """
     lines: List[OcrLine] = []
 
-    # 1. Whole-image multi-variant OCR
-    try:
-        whole_lines = _run_ocr_whole_image(image)
-        lines.extend(whole_lines)
-    except Exception:
-        whole_lines = []
-
-    # 2. Region-first oriented OCR (only if sparse whole-image lines)
-    if config.ENABLE_REGION_FIRST_OCR and len(whole_lines) < 8:
+    # 1. Gemini Vision API (primary when configured)
+    if _GEMINI_API_KEY:
         try:
-            import numpy as np
-            import ocr_engine
+            gemini_lines = _ocr_gemini(image)
+            if gemini_lines:
+                lines.extend(gemini_lines)
+        except Exception:
+            pass
 
-            rgb = np.asarray(image.convert("RGB"))
-            bgr = rgb[:, :, ::-1].copy()
-            lines.extend(ocr_engine.read_image(bgr).lines)
+    # 2. Whole-image Tesseract OCR (fallback or secondary)
+    if not config.ENABLE_REGION_FIRST_OCR or len(lines) < 8:
+        try:
+            whole_lines = _run_ocr_whole_image(image)
+            lines.extend(whole_lines)
         except Exception:
             pass
 

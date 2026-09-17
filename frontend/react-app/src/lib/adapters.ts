@@ -111,8 +111,8 @@ function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declara
       }
     }
 
-    const bboxPx = bboxFromEvidence(c.evidence?.bbox);
-    const canonBboxPx = bboxFromEvidence(c.evidence?.canonical_bbox) || bboxPx;
+    const canonBboxPx = bboxFromEvidence(c.evidence?.canonical_bbox);
+    const bboxPx = bboxFromEvidence(c.evidence?.bbox) || canonBboxPx;
     const polygonPx = (c.evidence?.polygon || c.evidence?.canonical_polygon) as [number, number][] | undefined;
     const ruleVer = c.rule_id?.includes("IN-LMPC") ? "2011-consolidated" : "2011 (amended)";
 
@@ -386,11 +386,20 @@ function mapSurfaces(
 
     const surfaceId = s.surface_id || `face_${idx + 1}`;
     const faceRegions = (evidence || []).filter((r) => {
-      if (!r.surfaceType) return false;
+      if (!r.surfaceType) return (rawSurfaces?.length ?? 0) <= 1 || idx === 0;
       const st = r.surfaceType.trim().toLowerCase();
       const fl = faceLabel.trim().toLowerCase();
       const sid = surfaceId.trim().toLowerCase();
-      return st === fl || st === sid;
+      const raw = rawType.trim().toLowerCase();
+      return (
+        st === fl ||
+        st === sid ||
+        st === raw ||
+        st.replace("face_", "face ") === fl ||
+        st.replace("face_", "face ") === `face ${idx + 1}` ||
+        st === `face_${idx + 1}` ||
+        ((rawSurfaces?.length ?? 0) <= 1)
+      );
     });
 
     return {

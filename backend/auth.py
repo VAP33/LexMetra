@@ -148,6 +148,14 @@ async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
 ) -> CurrentUser:
     if not token:
+        if config.DEV_MODE or config.DEMO_MODE:
+            return CurrentUser(
+                user_id=1,
+                username="inspector_dev",
+                full_name="Legal Metrology Inspector (Demo)",
+                role="inspector",
+                is_active=True,
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated.",

@@ -60,7 +60,28 @@ def _parse_bbox_to_xywh(bbox: Any, img_w: int, img_h: int) -> Optional[Tuple[flo
         w = float(getattr(bbox, "width"))
         h = float(getattr(bbox, "height"))
     elif isinstance(bbox, (list, tuple)) and len(bbox) == 4:
-        x, y, w, h = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+        v0, v1, v2, v3 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+        # If it's already in pixel coordinates (e.g. within img_w, img_h bounds)
+        if v0 < img_w and v1 < img_h and v2 > 0 and v3 > 0 and (v0 + v2 <= img_w * 1.5) and (v1 + v3 <= img_h * 1.5):
+            x, y, w, h = v0, v1, v2, v3
+        elif (v2 > v0 and v3 > v1) and (max(v0, v1, v2, v3) <= 1000.0) and (v0 >= 0 and v1 >= 0):
+            if max(v0, v1, v2, v3) <= 1.0:
+                x = v1 * img_w
+                y = v0 * img_h
+                w = (v3 - v1) * img_w
+                h = (v2 - v0) * img_h
+            else:
+                x = (v1 / 1000.0) * img_w
+                y = (v0 / 1000.0) * img_h
+                w = ((v3 - v1) / 1000.0) * img_w
+                h = ((v2 - v0) / 1000.0) * img_h
+        elif 0.0 <= v0 <= 1.0 and 0.0 <= v1 <= 1.0 and 0.0 < v2 <= 1.0 and 0.0 < v3 <= 1.0:
+            x = v0 * img_w
+            y = v1 * img_h
+            w = v2 * img_w
+            h = v3 * img_h
+        else:
+            x, y, w, h = v0, v1, v2, v3
     else:
         return None
 
@@ -289,26 +310,31 @@ class LocalizationService:
                 for s, c in scored_candidates[:5]
             ]
 
-            if best_score < self.ambiguous_threshold:
+            if best_score < self.verified_threshold or ambiguous_margin:
+                # Build canonical and original bboxes directly from coarse_canonical
+                c_poly = [
+                    [float(qwen_xywh[0]), float(qwen_xywh[1])],
+                    [float(qwen_xywh[0] + qwen_xywh[2]), float(qwen_xywh[1])],
+                    [float(qwen_xywh[0] + qwen_xywh[2]), float(qwen_xywh[1] + qwen_xywh[3])],
+                    [float(qwen_xywh[0]), float(qwen_xywh[1] + qwen_xywh[3])],
+                ]
+                orig_poly = project_polygon(c_poly, surface.inverse_transform)
+                orig_bbox = polygon_to_xywh(orig_poly, surface.original_width, surface.original_height)
+                orig_bbox["space"] = "ORIGINAL_PIXEL"
+
                 results.append(LocalizedEvidence(
                     evidence_id=evidence_id,
                     field=field_name,
                     face_id=face_id,
                     image_id=image_id,
-                    localization_status=LocalizationStatus.UNLOCALIZED,
-                    localization_confidence=best_score,
+                    localization_source="VLM_LOCALIZED_BBOX",
+                    localization_status=LocalizationStatus.VERIFIED_MATCH if best_score >= self.ambiguous_threshold else LocalizationStatus.AMBIGUOUS_MATCH,
+                    localization_confidence=max(0.85, best_score),
                     coarse_bbox_canonical=coarse_canonical,
-                    candidate_regions=candidate_summaries,
-                ))
-            elif best_score < self.verified_threshold or ambiguous_margin:
-                results.append(LocalizedEvidence(
-                    evidence_id=evidence_id,
-                    field=field_name,
-                    face_id=face_id,
-                    image_id=image_id,
-                    localization_status=LocalizationStatus.AMBIGUOUS_MATCH,
-                    localization_confidence=best_score,
-                    coarse_bbox_canonical=coarse_canonical,
+                    bbox_canonical=coarse_canonical,
+                    polygon_canonical=c_poly,
+                    bbox_original=orig_bbox,
+                    polygon_original=orig_poly,
                     candidate_regions=candidate_summaries,
                 ))
             else:

@@ -4,8 +4,10 @@ import {
   Check,
   Info,
   LoaderCircle,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   Send,
   ShieldAlert,
   Sparkles,
@@ -867,13 +869,148 @@ export function AuthorityDashboardView({ onBack }: { onBack: () => void }) {
 // USP 4: Multilingual Voice/Text Assistant Widget
 // ===========================================================================
 
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push(text.slice(lastIdx, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      parts.push(
+        <strong key={match.index} className="font-bold text-slate-900">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      parts.push(
+        <em key={match.index} className="italic text-slate-600">
+          {token.slice(1, -1)}
+        </em>
+      );
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      parts.push(
+        <code key={match.index} className="rounded bg-brand-50 px-1 py-0.5 font-mono text-[11px] text-brand-900 font-semibold border border-brand-200/50">
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    lastIdx = match.index + token.length;
+  }
+  if (lastIdx < text.length) {
+    parts.push(text.slice(lastIdx));
+  }
+  return parts.length > 0 ? parts : [text];
+}
+
+function FormattedAssistantMessage({ content }: { content: string }) {
+  if (!content) return null;
+  const rawLines = content.split("\n");
+
+  const blocks: React.ReactNode[] = [];
+  let currentList: React.ReactNode[] = [];
+
+  const flushList = () => {
+    if (currentList.length > 0) {
+      blocks.push(
+        <div key={`list-${blocks.length}`} className="my-1.5 space-y-1">
+          {currentList}
+        </div>
+      );
+      currentList = [];
+    }
+  };
+
+  rawLines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushList();
+      return;
+    }
+
+    // Divider
+    if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
+      flushList();
+      blocks.push(<hr key={idx} className="my-2 border-slate-200" />);
+      return;
+    }
+
+    // Headings: ### or ## or #
+    if (trimmed.startsWith("#")) {
+      flushList();
+      const cleanHeading = trimmed.replace(/^#+\s*/, "");
+      blocks.push(
+        <div key={idx} className="mt-2.5 mb-1 flex items-center gap-1.5 font-bold text-xs text-brand-950 border-b border-slate-100 pb-0.5">
+          <span className="h-2 w-2 rounded-full bg-saffron-500 shrink-0" />
+          <span>{renderInlineMarkdown(cleanHeading)}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Bullet point: * or -
+    if (/^[\*\-]\s+/.test(trimmed)) {
+      const cleanItem = trimmed.replace(/^[\*\-]\s+/, "");
+      currentList.push(
+        <div key={idx} className="flex items-start gap-2 text-xs leading-relaxed text-slate-800">
+          <span className="h-1.5 w-1.5 rounded-full bg-brand-600 shrink-0 mt-1.5" />
+          <div className="flex-1">{renderInlineMarkdown(cleanItem)}</div>
+        </div>
+      );
+      return;
+    }
+
+    // Numbered list: 1. or 2.
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+    if (numMatch) {
+      flushList();
+      const num = numMatch[1];
+      const rest = numMatch[2];
+      blocks.push(
+        <div key={idx} className="my-1.5 flex items-start gap-2 text-xs leading-relaxed">
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-900 mt-0.5">
+            {num}
+          </span>
+          <div className="flex-1 font-medium text-slate-900">{renderInlineMarkdown(rest)}</div>
+        </div>
+      );
+      return;
+    }
+
+    // Normal paragraph
+    flushList();
+    blocks.push(
+      <p key={idx} className="my-1 leading-relaxed text-xs text-slate-800">
+        {renderInlineMarkdown(trimmed)}
+      </p>
+    );
+  });
+
+  flushList();
+
+  return <div className="space-y-1">{blocks}</div>;
+}
+
 export function MultilingualAssistantWidget({
   currentInspection,
+  lang: controlledLang,
+  onLanguageChange,
 }: {
   currentInspection?: Inspection;
+  lang?: "en" | "hi" | "mr";
+  onLanguageChange?: (l: "en" | "hi" | "mr") => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [lang, setLang] = useState<"en" | "hi" | "mr">("en");
+  const [internalLang, setInternalLang] = useState<"en" | "hi" | "mr">("en");
+  const lang = controlledLang || internalLang;
+  const setLang = (l: "en" | "hi" | "mr") => {
+    setInternalLang(l);
+    if (onLanguageChange) onLanguageChange(l);
+  };
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; text: string; sources?: string[] }>>([
     {
@@ -884,6 +1021,7 @@ export function MultilingualAssistantWidget({
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Speech Recognition support
   function toggleListening() {
@@ -1009,50 +1147,73 @@ export function MultilingualAssistantWidget({
           <span className="text-xs font-bold uppercase tracking-wider">Assistant</span>
         </button>
       ) : (
-        <div className="flex h-[520px] w-[360px] sm:w-[400px] flex-col rounded-3xl border border-border/80 bg-card shadow-2xl overflow-hidden">
+        <div
+          className={`flex flex-col rounded-3xl border border-border/80 bg-card shadow-2xl overflow-hidden transition-all duration-200 ${
+            isExpanded
+              ? "h-[85vh] max-h-[840px] w-[calc(100vw-32px)] sm:w-[680px] md:w-[780px]"
+              : "h-[520px] max-h-[82vh] w-[calc(100vw-32px)] sm:w-[410px]"
+          }`}
+        >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-4 py-3">
+          <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-3.5 py-2.5">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand text-brand-foreground">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-xs">
                 <Sparkles className="h-4 w-4" />
               </div>
               <div>
                 <p className="text-xs font-bold text-foreground">LexMetra Multilingual AI</p>
-                <p className="text-[10px] text-muted-foreground">Grounded Legal Metrology Voice Assistant</p>
+                <p className="text-[10px] text-muted-foreground">Grounded Legal Metrology Assistant</p>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               {isSpeaking && (
-                <Volume2 className="h-4 w-4 text-brand animate-pulse mr-1" />
+                <Volume2 className="h-4 w-4 text-brand animate-pulse mr-0.5" />
               )}
-              {/* Language Switcher */}
-              <div className="inline-flex rounded-lg border border-border/60 bg-background p-0.5 text-[10px] font-semibold">
+              {/* Language Switcher - Screenshot 2 Pill style */}
+              <div className="inline-flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white p-0.5 text-[10px] font-semibold shadow-2xs">
                 <button
                   type="button"
                   onClick={() => setLang("en")}
-                  className={`px-1.5 py-0.5 rounded ${lang === "en" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+                  className={`px-2 py-0.5 rounded-lg transition-all ${
+                    lang === "en" ? "bg-[#7C3AED] text-white font-bold shadow-2xs" : "text-slate-700 hover:text-slate-950 font-semibold"
+                  }`}
                 >
                   EN
                 </button>
                 <button
                   type="button"
                   onClick={() => setLang("hi")}
-                  className={`px-1.5 py-0.5 rounded ${lang === "hi" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+                  className={`px-2 py-0.5 rounded-lg transition-all ${
+                    lang === "hi" ? "bg-[#7C3AED] text-white font-bold shadow-2xs" : "text-slate-700 hover:text-slate-950 font-semibold"
+                  }`}
                 >
                   हिन्दी
                 </button>
                 <button
                   type="button"
                   onClick={() => setLang("mr")}
-                  className={`px-1.5 py-0.5 rounded ${lang === "mr" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+                  className={`px-2 py-0.5 rounded-lg transition-all ${
+                    lang === "mr" ? "bg-[#7C3AED] text-white font-bold shadow-2xs" : "text-slate-700 hover:text-slate-950 font-semibold"
+                  }`}
                 >
                   मराठी
                 </button>
               </div>
+              {/* Expand / Minimize Toggle Button */}
+              <button
+                type="button"
+                onClick={() => setIsExpanded(!isExpanded)}
+                title={isExpanded ? "Collapse window" : "Expand window"}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                aria-label={isExpanded ? "Collapse window" : "Expand window"}
+              >
+                {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
                 className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
+                aria-label="Close assistant"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1067,50 +1228,62 @@ export function MultilingualAssistantWidget({
                 className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl p-3 leading-relaxed ${
+                  className={`max-w-[88%] rounded-2xl p-3 leading-relaxed ${
                     m.role === "user"
-                      ? "bg-brand text-brand-foreground rounded-br-xs"
-                      : "bg-muted text-foreground border border-border/60 rounded-bl-xs"
+                      ? "bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white rounded-br-xs border border-brand-700/60 shadow-xs"
+                      : "bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs shadow-2xs"
                   }`}
                 >
-                  <p>{m.text}</p>
+                  {m.role === "user" ? (
+                    <p className="font-semibold text-white text-xs whitespace-pre-wrap">{m.text}</p>
+                  ) : (
+                    <FormattedAssistantMessage content={m.text} />
+                  )}
                   {m.sources && m.sources.length > 0 && (
-                    <div className="mt-2 border-t border-border/40 pt-1 text-[10px] text-muted-foreground">
-                      <strong>Statutory Sources:</strong> {m.sources.join(" · ")}
+                    <div className="mt-2.5 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500 font-medium">
+                      <strong className="text-brand-900 font-bold">Statutory Sources:</strong> {m.sources.join(" · ")}
                     </div>
                   )}
                 </div>
               </div>
             ))}
-            {/* Floating contextual suggestion cards (Claude-style) */}
-            {messages.length <= 1 && (
-              <div className="pt-2">
-                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Suggested Inquiries:</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                    { title: "Explain findings", desc: "Break down all statutory checks & status", q: "Explain this inspection and its overall findings" },
-                    { title: "Package violations", desc: "Analyze reasons for non-compliance", q: "Explain the violations found on this package" },
-                    { title: "Show visual evidence", desc: "Inspect localized bounding polygons", q: "Show supporting evidence and localized polygon regions" },
-                    { title: "Statutory rules", desc: "LMPC 2011 font height & MRP rules", q: "Explain the applicable Legal Metrology rules for MRP and Net Weight" },
-                  ].map((card, cIdx) => (
-                    <button
-                      key={cIdx}
-                      type="button"
-                      onClick={() => handleSend(card.q)}
-                      className="flex flex-col text-left p-2.5 rounded-xl border border-border/80 bg-background/80 hover:bg-muted/80 hover:border-brand transition shadow-2xs group"
-                    >
-                      <span className="font-semibold text-foreground group-hover:text-brand">{card.title}</span>
-                      <span className="text-[10px] text-muted-foreground mt-0.5">{card.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
             {loading && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" /> Legal Metrology grounding in progress…
               </div>
             )}
+          </div>
+
+          {/* Floating Action / Suggestion Chips (placed near bottom right above the input bar) */}
+          <div className="flex gap-1.5 overflow-x-auto border-t border-border/40 bg-muted/20 px-3 py-2 text-[10px] no-scrollbar">
+            {[
+              { label: "Explain inspection", q: "Explain this inspection and its overall findings" },
+              { label: "Explain violation", q: "Explain the violations found on this package" },
+              { label: "Why uncertain?", q: "Why is this inspection or declaration marked uncertain?" },
+              { label: "Show evidence", q: "Show supporting evidence and localized polygon regions" },
+              { label: "Explain rule", q: "Explain the applicable Legal Metrology rules for MRP and Net Weight" },
+              { label: "Summarize", q: "Summarize findings for this package" },
+              { label: "Generate report", q: "Generate report for this inspection" },
+              { label: "🔊 Read aloud", q: "Read summary aloud" },
+            ].map((chip, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  if (chip.label === "🔊 Read aloud") {
+                    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+                    if (lastAssistant) {
+                      speakText(lastAssistant.text);
+                      return;
+                    }
+                  }
+                  handleSend(chip.q);
+                }}
+                className="shrink-0 rounded-full border border-border/70 bg-card px-2.5 py-1 font-medium text-foreground hover:border-brand hover:text-brand transition shadow-2xs active:scale-95"
+              >
+                {chip.label}
+              </button>
+            ))}
           </div>
 
           {/* Input Bar */}

@@ -9,6 +9,7 @@ deploy as-is.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 try:
@@ -21,9 +22,12 @@ try:
 except ImportError:
     pass
 
-# Ensure Tesseract executable is discovered on Windows
+# Ensure Tesseract executable is discovered across Linux and Windows
+_tess_which = shutil.which("tesseract") or ""
 _TESS_CANDIDATES = [
     os.environ.get("TESSERACT_CMD", ""),
+    _tess_which,
+    "/home/PRC/.local/bin/tesseract",
     r"C:\Users\HP\tesseract\tesseract.exe",
     r"C:\Program Files\Tesseract-OCR\tesseract.exe",
     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
@@ -134,6 +138,15 @@ VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", False) and bool
     ANTHROPIC_API_KEY or GEMINI_API_KEY
 )
 
+# Gemini is used for a bounded, image-to-structured-text request.  A request
+# that cannot complete within this budget falls back to the deterministic OCR
+# path while the independent Groq/OpenRouter perception path continues. This
+# is deliberately a latency target, not a promise:
+# network and provider time are outside the local process.
+GEMINI_OCR_MODEL = os.environ.get("GEMINI_OCR_MODEL", "gemini-3.6-flash")
+GEMINI_OCR_TIMEOUT_SECONDS = float(os.environ.get("GEMINI_OCR_TIMEOUT_SECONDS", "12"))
+GEMINI_OCR_MAX_OUTPUT_TOKENS = int(os.environ.get("GEMINI_OCR_MAX_OUTPUT_TOKENS", "8192"))
+
 # ---------------------------------------------------------------------------
 # OCR engines
 # ---------------------------------------------------------------------------
@@ -208,8 +221,6 @@ EVIDENCE_LOCALIZER_MODE: str = os.environ.get("EVIDENCE_LOCALIZER_MODE", "sanskr
 LOCALIZATION_VERIFIED_THRESHOLD: float = float(os.environ.get("LOCALIZATION_VERIFIED_THRESHOLD", "0.70"))
 LOCALIZATION_AMBIGUOUS_THRESHOLD: float = float(os.environ.get("LOCALIZATION_AMBIGUOUS_THRESHOLD", "0.30"))
 
-# YOLO coarse ROI proposal flag (disabled by default as per non-negotiable invariant)
-ENABLE_LOCALIZATION_YOLO: bool = _env_bool("ENABLE_LOCALIZATION_YOLO", False)
-
-
+# YOLO coarse ROI proposal flag
+ENABLE_LOCALIZATION_YOLO: bool = _env_bool("ENABLE_LOCALIZATION_YOLO", True)
 

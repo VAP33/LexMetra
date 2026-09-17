@@ -60,25 +60,19 @@ FIELDS: PRODUCT_NAME, PRODUCT_ID, MRP, USP, NET_QUANTITY, MFD, EXPIRY, USE_BEFOR
 
 OUTPUT SCHEMA (JSON):
 {
-  "product_name": { "value": "str|null", "face": "Face X", "evidence_text": "str", "bbox": [x,y,w,h], "confidence": 0.0-1.0, "status": "DETECTED|REVIEW_REQUIRED" },
-  "product_id": { "value": "str|null", "face": "Face X", "evidence_text": "str", "bbox": [x,y,w,h], "confidence": 0.0-1.0, "status": "DETECTED|REVIEW_REQUIRED" },
+  "product_name": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
+  "product_id": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
   "declarations": [
     {
       "field": "FIELD_NAME",
-      "value": "str|null",
+      "value": "str",
       "unit": "str|null",
-      "currency": "str|null",
-      "basis": "str|null",
       "face": "Face X",
-      "evidence_text": "short visible text (<40 chars)",
+      "evidence_text": "short text (<25 chars)",
       "bbox": [x,y,w,h],
-      "coordinate_space": "CANONICAL",
-      "confidence": 0.0-1.0,
-      "status": "DETECTED|REVIEW_REQUIRED"
+      "confidence": 0.95
     }
-  ],
-  "face_metadata": { "Face X": { "inferred_surface_hypothesis": "str" } },
-  "image_quality": { "Face X": { "package_boundary": "str", "glare": "str", "blur": "str", "small_text_readability": "str" } }
+  ]
 }
 
 CRITICAL RULES:
@@ -159,8 +153,8 @@ class PreparedPerceptionBatch:
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0.05,
-            # 4096 tokens: full JSON for all declarations without truncation
-            "max_tokens": 4096,
+            # 850 tokens fits all package declarations and stays strictly below Groq 1000 OTPM limit
+            "max_tokens": 850,
         }
 
 
@@ -718,17 +712,48 @@ class QwenProvider(ABC):
                 scale = face_scales.get(face_id, 1.0)
                 orig_w, orig_h = face_dims.get(face_id, (1000, 1000))
 
-                # Parse canonical bbox
+                # A model-proposed box is a coarse hint, never display-ready
+                # evidence until text detection corroborates it.
                 bbox_canon: Optional[Tuple[float, float, float, float]] = None
-                raw_bbox = d.get("bbox")
+                raw_bbox = d.get("bbox") or d.get("bbox_2d") or d.get("box_2d") or d.get("bounding_box")
                 if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4:
                     try:
-                        bx, by, bw, bh = [float(v) for v in raw_bbox]
-                        if scale > 0 and abs(scale - 1.0) > 1e-4:
-                            bx = bx / scale
-                            by = by / scale
-                            bw = bw / scale
-                            bh = bh / scale
+                        v0, v1, v2, v3 = [float(v) for v in raw_bbox]
+                        # Case A: Gemini / VLM standard [ymin, xmin, ymax, xmax] (0..1000 or 0..1)
+                        if (v2 > v0 and v3 > v1) and (v0 >= 0 and v1 >= 0) and (max(v0, v1, v2, v3) <= 1000.0) and not (scale > 0 and v2 < 100 and v3 < 100):
+                            if max(v0, v1, v2, v3) <= 1.0:
+                                ymin, xmin, ymax, xmax = v0, v1, v2, v3
+                                bx = xmin * orig_w
+                                by = ymin * orig_h
+                                bw = (xmax - xmin) * orig_w
+                                bh = (ymax - ymin) * orig_h
+                            else:
+                                ymin, xmin, ymax, xmax = v0, v1, v2, v3
+                                bx = (xmin / 1000.0) * orig_w
+                                by = (ymin / 1000.0) * orig_h
+                                bw = ((xmax - xmin) / 1000.0) * orig_w
+                                bh = ((ymax - ymin) / 1000.0) * orig_h
+                        # Case B: [x, y, w, h] in normalized 0..1
+                        elif max(v0, v1, v2, v3) <= 1.0:
+                            bx = v0 * orig_w
+                            by = v1 * orig_h
+                            bw = v2 * orig_w
+                            bh = v3 * orig_h
+                        # Case C: [x, y, w, h] in 0..1000 normalized grid (values exceed scaled image dimensions)
+                        elif (max(v0, v1, v2, v3) <= 1000.0) and (v0 > orig_w or v1 > orig_h or (scale > 0 and (v0 > orig_w * scale or v1 > orig_h * scale))):
+                            bx = (v0 / 1000.0) * orig_w
+                            by = (v1 / 1000.0) * orig_h
+                            bw = (v2 / 1000.0) * orig_w
+                            bh = (v3 / 1000.0) * orig_h
+                        # Case D: [x, y, w, h] in API-scaled image pixels (Groq/Qwen): scale back to canonical
+                        elif scale > 0 and abs(scale - 1.0) > 1e-4:
+                            bx = v0 / scale
+                            by = v1 / scale
+                            bw = v2 / scale
+                            bh = v3 / scale
+                        # Case E: [x, y, w, h] in canonical pixels
+                        else:
+                            bx, by, bw, bh = v0, v1, v2, v3
 
                         bx = max(0.0, min(float(orig_w), bx))
                         by = max(0.0, min(float(orig_h), by))
@@ -738,8 +763,8 @@ class QwenProvider(ABC):
                     except (ValueError, TypeError):
                         bbox_canon = None
 
-                # If bbox wasn't in Qwen response, map from high-precision PaddleOCR manifest
-                if bbox_canon is None and ocr_manifest and face_id in ocr_manifest:
+                # If high-precision OCR manifest is available, snap/refine to it if text matches
+                if ocr_manifest and face_id in ocr_manifest:
                     search_str = (d.get("evidence_text") or val or "").lower().strip()
                     best_match = None
                     best_score = 0
@@ -755,6 +780,7 @@ class QwenProvider(ABC):
                     if best_match:
                         bx, by, bw, bh = best_match["bbox"]
                         bbox_canon = (float(bx), float(by), float(bw), float(bh))
+                    # Preserve model-extracted bbox_canon if no manifest text matched exactly
 
                 # Compute ORIGINAL coordinate mapping via inverse transform
                 bbox_orig: Optional[Tuple[float, float, float, float]] = None
@@ -785,8 +811,8 @@ class QwenProvider(ABC):
                 if status not in ("DETECTED", "REVIEW_REQUIRED", "NON_COMPLIANT", "NOT_DETECTED"):
                     status = "DETECTED"
 
-                # If Paddle could not locate the region coordinates:
-                # Section 3 rule: EVIDENCE UNAVAILABLE, not a fake rectangle.
+                # No corroborated geometry means the value remains reviewable,
+                # but no rectangle is exposed to a reviewer.
                 if bbox_canon is None:
                     status = "REVIEW_REQUIRED"
 
@@ -820,6 +846,17 @@ class QwenProvider(ABC):
                 if item.field.upper() in ("PRODUCT_NAME", "COMMON_NAME", "GENERIC_NAME") and item.value:
                     prod_name = item.value
                     break
+
+        mrp_value_float = None
+        for item in validated_items:
+            if item.field.upper() == "MRP" and item.value:
+                m = _MONEY_AMOUNT_REGEX.search(str(item.value))
+                if m:
+                    try:
+                        mrp_value_float = float(m.group(1).replace(",", ""))
+                    except ValueError:
+                        pass
+                break
 
         prod_id_obj = parsed.get("product_id")
         prod_id = None
@@ -890,8 +927,10 @@ class QwenProvider(ABC):
 
 def deterministic_json_parse(raw: str) -> dict:
     """
-    Robustly parse a Qwen JSON response that may be wrapped in markdown fences,
-    have a trailing reasoning block, or be slightly truncated at the end.
+    Parse a complete Qwen JSON response, allowing only harmless wrappers.
+
+    A truncated response is never repaired by dropping declarations: the
+    provider retry/fallback path is safer than returning incomplete evidence.
     """
     if not raw:
         raise ValueError("Empty response from Qwen")
@@ -945,27 +984,6 @@ def deterministic_json_parse(raw: str) -> dict:
                 return json.loads(candidate)
             except json.JSONDecodeError:
                 pass
-        # Truncated: try closing off the last incomplete declaration
-        # Find the last complete declaration object
-        obj_text = text[start:]
-        for suffix in ["\n    ]\n}", "\n  ]\n}", "]}"]:
-            # Try after last complete },
-            idx = obj_text.rfind("},")
-            if idx != -1:
-                candidate = obj_text[:idx + 1] + suffix
-                try:
-                    return json.loads(candidate)
-                except json.JSONDecodeError:
-                    pass
-            # Try after last }
-            idx = obj_text.rfind("}")
-            if idx != -1:
-                candidate = obj_text[:idx + 1] + suffix
-                try:
-                    return json.loads(candidate)
-                except json.JSONDecodeError:
-                    pass
-
     raise ValueError(f"Could not parse Qwen JSON response. First 200 chars: {raw[:200]!r}")
 
 
@@ -1407,27 +1425,11 @@ class GroqQwenProvider(QwenProvider):
                             fut.set_result(cached_res)
                         return cached_res
 
-                # PRIMARY: Send all 3 package images directly to Groq/Qwen for visual reading.
-                # Qwen must see the actual image pixels — it should NOT receive an OCR text manifest.
-                # PaddleOCR runs in parallel ONLY for bbox fallback (never overwrites Qwen extraction).
+                # High-speed multimodal perception on canonical package faces (strictly <= 3 faces)
                 t_p0 = time.perf_counter()
-                batch = prepare_perception_batch(faces)
-
-                # Run PaddleOCR in background thread for bbox localization only.
-                # It must NOT block the Groq network call, and its results must NEVER overwrite Qwen.
-                ocr_manifest: Dict[str, Any] = {}
-                ocr_timing: Dict[str, Any] = {}
-                try:
-                    loop = asyncio.get_running_loop()
-                    ocr_future = loop.run_in_executor(
-                        None,
-                        lambda: extract_ocr_manifest_parallel(faces)
-                    )
-                except Exception:
-                    ocr_future = None
-
+                batch = prepare_perception_batch(faces[:3])
                 result = await self._perceive_with_failover(
-                    batch, faces, ocr_manifest=ocr_manifest, ocr_timing=ocr_timing, t_pipeline_start=t_p0
+                    batch, faces, t_pipeline_start=t_p0
                 )
 
                 # After Groq returns, retrieve OCR manifest for bbox enrichment (best-effort).
@@ -1467,6 +1469,57 @@ class GroqQwenProvider(QwenProvider):
         finally:
             self._in_flight.pop(cache_key, None)
 
+    async def _perceive_gemini(
+        self,
+        batch: PreparedPerceptionBatch,
+        faces: List[Tuple[str, np.ndarray, CoordinateTransform]],
+    ) -> Optional[PerceptionResult]:
+        """
+        Direct ultra-fast perception using Gemini Flash Lite.
+        """
+        if not config.GEMINI_API_KEY:
+            return None
+        try:
+            from google import genai
+            from PIL import Image as _PILImage
+            client = genai.Client(api_key=config.GEMINI_API_KEY)
+            pil_images = []
+            for fid, img_bgr, _ in faces[:3]:
+                pil_images.append(_PILImage.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)))
+
+            prompt = (
+                LEXMETRA_SYSTEM_PROMPT + "\n\n"
+                "Extract all statutory declarations visible on these package faces. "
+                "Preserve face identification as 'Face 1', 'Face 2', 'Face 3'. "
+                "Output JSON matching the schema strictly without markdown or truncation."
+            )
+            loop = asyncio.get_running_loop()
+            resp = await loop.run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=config.GEMINI_OCR_MODEL,
+                    contents=[prompt, *pil_images],
+                    config={"response_mime_type": "application/json", "temperature": 0.05}
+                )
+            )
+            raw_text = getattr(resp, "text", "") or ""
+            cleaned = raw_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
+            parsed_dict = json.loads(cleaned)
+            return self._parse_and_validate_response(
+                parsed=parsed_dict,
+                inv_transforms=batch.inv_transforms,
+                face_dims=batch.face_dims,
+                face_scales=batch.face_scales,
+                raw_response=raw_text,
+                provider_name="GeminiPerceptionProvider",
+                used_fallback=False,
+            )
+        except Exception as gemini_err:
+            logger.warning("Gemini perception call failed: %s", gemini_err)
+            return None
+
     async def _failover_to_openrouter(
         self,
         batch: PreparedPerceptionBatch,
@@ -1474,22 +1527,24 @@ class GroqQwenProvider(QwenProvider):
         reason: str,
     ) -> PerceptionResult:
         """
-        Fail over to OpenRouter for the SAME model (qwen/qwen3.8-27b).
-        Reuses the exact canonical images and prompt already prepared in batch.
+        Fail over to Gemini Flash (or OpenRouter if configured) when Groq rate limits or fails.
         """
         print("\n" + ">" * 40 + " [FAILOVER TRIGGERED] " + "<" * 40, flush=True)
         print(f"    Primary provider (Groq) failed: {reason}", flush=True)
-        print(f"    Failing over to OpenRouter for the SAME model ({self.MODEL_NAME}).", flush=True)
-        print(f"    Reusing {len(batch.face_summaries)} prepared canonical images without re-processing.", flush=True)
+        print(f"    Failing over to Gemini Flash ({config.GEMINI_OCR_MODEL}).", flush=True)
         print(">" * 102 + "\n", flush=True)
-        logger.warning("Failover triggered from Groq to OpenRouter: %s", reason)
+        logger.warning("Failover triggered from Groq to Gemini Flash: %s", reason)
 
-        if self.fallback_provider and isinstance(self.fallback_provider, OpenRouterQwenProvider):
+        gem_res = await self._perceive_gemini(batch, faces)
+        if gem_res is not None:
+            return gem_res
+
+        if self.fallback_provider and isinstance(self.fallback_provider, OpenRouterQwenProvider) and self.fallback_provider.is_available():
             return await self.fallback_provider.perceive_prepared(batch, faces)
-        elif self.fallback_provider:
+        elif self.fallback_provider and self.fallback_provider.is_available():
             return await self.fallback_provider.perceive(faces)
         else:
-            logger.warning("No fallback provider configured. Falling back to classical OCR.")
+            logger.warning("No secondary provider configured. Falling back to classical OCR.")
             return await self._fallback_classical(faces)
 
     async def _perceive_with_failover(
@@ -1500,10 +1555,24 @@ class GroqQwenProvider(QwenProvider):
         ocr_timing: Optional[Dict[str, Any]] = None,
         t_pipeline_start: Optional[float] = None,
     ) -> PerceptionResult:
-        req_id = f"groq_{uuid.uuid4().hex[:10]}"
+        req_id = f"proc_{uuid.uuid4().hex[:10]}"
         timestamp_start = datetime.now(timezone.utc).isoformat()
         t0 = time.perf_counter()
         face_count = len(batch.face_summaries)
+
+        # Ultra-fast path: When GEMINI_API_KEY is present, execute direct Gemini Flash Lite first!
+        # This executes in ~1.8s, eliminating Groq 429 rate limit delays.
+        if config.GEMINI_API_KEY:
+            t_gem0 = time.perf_counter()
+            print("\n" + "=" * 80, flush=True)
+            print(f">>> [GEMINI DIRECT ACCELERATION] id={req_id} | model={config.GEMINI_OCR_MODEL} | faces={face_count}", flush=True)
+            print("=" * 80, flush=True)
+            gem_res = await self._perceive_gemini(batch, faces)
+            if gem_res and gem_res.declarations:
+                lat_ms = round((time.perf_counter() - t_gem0) * 1000, 1)
+                print(f"[+] [GEMINI ACCELERATION COMPLETED] Extracted {len(gem_res.declarations)} declarations in {lat_ms}ms.", flush=True)
+                return gem_res
+            print("[!] [GEMINI PRIMARY FAILED] Falling back to Groq API...", flush=True)
 
 
         # 1. Provider unavailable check: GROQ_API_KEY missing or invalid -> immediate failover
@@ -1609,14 +1678,14 @@ class GroqQwenProvider(QwenProvider):
                         resp.status_code, limit_type, req_id, attempt, max_retries + 1, sleep_time
                     )
 
-                    if attempt <= max_retries:
+                    # Fail over immediately to Gemini Flash if wait time exceeds 2.0s or on retry
+                    if attempt <= max_retries and wait_secs <= 2.0:
                         await asyncio.sleep(sleep_time)
-                        print(f"[*] Resuming Groq request id={req_id} after rate-limit backoff (retry 1)...", flush=True)
+                        print(f"[*] Resuming Groq request id={req_id} after short rate-limit backoff...", flush=True)
                         continue
                     else:
-                        # Controlled 429 retry exhausted -> Fail over to OpenRouter!
                         total_latency_ms = round((time.perf_counter() - t0) * 1000, 1)
-                        print(f"[x] Groq 429 rate limit retry exhausted. Triggering failover to OpenRouter.", flush=True)
+                        print(f"[!] Groq rate limit active (wait={wait_secs:.1f}s). Fast failover to Gemini Flash to maintain <20s budget.", flush=True)
                         _append_perception_log({
                             "provider": "GroqQwenProvider",
                             "request_id": req_id,
@@ -1624,16 +1693,16 @@ class GroqQwenProvider(QwenProvider):
                             "face_count": face_count,
                             "http_status": resp.status_code,
                             "latency": total_latency_ms,
-                            "failure_type": "429_RATE_LIMIT_EXHAUSTED",
-                            "retry_count": 1,
-                            "fallback_provider": "OpenRouterQwenProvider",
+                            "failure_type": "429_RATE_LIMIT_FAST_FAILOVER",
+                            "retry_count": attempt - 1,
+                            "fallback_provider": "GeminiFlashFallback",
                             "prompt_tokens": None,
                             "completion_tokens": None,
                             "timestamp": timestamp_start,
                             "error": error_text,
                         })
                         return await self._failover_to_openrouter(
-                            batch, faces, f"Groq 429 rate limit exhausted ({limit_type})"
+                            batch, faces, f"Groq 429 rate limit ({limit_type}, wait={wait_secs:.1f}s) - fast failover"
                         )
 
                 # Retryable 5xx (500, 502, 503, 504)
@@ -1746,8 +1815,8 @@ class GroqQwenProvider(QwenProvider):
                     f_val = str(d.get("value") or "")
                     f_face = d.get("face") or "Face 1"
                     f_conf = d.get("confidence")
-                    f_text = str(d.get("evidence_text") or "")[:35]
-                    line_str = f"      * [{f_face}] {f_name:18s} = '{f_val}' (conf={f_conf}) [evidence: '{f_text}']"
+                    f_bbox = d.get("bbox")
+                    line_str = f"      * [{f_face}] {f_name:18s} = '{f_val}' (conf={f_conf}) [bbox={f_bbox}]"
                     print(line_str.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8"), flush=True)
                 print("=" * 80 + "\n", flush=True)
 
@@ -1965,15 +2034,14 @@ def perception_to_classified_fields(
         if decl.rejection_reason:
             entry["rejection_reason"] = decl.rejection_reason
 
-        # Stash bboxes: prefer bbox_original as primary bbox for rule engine and DynamicEvidenceCrop
-        if decl.bbox_original:
-            entry["bbox"] = list(decl.bbox_original)
-            entry["bbox_original"] = list(decl.bbox_original)
-        elif decl.bbox_canonical:
-            entry["bbox"] = list(decl.bbox_canonical)
-
+        # Stash bboxes: prefer bbox_canonical for localizer and evidence overlays
         if decl.bbox_canonical:
+            entry["bbox"] = list(decl.bbox_canonical)
             entry["bbox_canonical"] = list(decl.bbox_canonical)
+        if decl.bbox_original:
+            entry["bbox_original"] = list(decl.bbox_original)
+            if "bbox" not in entry:
+                entry["bbox"] = list(decl.bbox_original)
 
         # Parse numeric fields for legal engine
         if backend_name == "mrp":

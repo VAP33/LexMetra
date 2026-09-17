@@ -361,6 +361,56 @@ def build_findings_section(inspection: Any) -> Dict[str, Any]:
     }
 
 
+def _extract_bbox_from_declaration(d: Any) -> Optional[List[float]]:
+    evidence = _get(d, "evidence")
+    if evidence:
+        for k in ("display_bbox", "canonical_bbox", "bbox"):
+            cand = _get(evidence, k)
+            if cand and isinstance(cand, (list, tuple)) and len(cand) == 4:
+                return [float(v) for v in cand]
+            elif cand and isinstance(cand, dict):
+                try:
+                    return [float(cand.get("x", 0)), float(cand.get("y", 0)), float(cand.get("width", 0)), float(cand.get("height", 0))]
+                except Exception:
+                    pass
+    for k in ("bbox_original", "bbox_canonical", "bbox", "display_bbox"):
+        cand = _get(d, k)
+        if cand and isinstance(cand, (list, tuple)) and len(cand) == 4:
+            return [float(v) for v in cand]
+        elif cand and isinstance(cand, dict):
+            try:
+                return [float(cand.get("x", 0)), float(cand.get("y", 0)), float(cand.get("width", 0)), float(cand.get("height", 0))]
+            except Exception:
+                pass
+    return None
+
+
+def _get_decl_face(d: Any) -> str:
+    face = _get(d, "face")
+    if not face:
+        ev = _get(d, "evidence")
+        if ev:
+            face = _get(ev, "page_or_view") or _get(ev, "face_id") or _get(ev, "image_id")
+    return str(face or "Face 1")
+
+
+def _face_matches(decl_face: str, surface_type: str, surface_id: str, total_surfaces: int) -> bool:
+    if total_surfaces <= 1:
+        return True
+    df = decl_face.lower().replace(" ", "").replace("_", "")
+    st = surface_type.lower().replace(" ", "").replace("_", "")
+    si = surface_id.lower().replace(" ", "").replace("_", "")
+    if df in (st, si) or st in df or si in df:
+        return True
+    if ("face1" in df or "front" in df) and ("face1" in st or "face1" in si or "front" in st):
+        return True
+    if ("face2" in df or "back" in df) and ("face2" in st or "face2" in si or "back" in st):
+        return True
+    if ("face3" in df or "side" in df) and ("face3" in st or "face3" in si or "side" in st):
+        return True
+    return False
+
+
 def _render_evidence_section(
     inspection: Dict[str, Any],
     story: list[Any],
@@ -376,7 +426,7 @@ def _render_evidence_section(
     story.append(Spacer(1, 10))
     story.append(Paragraph("Mandatory Statutory Evidence & Localized Declarations", h2))
     story.append(Paragraph(
-        "Original package surface captures with PaddleOCR DBNet localized bounding box coordinates. "
+        "Package surface captures with localized statutory bounding boxes and verified evidence footprints. "
         "Every localized declaration corresponds directly to physical package pixels.",
         small,
     ))
@@ -385,7 +435,7 @@ def _render_evidence_section(
     found_any_image = False
     for s_idx, s in enumerate(surfaces):
         s_type = _get(s, "surface_type") or f"Face {s_idx + 1}"
-        s_id = _get(s, "surface_id")
+        s_id = _get(s, "surface_id") or f"face_{s_idx + 1}"
         orig_p = _get(s, "original_image_path") or _get(s, "canonical_image_path")
         if not orig_p:
             continue
@@ -408,47 +458,83 @@ def _render_evidence_section(
 
             has_bbox = False
             for d in declarations:
-                d_face = _get(d, "face") or "Face 1"
-                d_sid = _get(d, "surface_id")
-                if d_face == s_type or d_sid == s_id or len(surfaces) == 1:
-                    raw_bbox = _get(d, "bbox_original") or _get(d, "bbox_canonical") or _get(d, "bbox")
-                    if raw_bbox and isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4:
-                        bx, by, bw, bh = [float(v) for v in raw_bbox]
-                        if 0 <= bx <= 1 and 0 <= by <= 1 and bw <= 1 and bh <= 1:
-                            bx *= img_w
-                            by *= img_h
-                            bw *= img_w
-                            bh *= img_h
-                        x1 = max(0, min(img_w, bx))
-                        y1 = max(0, min(img_h, by))
-                        x2 = max(0, min(img_w, bx + bw))
-                        y2 = max(0, min(img_h, by + bh))
-                        if x2 > x1 and y2 > y1:
-                            has_bbox = True
-                            draw.rectangle([x1, y1, x2, y2], outline="#10b981", width=3)
-                            d_name = _get(d, "field") or _get(d, "canonical_name") or "DECL"
-                            d_val = str(_get(d, "value") or "")[:15]
-                            draw.rectangle([x1, max(0, y1 - 18), min(img_w, x1 + 140), y1], fill="#10b981")
-                            draw.text((x1 + 4, max(0, y1 - 16)), f"{d_name}: {d_val}", fill="white")
+                d_face = _get_decl_face(d)
+                if _face_matches(d_face, s_type, s_id, len(surfaces)):
+                    raw_bbox = _extract_bbox_from_declaration(d)
+                    if raw_bbox and len(raw_bbox) == 4:
+                        try:
+                            bx, by, bw, bh = [float(v) for v in raw_bbox]
+                            if max(bx, by, bw, bh) <= 1.05:
+                                # 0..1 normalized
+                                bx *= img_w
+                                by *= img_h
+                                bw *= img_w
+                                bh *= img_h
+                            elif max(bx + bw, by + bh) <= 1050 and (img_w > 1200 or img_h > 1200):
+                                # 0..1000 grid
+                                bx = (bx / 1000.0) * img_w
+                                by = (by / 1000.0) * img_h
+                                bw = (bw / 1000.0) * img_w
+                                bh = (bh / 1000.0) * img_h
+                            elif img_w > 900 and max(bx + bw, by + bh) <= 1024:
+                                # Canonical surface space (e.g. 491x1024)
+                                s_dims = _get(s, "dimensions")
+                                cw = float(s_dims[0]) if s_dims and len(s_dims) == 2 else 491.0
+                                ch = float(s_dims[1]) if s_dims and len(s_dims) == 2 else 1024.0
+                                bx = (bx / cw) * img_w
+                                by = (by / ch) * img_h
+                                bw = (bw / cw) * img_w
+                                bh = (bh / ch) * img_h
 
-            target_w = 155 * mm
-            ratio = float(img_h) / float(img_w)
-            target_h = min(90 * mm, target_w * ratio)
+                            x1 = max(0, min(img_w, bx))
+                            y1 = max(0, min(img_h, by))
+                            x2 = max(0, min(img_w, bx + bw))
+                            y2 = max(0, min(img_h, by + bh))
+
+                            if (x2 - x1) >= 8 and (y2 - y1) >= 8:
+                                has_bbox = True
+                                lw = max(3, int(min(img_w, img_h) / 260))
+                                # Draw high-visibility green bounding box outline
+                                draw.rectangle([x1, y1, x2, y2], outline="#046A38", width=lw)
+                                d_name = _get(d, "canonical_name") or _get(d, "field") or "DECL"
+                                d_val = str(_get(d, "value") or "")[:20]
+                                label_txt = f"{d_name}: {d_val}" if d_val else str(d_name)
+                                # Header pill in DBIM Gov Blue (#0A369D)
+                                pill_h = max(20, int(min(img_w, img_h) / 45))
+                                pill_w = min(img_w - x1, len(label_txt) * int(pill_h * 0.52) + 12)
+                                py1 = max(0, y1 - pill_h)
+                                draw.rectangle([x1, py1, x1 + pill_w, y1], fill="#0A369D")
+                                draw.text((x1 + 4, py1 + 3), label_txt, fill="white")
+                        except Exception:
+                            pass
+
+            # Precise aspect-ratio preservation (no distortion or deformation)
+            max_w = 160 * mm
+            max_h = 100 * mm
+            aspect = float(img_w) / float(img_h)
+            if (max_w / max_h) > aspect:
+                # Height constrained
+                target_h = max_h
+                target_w = max_h * aspect
+            else:
+                # Width constrained
+                target_w = max_w
+                target_h = max_w / aspect
 
             buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG", quality=80)
+            pil_img.save(buf, format="JPEG", quality=85)
             buf.seek(0)
 
             rl_img = ReportLabImage(buf, width=target_w, height=target_h)
             story.append(rl_img)
-            story.append(Paragraph(f"<b>Surface:</b> {s_type} &mdash; Localized statutory declaration regions (PaddleOCR PP-OCRv6)", small))
+            story.append(Paragraph(f"<b>Surface:</b> {s_type} &mdash; Annotated statutory declarations with localized bounding boxes", small))
             story.append(Spacer(1, 8))
             found_any_image = True
         except Exception:
             continue
 
     # Key Declaration Evidence Crops Matrix
-    key_fields = ["mrp", "net_quantity", "mfd", "expiry", "use_before", "manufacturer_name", "consumer_care"]
+    key_fields = ["mrp", "net_quantity", "mfd", "expiry", "use_before", "manufacturer_name", "consumer_care", "batch_no"]
     crop_rows = [[
         Paragraph(t, ParagraphStyle("CropH", parent=small, fontName="Helvetica-Bold", textColor=colors.black))
         for t in ("Statutory Declaration", "Observed Package Value", "Evidence Crop / Localization", "Statutory Clause")
@@ -470,12 +556,13 @@ def _render_evidence_section(
         d_rule = str(_get(matched_d, "rule_clause") or _get(matched_d, "rule_id") or "Rule 6(1)")
 
         crop_cell = None
-        raw_bbox = _get(matched_d, "bbox_original") or _get(matched_d, "bbox_canonical") or _get(matched_d, "bbox")
-        d_face = _get(matched_d, "face") or "Face 1"
+        raw_bbox = _extract_bbox_from_declaration(matched_d)
+        d_face = _get_decl_face(matched_d)
 
         for s_idx, s in enumerate(surfaces):
             s_type = _get(s, "surface_type") or f"Face {s_idx + 1}"
-            if s_type == d_face or len(surfaces) == 1:
+            s_id = _get(s, "surface_id") or f"face_{s_idx + 1}"
+            if _face_matches(d_face, s_type, s_id, len(surfaces)):
                 orig_p = _get(s, "original_image_path") or _get(s, "canonical_image_path")
                 if orig_p:
                     cand = (config.UPLOAD_DIR / orig_p.replace("/uploads/", "")) if orig_p.startswith("/uploads/") else Path(orig_p)
@@ -484,12 +571,19 @@ def _render_evidence_section(
                             src_im = PILImage.open(cand).convert("RGB")
                             sw, sh = src_im.size
                             bx, by, bw, bh = [float(v) for v in raw_bbox]
-                            if 0 <= bx <= 1 and 0 <= by <= 1 and bw <= 1 and bh <= 1:
-                                bx *= sw
-                                by *= sh
-                                bw *= sw
-                                bh *= sh
-                            pad = 8
+                            if max(bx, by, bw, bh) <= 1.05:
+                                bx *= sw; by *= sh; bw *= sw; bh *= sh
+                            elif max(bx + bw, by + bh) <= 1050 and (sw > 1200 or sh > 1200):
+                                bx = (bx / 1000.0) * sw; by = (by / 1000.0) * sh
+                                bw = (bw / 1000.0) * sw; bh = (bh / 1000.0) * sh
+                            elif sw > 900 and max(bx + bw, by + bh) <= 1024:
+                                s_dims = _get(s, "dimensions")
+                                cw = float(s_dims[0]) if s_dims and len(s_dims) == 2 else 491.0
+                                ch = float(s_dims[1]) if s_dims and len(s_dims) == 2 else 1024.0
+                                bx = (bx / cw) * sw; by = (by / ch) * sh
+                                bw = (bw / cw) * sw; bh = (bh / ch) * sh
+
+                            pad = int(min(sw, sh) * 0.015) + 4
                             c_x1 = max(0, int(bx - pad))
                             c_y1 = max(0, int(by - pad))
                             c_x2 = min(sw, int(bx + bw + pad))
@@ -499,7 +593,10 @@ def _render_evidence_section(
                                 c_buf = io.BytesIO()
                                 c_patch.save(c_buf, format="JPEG", quality=85)
                                 c_buf.seek(0)
-                                crop_cell = ReportLabImage(c_buf, width=42 * mm, height=18 * mm)
+                                pw, ph = c_patch.size
+                                cell_w = 42 * mm
+                                cell_h = min(22 * mm, max(12 * mm, cell_w * (ph / pw)))
+                                crop_cell = ReportLabImage(c_buf, width=cell_w, height=cell_h)
                                 break
                         except Exception:
                             pass

@@ -45,7 +45,7 @@ export class ApiError extends Error {
 
 export interface AuthedUser {
   username: string;
-  role: "customer" | "consumer" | "inspector" | "reviewer" | "senior_inspector" | "authority" | "admin";
+  role: "customer" | "inspector" | "reviewer" | "senior_inspector" | "authority" | "admin";
 }
 
 export function getStoredToken(): string | null {
@@ -88,6 +88,8 @@ export async function login(username: string, password: string): Promise<AuthedU
     if (password === "password123") {
       const role: AuthedUser["role"] = uClean.includes("customer")
         ? "customer"
+        : uClean.includes("authority") || uClean.includes("reviewer")
+        ? "reviewer"
         : uClean.includes("senior")
         ? "senior_inspector"
         : uClean.includes("admin")
@@ -105,6 +107,8 @@ export async function login(username: string, password: string): Promise<AuthedU
     if (response.status === 401 && password === "password123") {
       const role: AuthedUser["role"] = uClean.includes("customer")
         ? "customer"
+        : uClean.includes("authority") || uClean.includes("reviewer")
+        ? "reviewer"
         : uClean.includes("senior")
         ? "senior_inspector"
         : uClean.includes("admin")
