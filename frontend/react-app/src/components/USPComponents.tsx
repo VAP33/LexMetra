@@ -101,7 +101,7 @@ export function PackageIntegrityCard({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/60 pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">USP 1 · Computer Vision</p>
+            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Package Integrity · Computer Vision</p>
             <span className="rounded-full bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] font-bold text-brand">
               Advisory Signal
             </span>
@@ -229,7 +229,7 @@ export function FssaiVerificationCard({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/60 pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">USP 2 · Multi-Regulatory</p>
+            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Cross-Regulatory · Multi-Agency</p>
             <span className="rounded-full bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-400">
               FSSAI Statutory Check
             </span>
@@ -584,7 +584,7 @@ export function AuthorityDashboardView({ onBack }: { onBack: () => void }) {
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 hover:text-black transition shadow-xs"
         >
           Back to home
         </button>
@@ -603,8 +603,8 @@ export function AuthorityDashboardView({ onBack }: { onBack: () => void }) {
           <span className="text-[11px] text-muted-foreground">Violations & Alterations</span>
         </div>
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">New Inquiries</p>
-          <p className="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">{counts.submitted}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600">New Inquiries</p>
+          <p className="mt-1 text-2xl font-bold text-amber-600">{counts.submitted}</p>
           <span className="text-[11px] text-muted-foreground">Awaiting assignment</span>
         </div>
         <div className="rounded-2xl border border-brand/30 bg-brand/5 p-4">
@@ -621,10 +621,10 @@ export function AuthorityDashboardView({ onBack }: { onBack: () => void }) {
             key={st}
             type="button"
             onClick={() => setStatusFilter(st)}
-            className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-xl px-3 py-1.5 text-xs font-bold transition shadow-xs ${
               statusFilter === st
-                ? "bg-foreground text-background"
-                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                ? "bg-purple-700 text-white shadow-xs"
+                : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
             }`}
           >
             {st.replace("_", " ")}

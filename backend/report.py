@@ -41,6 +41,50 @@ from reportlab.platypus import (
 
 import config
 from schema import UNATTRIBUTED_IMAGE_ID
+from reportlab.pdfgen import canvas
+
+
+class NumberedCanvas(canvas.Canvas):
+    """
+    Two-pass canvas to dynamically compute and draw total page numbers ('Page X of Y'),
+    running statutory header rules, and confidentiality notices on every page.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_decorations(num_pages)
+            super().showPage()
+        super().save()
+
+    def draw_page_decorations(self, page_count: int):
+        self.saveState()
+        self.setFont("Helvetica-Bold", 7.5)
+        self.setFillColor(colors.HexColor("#475569"))
+        # Header rule on pages > 1
+        if self._pageNumber > 1:
+            self.drawString(16 * mm, 285 * mm, "LEXMETRA \u2022 STATUTORY PACKAGED COMMODITY INSPECTION DOCKET")
+            self.drawRightString(194 * mm, 285 * mm, "MINISTRY OF CONSUMER AFFAIRS, GOVT. OF INDIA")
+            self.setStrokeColor(colors.HexColor("#cbd5e1"))
+            self.setLineWidth(0.5)
+            self.line(16 * mm, 282 * mm, 194 * mm, 282 * mm)
+        # Footer on all pages
+        self.setFont("Helvetica", 7.5)
+        self.drawString(16 * mm, 12 * mm, "CONFIDENTIAL & STATUTORY RECORD \u2022 DEPARTMENT OF CONSUMER AFFAIRS \u2022 LEGAL METROLOGY DIVISION")
+        page_text = f"Page {self._pageNumber} of {page_count}"
+        self.drawRightString(194 * mm, 12 * mm, page_text)
+        self.setStrokeColor(colors.HexColor("#cbd5e1"))
+        self.setLineWidth(0.5)
+        self.line(16 * mm, 15 * mm, 194 * mm, 15 * mm)
+        self.restoreState()
 
 
 DISCLAIMER = (
@@ -706,49 +750,100 @@ def build_inspection_report_pdf(
     story: list[Any] = []
 
     inspection_id = _get(inspection, "inspection_id", "unknown")
-    header_org_style = ParagraphStyle(
-        "GovHeader", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold",
-        textColor=colors.HexColor("#0f172a"), spaceAfter=2, alignment=1,
+    
+    # --- Official Government & DOCA Emblem Header ---
+    logo_path = Path(__file__).resolve().parent.parent / "frontend" / "react-app" / "public" / "dca-logo.png"
+    header_left = None
+    if logo_path.exists():
+        try:
+            header_left = ReportLabImage(str(logo_path), width=22 * mm, height=22 * mm)
+        except Exception:
+            header_left = None
+
+    dept_title = Paragraph(
+        "<b>GOVERNMENT OF INDIA &bull; MINISTRY OF CONSUMER AFFAIRS, FOOD &amp; PUBLIC DISTRIBUTION</b><br/>"
+        "<font size=8 color='#334155'>Department of Consumer Affairs &bull; Legal Metrology Division, New Delhi</font><br/>"
+        "<font size=12 color='#0f172a'><b>LEXMETRA STATUTORY PACKAGED COMMODITY DOCKET</b></font><br/>"
+        f"<font size=8 color='#475569'><b>Case Docket ID:</b> {inspection_id} &nbsp;|&nbsp; <b>Statutory Authority:</b> Legal Metrology Enforcement Division</font>",
+        ParagraphStyle("GovTitleBlock", parent=styles["Normal"], fontSize=9, leading=12),
     )
-    story.append(Paragraph("GOVERNMENT OF INDIA &bull; DEPARTMENT OF CONSUMER AFFAIRS", header_org_style))
-    story.append(Paragraph("Legal Metrology (Packaged Commodities) Division", ParagraphStyle(
-        "SubGovHeader", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#475569"), spaceAfter=4, alignment=1,
-    )))
-    story.append(Paragraph("LEXMETRA OFFICIAL INSPECTION &amp; EVIDENCE RECORD", title_style))
-    story.append(Paragraph(f"<b>Inspection &amp; Case Docket ID:</b> {inspection_id} &nbsp;|&nbsp; <b>Authority:</b> Department of Consumer Affairs", normal))
+
+    if header_left:
+        header_table = Table([[header_left, dept_title]], colWidths=[26 * mm, 140 * mm])
+        header_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(header_table)
+    else:
+        story.append(dept_title)
+
+    story.append(Spacer(1, 6))
+
+    # --- AI-Assisted Extraction Legend & Boundary Disclaimer ---
+    ai_legend_style = ParagraphStyle(
+        "AiLegendNotice", parent=styles["Normal"], fontSize=8, leading=11,
+        textColor=colors.HexColor("#1e293b"), borderColor=colors.HexColor("#2563eb"),
+        borderWidth=0.75, borderPadding=6, backColor=colors.HexColor("#eff6ff"),
+    )
+    ai_legend_text = (
+        "<b>AI-ASSISTED PERCEPTION &amp; STATUTORY DELIMITATION NOTICE:</b><br/>"
+        "Visual declarations and packaging inscriptions in this docket were perceived using multimodal computer vision "
+        "(Qwen) and localized optical character recognition. AI provides <i>visible observation and text transcription only</i>; "
+        "it <b>DOES NOT</b> make legal compliance determinations. Statutory compliance is evaluated deterministically by the "
+        "authoritative Statutory Rule Engine under the Legal Metrology (Packaged Commodities) Rules, 2011, and remains subject "
+        "to formal endorsement by an authorized Legal Metrology Inspector."
+    )
+    story.append(Paragraph(ai_legend_text, ai_legend_style))
     story.append(Spacer(1, 4))
     story.append(Paragraph(DISCLAIMER, disclaimer_style))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
     # --- Summary table ---------------------------------------------------
     overall_status = _get(inspection, "overall_status", "UNCERTAIN")
     if hasattr(overall_status, "value"):
         overall_status = overall_status.value
 
+    decls = _get(inspection, "declarations") or []
+    product_name = (
+        _get(inspection, "product_name")
+        or next((_get(d, "value") for d in decls if _get(d, "canonical_name") in ("product_name", "common_name") or _get(d, "field") in ("PRODUCT_NAME", "product_name", "common_name")), None)
+        or "-"
+    )
+    raw_pid = _get(inspection, "product_id")
+    if not raw_pid or raw_pid in ("-", "None", "") or (isinstance(raw_pid, str) and (raw_pid.startswith("PROD-") or len(raw_pid) > 24)):
+        product_id_disp = "Not printed on package"
+    else:
+        product_id_disp = str(raw_pid)
+
     summary_rows = [
-        ["Field", "Value"],
-        ["Product / Product ID", str(_get(inspection, "product_id", "-"))],
-        ["Product category", str(_get(inspection, "product_category", "-"))],
-        ["Sale type", str(_get(inspection, "sale_type", "-"))],
+        ["Statutory Parameter", "Docket Value"],
+        ["Product Name", str(product_name)],
+        ["Product ID (SKU / Model)", product_id_disp],
+        ["Product Category", str(_get(inspection, "product_category", "-"))],
+        ["Sale Type", str(_get(inspection, "sale_type", "-"))],
         [
-            "Net quantity",
+            "Net Quantity",
             f"{_get(inspection, 'net_quantity_value', _get(inspection, 'package_weight_or_volume', '-'))} "
             f"{_get(inspection, 'net_quantity_unit', _get(inspection, 'package_weight_unit', ''))}",
         ],
-        ["MRP", str(_get(inspection, "mrp", "not observed"))],
-        ["Overall status", str(overall_status).upper()],
-        ["Review required", str(_get(inspection, "review_required", False))],
+        ["Maximum Retail Price (MRP)", str(_get(inspection, "mrp", "not observed"))],
+        ["Overall Statutory Status", str(overall_status).upper()],
+        ["Review Required", "YES \u2014 Action Required" if _get(inspection, "review_required", False) else "NO"],
+        ["Supervising Authority", "Department of Consumer Affairs \u2022 Legal Metrology Division"],
         [
-            "Generated",
+            "Generated Timestamp",
             datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         ],
     ]
     exempt_reason = _get(inspection, "exempt_reason")
     if exempt_reason:
-        summary_rows.append(["Exemption reason", str(exempt_reason)])
+        summary_rows.append(["Exemption Reason", str(exempt_reason)])
 
     decl_summary = _get(inspection, "declaration_summary") or {}
-    decls = _get(inspection, "declarations") or []
     if not decl_summary and decls:
         v_count = sum(
             1 for d in decls
@@ -967,6 +1062,6 @@ def build_inspection_report_pdf(
     story.append(Paragraph("<b>National Consumer Helpline (NCH):</b> 1915 &bull; Toll-Free: 1800-11-4000 &bull; <i>consumerhelpline.gov.in</i>", helpline_style))
     story.append(Paragraph("<b>Department of Consumer Affairs</b> &bull; Ministry of Consumer Affairs, Food and Public Distribution, Government of India", helpline_style))
 
-    doc.build(story)
+    doc.build(story, canvasmaker=NumberedCanvas)
     return buffer.getvalue()
 

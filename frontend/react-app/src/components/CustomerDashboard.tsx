@@ -72,17 +72,17 @@ export function CustomerDashboard({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Official Consumer Suvidha Header */}
-      <header className="sticky top-0 z-30 border-b border-purple-900/40 bg-gradient-to-r from-brand-950 via-brand-900 to-purple-950 text-white shadow-md">
+      {/* Consumer Portal Navigation Header */}
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white text-slate-900 shadow-xs">
         <div className="h-1.5 w-full tricolor-stripe" />
         <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3.5">
+          <div className="flex items-center gap-3">
             {onBack && (
               <button
                 type="button"
                 onClick={onBack}
                 aria-label="Back to Home"
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20 transition"
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-800 border border-slate-200 hover:bg-slate-200 transition"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -97,21 +97,18 @@ export function CustomerDashboard({
                   Jago Grahak Jago
                 </span>
               </div>
-              <p className="text-[10px] font-semibold text-purple-200 tracking-wider uppercase">
-                Citizen Package Verification & Consumer Rights Portal · Dept. of Consumer Affairs
-              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {/* Language Switcher */}
             {onLanguageChange && (
-              <div className="inline-flex rounded-lg border border-purple-400/30 bg-purple-950/60 p-0.5 text-xs font-semibold shadow-inner">
+              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
                 <button
                   type="button"
                   onClick={() => onLanguageChange("en")}
                   className={`rounded-md px-2.5 py-1 transition text-xs ${
-                    lang === "en" ? "bg-purple-600 text-white font-bold shadow-xs" : "text-purple-200 hover:text-white"
+                    lang === "en" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"
                   }`}
                 >
                   English
@@ -120,7 +117,7 @@ export function CustomerDashboard({
                   type="button"
                   onClick={() => onLanguageChange("hi")}
                   className={`rounded-md px-2.5 py-1 transition text-xs ${
-                    lang === "hi" ? "bg-purple-600 text-white font-bold shadow-xs" : "text-purple-200 hover:text-white"
+                    lang === "hi" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"
                   }`}
                 >
                   हिन्दी
@@ -129,7 +126,7 @@ export function CustomerDashboard({
                   type="button"
                   onClick={() => onLanguageChange("mr")}
                   className={`rounded-md px-2.5 py-1 transition text-xs ${
-                    lang === "mr" ? "bg-purple-600 text-white font-bold shadow-xs" : "text-purple-200 hover:text-white"
+                    lang === "mr" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"
                   }`}
                 >
                   मराठी
@@ -140,9 +137,9 @@ export function CustomerDashboard({
             <button
               type="button"
               onClick={onOfficerLogin}
-              className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2 text-xs font-bold text-white border border-white/20 hover:bg-white/20 transition shadow-xs"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-saffron-500 to-orange-600 hover:from-saffron-600 hover:to-orange-700 px-3.5 py-2 text-xs font-bold text-white border border-saffron-500 shadow-sm transition-all"
             >
-              <Lock className="h-3.5 w-3.5 text-saffron-300" />
+              <Lock className="h-3.5 w-3.5 text-white" />
               Officer Sign In
             </button>
           </div>
@@ -212,8 +209,8 @@ export function CustomerDashboard({
               onClick={() => setActiveTab("MY_SCANS")}
               className={`rounded-lg px-4 py-2 transition ${
                 activeTab === "MY_SCANS"
-                  ? "bg-white text-purple-950 shadow-sm font-extrabold"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-purple-700 text-white shadow-sm font-extrabold"
+                  : "text-slate-700 hover:text-slate-900 font-bold"
               }`}
             >
               My Scanned Products ({consumerScans.length})
@@ -223,8 +220,8 @@ export function CustomerDashboard({
               onClick={() => setActiveTab("CHECK_PRICE")}
               className={`rounded-lg px-4 py-2 transition ${
                 activeTab === "CHECK_PRICE"
-                  ? "bg-white text-purple-950 shadow-sm font-extrabold"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-purple-700 text-white shadow-sm font-extrabold"
+                  : "text-slate-700 hover:text-slate-900 font-bold"
               }`}
             >
               Unit Price Calculator
@@ -234,8 +231,8 @@ export function CustomerDashboard({
               onClick={() => setActiveTab("CONSUMER_RIGHTS")}
               className={`rounded-lg px-4 py-2 transition ${
                 activeTab === "CONSUMER_RIGHTS"
-                  ? "bg-white text-purple-950 shadow-sm font-extrabold"
-                  : "text-slate-600 hover:text-slate-900"
+                  ? "bg-purple-700 text-white shadow-sm font-extrabold"
+                  : "text-slate-700 hover:text-slate-900 font-bold"
               }`}
             >
               Jago Grahak Jago & Helpline 1915

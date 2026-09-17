@@ -38,11 +38,13 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 ROLE_HIERARCHY = {
+    "consumer": 0,
     "customer": 0,
     "inspector": 1,
     "reviewer": 2,
     "senior_inspector": 2,
-    "admin": 3,
+    "authority": 3,
+    "admin": 4,
 }
 
 

@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  CircleSlash,
   ClipboardCheck,
   Download,
   FileText,
@@ -52,12 +53,9 @@ import {
 } from "@/lib/types";
 import {
   ApiError,
-  addSessionCapture,
   checkHealth,
   clearSession,
-  createSession,
   extractPreview,
-  finalizeSession,
   getInspectionDetail,
   getStoredToken,
   getStoredUser,
@@ -68,11 +66,11 @@ import {
   reportPdfUrl,
   type AuthedUser,
   type ExtractPreviewResponse,
-  type SurfaceType,
   preprocessParallel,
   resolveImageUrl,
+  scanPackagesMulti,
 } from "@/lib/api-client";
-import { fromFinalizedInspection, fromInspectionRow, createOfflineInspection } from "@/lib/adapters";
+import { fromInspectionRow, fromScanResponse } from "@/lib/adapters";
 import { dataUrlToBlob } from "@/lib/data-url";
 import { type Language, getTranslation } from "@/lib/i18n";
 import { TeslaScannerAnimation } from "./TeslaScannerAnimation";
@@ -110,9 +108,10 @@ type View =
   | "customer"
   | "seniorRegional";
 
-function getNavItems(lang: Language): Array<{ label: string; view: View; icon: LucideIcon }> {
+function getNavItems(lang: Language, role?: string): Array<{ label: string; view: View; icon: LucideIcon }> {
+  let allItems: Array<{ label: string; view: View; icon: LucideIcon }> = [];
   if (lang === "hi") {
-    return [
+    allItems = [
       { label: "अवलोकन", view: "landing", icon: Sparkles },
       { label: "डैशबोर्ड", view: "home", icon: LayoutDashboard },
       { label: "निरीक्षण सूची", view: "history", icon: HistoryIcon },
@@ -124,9 +123,8 @@ function getNavItems(lang: Language): Array<{ label: string; view: View; icon: L
       { label: "उपभोक्ता पोर्टल", view: "customer", icon: Users },
       { label: "प्रोफ़ाइल", view: "profile", icon: UserRound },
     ];
-  }
-  if (lang === "mr") {
-    return [
+  } else if (lang === "mr") {
+    allItems = [
       { label: "आढावा", view: "landing", icon: Sparkles },
       { label: "डॅशबोर्ड", view: "home", icon: LayoutDashboard },
       { label: "तपासणी सूची", view: "history", icon: HistoryIcon },
@@ -138,19 +136,50 @@ function getNavItems(lang: Language): Array<{ label: string; view: View; icon: L
       { label: "नागरिक पोर्टल", view: "customer", icon: Users },
       { label: "प्रोफाइल", view: "profile", icon: UserRound },
     ];
+  } else {
+    allItems = [
+      { label: "Overview", view: "landing", icon: Sparkles },
+      { label: "Dashboard", view: "home", icon: LayoutDashboard },
+      { label: "Inspections", view: "history", icon: HistoryIcon },
+      { label: "Register", view: "register", icon: ClipboardCheck },
+      { label: "Review Queue", view: "reviewQueue", icon: ShieldAlert },
+      { label: "Senior Intel", view: "seniorRegional", icon: Globe },
+      { label: "Regulatory Rules", view: "regulatory", icon: FileText },
+      { label: "Authority Dockets", view: "authority", icon: ShieldCheck },
+      { label: "Citizen Portal", view: "customer", icon: Users },
+      { label: "Profile", view: "profile", icon: UserRound },
+    ];
   }
-  return [
-    { label: "Overview", view: "landing", icon: Sparkles },
-    { label: "Dashboard", view: "home", icon: LayoutDashboard },
-    { label: "Inspections", view: "history", icon: HistoryIcon },
-    { label: "Register", view: "register", icon: ClipboardCheck },
-    { label: "Review Queue", view: "reviewQueue", icon: ShieldAlert },
-    { label: "Senior Intel", view: "seniorRegional", icon: Globe },
-    { label: "Regulatory Rules", view: "regulatory", icon: FileText },
-    { label: "Authority Dockets", view: "authority", icon: ShieldCheck },
-    { label: "Citizen Portal", view: "customer", icon: Users },
-    { label: "Profile", view: "profile", icon: UserRound },
-  ];
+
+  const r = (role || "").toLowerCase();
+  if (r === "customer" || r === "consumer") {
+    return allItems.filter((i) => i.view === "landing" || i.view === "customer" || i.view === "profile");
+  }
+  if (r === "authority") {
+    return allItems.filter(
+      (i) =>
+        i.view === "landing" ||
+        i.view === "authority" ||
+        i.view === "seniorRegional" ||
+        i.view === "history" ||
+        i.view === "register" ||
+        i.view === "regulatory" ||
+        i.view === "profile"
+    );
+  }
+  if (r === "inspector" || r === "reviewer" || r === "senior_inspector") {
+    return allItems.filter(
+      (i) =>
+        i.view === "landing" ||
+        i.view === "home" ||
+        i.view === "history" ||
+        i.view === "register" ||
+        i.view === "reviewQueue" ||
+        i.view === "regulatory" ||
+        i.view === "profile"
+    );
+  }
+  return allItems;
 }
 
 const statusStyles: Record<
@@ -194,10 +223,10 @@ function Button({
   disabled?: boolean;
 }) {
   const variants = {
-    primary: "bg-primary text-primary-foreground hover:bg-primary/90",
-    secondary: "bg-card text-foreground ring-1 ring-inset ring-border hover:bg-muted",
-    quiet: "text-muted-foreground hover:bg-muted hover:text-foreground",
-    danger: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+    primary: "bg-purple-700 hover:bg-purple-800 text-white font-bold shadow-sm",
+    secondary: "bg-white text-slate-900 border border-slate-300 hover:bg-slate-50 hover:text-black font-bold shadow-xs",
+    quiet: "bg-transparent text-slate-700 hover:bg-slate-100 hover:text-slate-900 font-semibold",
+    danger: "bg-red-600 hover:bg-red-700 text-white font-bold shadow-sm",
   };
   return (
     <button
@@ -421,7 +450,7 @@ function Header({
               </div>
               <h1 className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
                 <span>{title}</span>
-                <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-govgreen border border-emerald-200">
                   LMPC 2011 Verified
                 </span>
               </h1>
@@ -526,8 +555,8 @@ function Header({
 
 const AppHeader = Header;
 
-function DesktopRail({ view, onNavigate, lang = "en" }: { view: View; onNavigate: (view: View) => void; lang?: Language }) {
-  const currentNavItems = getNavItems(lang);
+function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNavigate: (view: View) => void; lang?: Language; role?: string }) {
+  const currentNavItems = getNavItems(lang, role);
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-5 md:flex shadow-sm">
       <div className="h-1.5 w-full tricolor-stripe mb-4 rounded-full" />
@@ -1268,7 +1297,16 @@ function FilterBar({ search, setSearch, filter, setFilter }: { search: string; s
       <div className="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
         <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
         {(["ALL", "COMPLIANT", "VIOLATION", "UNCERTAIN", "EXEMPT"] as const).map((item) => (
-          <button type="button" key={item} onClick={() => setFilter(item)} className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${filter === item ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
+          <button
+            type="button"
+            key={item}
+            onClick={() => setFilter(item)}
+            className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold transition-colors shadow-xs ${
+              filter === item
+                ? "bg-purple-700 text-white shadow-xs"
+                : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
+            }`}
+          >
             {item === "ALL" ? "All" : statusLabel(item)}
           </button>
         ))}
@@ -2070,15 +2108,10 @@ function ProcessingRunner({
         window.setTimeout(() => onDone(inspection), 300);
       })
       .catch((err: unknown) => {
-        console.warn("[Offline Fallback Engine Triggered] Generating client inspection:", err);
         window.clearInterval(interval);
         setStageIdx(4);
-        try {
-          const fallback = createOfflineInspection({}, []);
-          window.setTimeout(() => onDone(fallback), 300);
-        } catch {
-          onError(err instanceof ApiError ? err.message : "Analysis complete.");
-        }
+        console.error("[Inspection Flow Error]", err);
+        onError(err instanceof ApiError ? err.message : (err instanceof Error ? err.message : "Inspection failed. Please check network and backend."));
       });
 
     return () => window.clearInterval(interval);
@@ -2123,10 +2156,12 @@ function DeclarationRow({
 }) {
   const statusMap: Record<DeclarationStatus, { label: string; className: string; icon: LucideIcon }> = {
     VERIFIED: { label: "Verified", className: "text-success", icon: Check },
+    NON_COMPLIANT: { label: "Non-Compliant", className: "text-destructive", icon: XCircle },
     MISSING: { label: "Not detected", className: "text-destructive", icon: XCircle },
     REVIEW: { label: "Review", className: "text-warning", icon: Info },
     EXEMPT: { label: "Exempt", className: "text-brand", icon: ShieldCheck },
     UNOBSERVED: { label: "Not detected", className: "text-muted-foreground", icon: CircleHelp },
+    NOT_APPLICABLE: { label: "Not applicable", className: "text-muted-foreground", icon: CircleSlash },
   };
   const [expanded, setExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -2667,8 +2702,8 @@ function DynamicEvidenceCrop({
 
     setLoading(true);
     setLoadError(false);
+    const resolvedSrc = resolveImageUrl(imageSrc) || imageSrc;
     const img = new Image();
-    img.crossOrigin = "anonymous";
     img.onload = () => {
       setLoading(false);
       const canvas = canvasRef.current;
@@ -2774,11 +2809,45 @@ function DynamicEvidenceCrop({
     };
 
     img.onerror = () => {
-      setLoading(false);
-      setLoadError(true);
+      // Fallback without protocol/relative differences
+      if (!resolvedSrc.startsWith("http") && typeof window !== "undefined") {
+        const fallbackUrl = `http://127.0.0.1:8000${resolvedSrc.startsWith("/") ? "" : "/"}${resolvedSrc}`;
+        const retryImg = new Image();
+        retryImg.onload = () => {
+          setLoading(false);
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const nw = retryImg.naturalWidth;
+          const nh = retryImg.naturalHeight;
+          const padX = Math.max(bbox.width * 0.4, 40);
+          const padY = Math.max(bbox.height * 0.4, 30);
+          const cropX = Math.max(0, bbox.x - padX);
+          const cropY = Math.max(0, bbox.y - padY);
+          const cropW = Math.max(1, Math.min(nw, bbox.x + bbox.width + padX) - cropX);
+          const cropH = Math.max(1, Math.min(nh, bbox.y + bbox.height + padY) - cropY);
+          canvas.width = 720;
+          canvas.height = Math.max(260, Math.min(Math.round(720 * (cropH / cropW)), 520));
+          ctx.fillStyle = "#09090b";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          const scale = Math.min(canvas.width / cropW, canvas.height / cropH);
+          const rw = cropW * scale;
+          const rh = cropH * scale;
+          ctx.drawImage(retryImg, cropX, cropY, cropW, cropH, (canvas.width - rw) / 2, (canvas.height - rh) / 2, rw, rh);
+        };
+        retryImg.onerror = () => {
+          setLoading(false);
+          setLoadError(true);
+        };
+        retryImg.src = fallbackUrl;
+      } else {
+        setLoading(false);
+        setLoadError(true);
+      }
     };
 
-    img.src = imageSrc;
+    img.src = resolvedSrc;
   }, [imageSrc, bbox, polygon, label, confidence]);
 
   if (!bbox || bbox.width <= 0 || bbox.height <= 0) {
@@ -2917,6 +2986,22 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
 
   // Target bounding box for evidence crop (raw pixel space)
   const targetBbox = activeRegion?.bboxPx || activeDecl?.evidenceBboxPx;
+
+  // Auto-sync active surface to declaration panel
+  useEffect(() => {
+    if (activeDecl?.provenance?.surfaceType) {
+      const targetFace = activeDecl.provenance.surfaceType;
+      const match = surfaces.find(
+        (s) =>
+          s.surfaceType.toLowerCase() === targetFace.toLowerCase() ||
+          s.faceLabel?.toLowerCase() === targetFace.toLowerCase() ||
+          (activeDecl.provenance?.surfaceId && s.surfaceId.toLowerCase() === activeDecl.provenance.surfaceId.toLowerCase())
+      );
+      if (match && match.surfaceType !== activeSurfaceType) {
+        setActiveSurfaceType(match.surfaceType);
+      }
+    }
+  }, [activeDecl, surfaces]);
 
   function handleSelectDeclaration(field: string, targetFace?: string) {
     setSelectedLabel(field);
@@ -3876,7 +3961,7 @@ function LoginView({
             {/* Senior Admin */}
             <button
               type="button"
-              id="quick-admin-login"
+              id="quick-inspector-login"
               disabled={submitting}
               onClick={() => handleQuickLogin("admin", "password123", "seniorRegional")}
               className="flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 text-left transition-all group shadow-2xs"
@@ -4093,9 +4178,23 @@ export function InspectionApp() {
   }, [toast]);
 
   function go(nextView: View) {
-    setView(nextView);
-    if (!["result", "detail", "evidence", "report"].includes(nextView)) setSelected(undefined);
-    if (nextView === "scan") {
+    let targetView = nextView;
+    // RBAC Route Guarding: Protect unauthorized routes based on session role
+    if (user?.role === "customer" || user?.role === "consumer") {
+      const allowedViews = ["customer", "landing", "profile", "login"];
+      if (!allowedViews.includes(targetView)) {
+        targetView = "customer";
+      }
+    } else if (user?.role === "authority") {
+      const forbiddenViews = ["scan", "preprocessing", "scanDetails", "processing"];
+      if (forbiddenViews.includes(targetView)) {
+        targetView = "authority";
+      }
+    }
+
+    setView(targetView);
+    if (!["result", "detail", "evidence", "report"].includes(targetView)) setSelected(undefined);
+    if (targetView === "scan") {
       setPendingImages([]);
       setCanonicalImages([]);
     }
@@ -4127,7 +4226,7 @@ export function InspectionApp() {
       isExportOnly: false,
       retailBundleCount: 1,
       isImported: false,
-    });
+    }, urls);
   }
 
   function handlePreprocessingError(message: string) {
@@ -4136,24 +4235,12 @@ export function InspectionApp() {
 
   const pendingRunRef = useRef<() => Promise<Inspection>>(() => Promise.reject(new Error("no scan queued")));
 
-  async function runScanSession(details: ScanDetails): Promise<Inspection> {
-    const targetImages = canonicalImages.length > 0 ? canonicalImages : pendingImages;
+  async function runScanSession(details: ScanDetails, overrideImages?: string[]): Promise<Inspection> {
+    const targetImages = (overrideImages && overrideImages.length > 0)
+      ? overrideImages
+      : (canonicalImages.length > 0 ? canonicalImages : pendingImages);
     try {
-      const session = await createSession({
-        productId: details.productId,
-        saleType: details.saleType,
-        productCategory: details.productCategory,
-        netQuantityValue: details.netQuantityValue,
-        netQuantityUnit: details.netQuantityUnit,
-        mrp: details.mrp,
-        pdpAreaCm2: details.pdpAreaCm2,
-        isExportOnly: details.isExportOnly,
-        retailBundleCount: details.retailBundleCount,
-        isImported: details.isImported,
-      });
-
-      const surfaceForIndex = (i: number): SurfaceType => `Face ${i + 1}`;
-
+      const blobs: Blob[] = [];
       for (let i = 0; i < targetImages.length; i++) {
         const imgRef = targetImages[i];
         let blob: Blob;
@@ -4164,21 +4251,22 @@ export function InspectionApp() {
           const fetched = await fetch(fullUrl);
           blob = await fetched.blob();
         }
-        await addSessionCapture(session.session_id, blob, surfaceForIndex(i));
+        blobs.push(blob);
       }
 
-      const inspection = await finalizeSession(session.session_id);
-      return fromFinalizedInspection(inspection, { productId: details.productId }, pendingImages[0] || canonicalImages[0]);
+      // Execute single fast Groq multi-image scan endpoint (/scan)
+      const rawScanRes = await scanPackagesMulti(blobs, details);
+      return fromScanResponse(rawScanRes, { productId: details.productId }, targetImages[0] || pendingImages[0]);
     } catch (err) {
-      console.warn("[Offline Engine Active] Server unreachable, running local client-side LMPC statutory engine:", err);
-      return createOfflineInspection(details, targetImages);
+      console.error("[Inspection Flow Error] /scan request failed:", err);
+      throw err;
     }
   }
 
-  function submitDetails(details: ScanDetails) {
+  function submitDetails(details: ScanDetails, overrideImages?: string[]) {
     setProcessingError(undefined);
     setView("processing");
-    pendingRunRef.current = () => runScanSession(details);
+    pendingRunRef.current = () => runScanSession(details, overrideImages);
   }
 
   function handleProcessingDone(inspection: Inspection) {
@@ -4321,7 +4409,7 @@ export function InspectionApp() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {!inFocusedFlow && <DesktopRail view={view} onNavigate={go} lang={lang} />}
+      {!inFocusedFlow && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role} />}
       {!inFocusedFlow && <div className="md:pl-64">{content}</div>}
       {inFocusedFlow && content}
       {!inFocusedFlow && <BottomNav view={view} onNavigate={go} lang={lang} />}

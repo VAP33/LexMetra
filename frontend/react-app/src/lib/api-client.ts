@@ -381,8 +381,21 @@ export interface RawInspectionRow {
 }
 
 export async function scanPackage(file: Blob, details: ScanDetails): Promise<RawScanResponse> {
+  return scanPackagesMulti([file], details);
+}
+
+export async function scanPackagesMulti(images: Blob[], details: ScanDetails): Promise<RawScanResponse> {
   const form = new FormData();
-  form.append("file", file, "capture.jpg");
+  if (images.length === 1) {
+    form.append("file", images[0], "capture_1.jpg");
+  } else {
+    images.forEach((img, idx) => {
+      form.append("files", img, `capture_${idx + 1}.jpg`);
+    });
+    if (images.length > 0) {
+      form.append("file", images[0], "capture_1.jpg");
+    }
+  }
   form.append("product_id", details.productId);
   form.append("sale_type", details.saleType);
   form.append("product_category", details.productCategory);

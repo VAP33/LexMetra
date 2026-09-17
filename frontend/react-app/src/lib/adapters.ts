@@ -227,7 +227,7 @@ function humanizeField(field: string): string {
 // verified score makes a correct, cautious inspection look like a failing one.
 // It is reported as its own number instead of being hidden inside "review".
 export function isBlocked(d: Declaration): boolean {
-  if (d.status === "VERIFIED" || d.status === "EXEMPT") return false;
+  if (d.status === "VERIFIED" || d.status === "EXEMPT" || d.status === "NOT_APPLICABLE") return false;
   // Fact path: the rule engine named an input it never received.
   if ((d.missingEvidence?.length ?? 0) > 0) return true;
   // Canonical path: UNOBSERVED means the surface was never captured, so the
@@ -246,12 +246,12 @@ export function computeScores(declarations: Declaration[]): {
   judgeableCount: number;
   verifiedOfJudgeableScore: number;
 } {
-  const applicable = declarations.filter((d) => d.status !== "EXEMPT");
+  const applicable = declarations.filter((d) => d.status !== "EXEMPT" && d.status !== "NOT_APPLICABLE");
   const blocked = applicable.filter(isBlocked);
   const judgeable = applicable.filter((d) => !isBlocked(d));
   const verified = applicable.filter((d) => d.status === "VERIFIED").length;
   const reviewed = applicable.filter((d) => d.status === "VERIFIED" || d.status === "REVIEW").length;
-  const missing = applicable.filter((d) => d.status === "MISSING").length;
+  const missing = applicable.filter((d) => d.status === "MISSING" || d.status === "NON_COMPLIANT").length;
 
   if (applicable.length === 0) {
     return {
@@ -488,7 +488,9 @@ export function fromScanResponse(
         ? "All checked declarations verified"
         : raw.inspection.overall_status === "EXEMPT"
           ? raw.inspection.exempt_reason || "Outside rule scope"
-          : `${declarations.filter((d) => d.status !== "VERIFIED").length} item(s) need attention`,
+          : declarations.filter((d) => d.status !== "VERIFIED" && d.status !== "EXEMPT" && d.status !== "NOT_APPLICABLE").length > 0
+            ? `${declarations.filter((d) => d.status !== "VERIFIED" && d.status !== "EXEMPT" && d.status !== "NOT_APPLICABLE").length} item(s) need attention`
+            : "All applicable declarations verified under LMPC Rules 2011",
     declarations,
     declarationSummary: raw.inspection.declaration_summary ? {
       applicable: raw.inspection.declaration_summary.applicable,
@@ -576,10 +578,12 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
     scoreBreakdown: scoreCounts,
     summary:
       row.overall_status === "PASS"
-        ? "All checked declarations verified"
+        ? "All checked declarations verified across every captured surface"
         : row.overall_status === "EXEMPT"
           ? row.exempt_reason || "Outside rule scope"
-          : `${declarations.filter((d) => d.status !== "VERIFIED").length} item(s) need attention`,
+          : declarations.filter((d) => d.status !== "VERIFIED" && d.status !== "EXEMPT" && d.status !== "NOT_APPLICABLE").length > 0
+            ? `${declarations.filter((d) => d.status !== "VERIFIED" && d.status !== "EXEMPT" && d.status !== "NOT_APPLICABLE").length} item(s) need attention`
+            : "All applicable declarations verified under LMPC Rules 2011",
     declarations,
     declarationSummary: row.declaration_summary ? {
       applicable: row.declaration_summary.applicable,
@@ -678,7 +682,9 @@ export function fromFinalizedInspection(
         ? "All checked declarations verified across every captured surface"
         : inspection.overall_status === "EXEMPT"
           ? inspection.exempt_reason || "Outside rule scope"
-          : `${declarations.filter((d) => d.status !== "VERIFIED").length} item(s) need attention`,
+          : declarations.filter((d) => d.status !== "VERIFIED" && d.status !== "EXEMPT" && d.status !== "NOT_APPLICABLE").length > 0
+            ? `${declarations.filter((d) => d.status !== "VERIFIED" && d.status !== "EXEMPT" && d.status !== "NOT_APPLICABLE").length} item(s) need attention`
+            : "All applicable declarations verified under LMPC Rules 2011",
     declarations,
     declarationSummary: inspection.declaration_summary ? {
       applicable: inspection.declaration_summary.applicable,

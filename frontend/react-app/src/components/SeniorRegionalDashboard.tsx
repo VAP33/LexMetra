@@ -205,25 +205,25 @@ export function SeniorRegionalDashboard({
 
         <div className="flex items-center gap-3">
           {/* Language Switcher */}
-          <div className="inline-flex rounded-xl border border-border/80 bg-card p-1 text-xs font-semibold shadow-2xs">
+          <div className="inline-flex rounded-xl border border-slate-300 bg-white p-1 text-xs font-semibold shadow-xs">
             <button
               type="button"
               onClick={() => setLang("en")}
-              className={`rounded-lg px-2.5 py-1 ${lang === "en" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+              className={`rounded-lg px-2.5 py-1 transition ${lang === "en" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
             >
               English
             </button>
             <button
               type="button"
               onClick={() => setLang("hi")}
-              className={`rounded-lg px-2.5 py-1 ${lang === "hi" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+              className={`rounded-lg px-2.5 py-1 transition ${lang === "hi" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
             >
               हिन्दी
             </button>
             <button
               type="button"
               onClick={() => setLang("mr")}
-              className={`rounded-lg px-2.5 py-1 ${lang === "mr" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+              className={`rounded-lg px-2.5 py-1 transition ${lang === "mr" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
             >
               मराठी
             </button>
@@ -232,7 +232,7 @@ export function SeniorRegionalDashboard({
           <button
             type="button"
             onClick={onBack}
-            className="rounded-xl border border-border bg-card px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 hover:text-black transition shadow-xs"
           >
             Back to Command Center
           </button>
@@ -244,10 +244,10 @@ export function SeniorRegionalDashboard({
         <button
           type="button"
           onClick={() => setActiveTab("REGIONAL")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs ${
             activeTab === "REGIONAL"
-              ? "bg-foreground text-background"
-              : "bg-muted text-muted-foreground hover:text-foreground"
+              ? "bg-purple-700 text-white shadow-sm"
+              : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
           }`}
         >
           <MapPin className="h-4 w-4" />
@@ -256,15 +256,17 @@ export function SeniorRegionalDashboard({
         <button
           type="button"
           onClick={() => setActiveTab("SOCIAL_INTEL")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition ${
+          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs ${
             activeTab === "SOCIAL_INTEL"
-              ? "bg-foreground text-background"
-              : "bg-muted text-muted-foreground hover:text-foreground"
+              ? "bg-purple-700 text-white shadow-sm"
+              : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
           }`}
         >
           <TrendingUp className="h-4 w-4" />
-          Social / Public Report Intelligence Engine (USP)
-          <span className="rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.2 text-[9px] font-bold uppercase">
+          Public Complaints & Social Intelligence
+          <span className={`rounded-full px-2 py-0.2 text-[9px] font-bold uppercase ${
+            activeTab === "SOCIAL_INTEL" ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800"
+          }`}>
             Live Engine
           </span>
         </button>
@@ -536,16 +538,16 @@ export function SeniorRegionalDashboard({
 
               {/* Domain Filter */}
               <div className="flex items-center gap-1 text-xs">
-                <span className="text-muted-foreground font-semibold">Domain:</span>
+                <span className="text-slate-700 font-semibold">Domain:</span>
                 {["ALL", "LMPC", "FSSAI", "COUNTERFEIT"].map((d) => (
                   <button
                     key={d}
                     type="button"
                     onClick={() => setDomainFilter(d)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                    className={`rounded-lg px-2.5 py-1 text-xs font-bold transition shadow-xs ${
                       domainFilter === d
-                        ? "bg-foreground text-background"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        ? "bg-purple-700 text-white shadow-xs"
+                        : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
                     }`}
                   >
                     {d}

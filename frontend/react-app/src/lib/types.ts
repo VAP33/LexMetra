@@ -12,7 +12,14 @@ import type { RawCanonicalStatus } from "./api-client";
 
 // --- UI-facing enums (kept from the original app, EXEMPT & UNOBSERVED added) ---
 export type InspectionStatus = "COMPLIANT" | "VIOLATION" | "UNCERTAIN" | "EXEMPT";
-export type DeclarationStatus = "VERIFIED" | "MISSING" | "REVIEW" | "EXEMPT" | "UNOBSERVED";
+export type DeclarationStatus =
+  | "VERIFIED"
+  | "NON_COMPLIANT"
+  | "MISSING"
+  | "REVIEW"
+  | "EXEMPT"
+  | "UNOBSERVED"
+  | "NOT_APPLICABLE";
 
 export const statusCopy: Record<InspectionStatus, { label: string; short: string }> = {
   COMPLIANT: { label: "Compliant", short: "OK" },
@@ -24,41 +31,26 @@ export const statusCopy: Record<InspectionStatus, { label: string; short: string
 export function mapFactStatus(status: FactStatus): DeclarationStatus {
   switch (status) {
     case "PASS": return "VERIFIED";
-    case "FAIL": return "MISSING";
+    case "FAIL": return "NON_COMPLIANT";
     case "EXEMPT": return "EXEMPT";
     case "UNCERTAIN":
     default: return "REVIEW";
   }
 }
 
-// Maps all EIGHT backend CanonicalStatus members onto the five UI states.
-// Every member is listed explicitly and the `default` is unreachable-by-design
-// (it exists only to satisfy the compiler for malformed payloads) — that is
-// deliberate: the previous version routed four distinct backend statuses into
-// `default: "REVIEW"`, so a confirmed statutory violation, a label whose value
-// could not be read, and a panel that was never photographed all displayed as
-// the same amber "Review" row. That is what made every inspection read as
-// "1 verified / 8 need review" regardless of what the OCR actually found, and
-// it kept blockedCount/missingCount permanently at zero, disabling the score
-// breakdown entirely.
+// Maps backend CanonicalStatus members onto specific, truthful UI states.
 export function mapCanonicalStatus(status: RawCanonicalStatus): DeclarationStatus {
   switch (status) {
     // The declaration was found, read, and satisfies its rule.
     case "VERIFIED": return "VERIFIED";
     // Outside statutory scope for this category/origin — not a shortcoming.
-    case "NOT_APPLICABLE": return "EXEMPT";
-    // A real adverse finding: the rule engine concluded non-compliance, either
-    // a bad value or an absence confirmed after full package coverage. This is
-    // the only status that should ever render red.
-    case "NON_COMPLIANT": return "MISSING";
-    // Neither of these is a finding about the PACKAGE — they are statements
-    // about the EVIDENCE. The surface was not captured, or coverage was too
-    // thin to conclude anything. Routing them to UNOBSERVED is what lets
-    // computeScores() count them as blocked rather than as failures.
+    case "NOT_APPLICABLE": return "NOT_APPLICABLE";
+    // A real adverse finding: statutory non-compliance.
+    case "NON_COMPLIANT": return "NON_COMPLIANT";
+    // Statements about the EVIDENCE: surface not captured or coverage too thin.
     case "NOT_DETECTED_IN_PROVIDED_IMAGES": return "UNOBSERVED";
     case "INSUFFICIENT_EVIDENCE": return "UNOBSERVED";
-    // Something was read but it is not conclusive: label without a value, a
-    // value without a passing check, or an explicit reviewer referral.
+    // Something was read but requires human confirmation.
     case "PARTIALLY_DETECTED": return "REVIEW";
     case "DETECTED": return "VERIFIED";
     case "REVIEW_REQUIRED": return "REVIEW";

@@ -54,11 +54,11 @@ export function LandingPage({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-base font-black tracking-widest text-white">LEXMETRA</span>
-                <span className="bg-saffron-500/25 border border-saffron-400/50 text-saffron-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                <span className="text-base font-black tracking-widest text-slate-900">LEXMETRA</span>
+                <span className="bg-saffron-50 border border-saffron-200 text-saffron-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                   STATUTORY AI
                 </span>
-                <span className="bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider hidden sm:inline">
+                <span className="bg-emerald-50 border border-emerald-200 text-govgreen text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider hidden sm:inline">
                   DCA VERIFIED
                 </span>
               </div>

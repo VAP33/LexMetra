@@ -349,11 +349,11 @@ def prepare_perception_batch(
     face_summaries: List[Dict[str, Any]] = []
 
     if len(faces) >= 3:
-        max_api_dim = 384   # 3 faces: smallest possible to minimize token count on OpenRouter
+        max_api_dim = 1024   # Preserves high-resolution clarity for small fonts on back/sides
     elif len(faces) == 2:
-        max_api_dim = 512
+        max_api_dim = 1024
     else:
-        max_api_dim = 768
+        max_api_dim = 1024
 
     for face_id, img_bgr, inv_transform in faces:
         h, w = img_bgr.shape[:2]
@@ -371,7 +371,7 @@ def prepare_perception_batch(
 
         face_scales[face_id] = scale
 
-        success, enc = cv2.imencode(".jpg", api_img, [cv2.IMWRITE_JPEG_QUALITY, 72])
+        success, enc = cv2.imencode(".jpg", api_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not success:
             continue
         b64_str = base64.b64encode(enc.tobytes()).decode("utf-8")
@@ -868,7 +868,17 @@ class QwenProvider(ABC):
         if prod_id:
             s_pid = str(prod_id).strip()
             digits_pid = re.sub(r"\D", "", s_pid)
-            if "/-" in s_pid or "₹" in s_pid or "rs" in s_pid.lower() or "mrp" in s_pid.lower() or (mrp_value_float and digits_pid == str(int(mrp_value_float))):
+            # Find parsed MRP if available to reject accidental price assignment
+            mrp_item = next((it for it in validated_items if it.field.upper() == "MRP" and it.value), None)
+            parsed_mrp: Optional[float] = None
+            if mrp_item and mrp_item.value:
+                mrp_m = _MONEY_AMOUNT_REGEX.search(mrp_item.value)
+                if mrp_m:
+                    try:
+                        parsed_mrp = float(mrp_m.group(1).replace(",", ""))
+                    except ValueError:
+                        pass
+            if "/-" in s_pid or "₹" in s_pid or "rs" in s_pid.lower() or "mrp" in s_pid.lower() or (parsed_mrp and digits_pid == str(int(parsed_mrp))):
                 prod_id = None
 
         if not prod_id:
@@ -992,7 +1002,7 @@ class OpenRouterQwenProvider(QwenProvider):
         api_key: Optional[str] = None,
         model_name: Optional[str] = None,
         endpoint: Optional[str] = None,
-        timeout_secs: float = 45.0,  # Reduced from 75s: fail fast rather than hang
+        timeout_secs: float = 75.0,  # 75s accommodates reasoning tokens + full structured JSON
     ):
         self._api_key = api_key
         self.model_name = (
@@ -1421,6 +1431,33 @@ class GroqQwenProvider(QwenProvider):
                 result = await self._perceive_with_failover(
                     batch, faces, t_pipeline_start=t_p0
                 )
+
+                # After Groq returns, retrieve OCR manifest for bbox enrichment (best-effort).
+                if ocr_future is not None:
+                    try:
+                        ocr_manifest_res, _, ocr_timing_res = await asyncio.wait_for(ocr_future, timeout=10.0)
+                        # Enrich bbox_canonical from OCR manifest for declarations that have no bbox
+                        if ocr_manifest_res:
+                            for decl in result.declarations:
+                                if decl.bbox_canonical is None and decl.face in ocr_manifest_res:
+                                    search_str = (decl.evidence_text or decl.value or "").lower().strip()
+                                    best_match = None
+                                    best_score = 0
+                                    for reg in ocr_manifest_res[decl.face]:
+                                        rtxt = reg.get("text", "").lower().strip()
+                                        if not rtxt:
+                                            continue
+                                        if rtxt in search_str or search_str in rtxt:
+                                            score = len(rtxt)
+                                            if score > best_score:
+                                                best_score = score
+                                                best_match = reg
+                                    if best_match:
+                                        bx, by, bw, bh = best_match["bbox"]
+                                        decl.bbox_canonical = (float(bx), float(by), float(bw), float(bh))
+                    except Exception:
+                        pass
+
                 self._cache[cache_key] = (time.time(), result)
                 if not fut.done():
                     fut.set_result(result)
@@ -1731,11 +1768,13 @@ class GroqQwenProvider(QwenProvider):
                 raw_content = data["choices"][0]["message"]["content"]
                 usage = data.get("usage", {})
 
-                # Validate JSON structure
+                # Use deterministic_json_parse to handle markdown-wrapped JSON, reasoning traces,
+                # and truncated responses. This is more robust than a bare json.loads.
                 try:
-                    parsed = json.loads(raw_content)
+                    parsed = deterministic_json_parse(raw_content)
                 except Exception as json_err:
                     print(f"\n<<< [GROQ MALFORMED RESPONSE] id={req_id} error={json_err}", flush=True)
+                    print(f"    Raw content (first 300 chars): {raw_content[:300]!r}", flush=True)
                     print("    Triggering failover to OpenRouter.\n", flush=True)
                     logger.error("<<< [GROQ MALFORMED RESPONSE] id=%s: %s", req_id, json_err)
                     _append_perception_log({
@@ -1893,27 +1932,19 @@ _PROVIDER_INSTANCE: Optional[QwenProvider] = None
 
 def get_qwen_provider() -> QwenProvider:
     """
-    Return the appropriate Qwen perception provider.
+    Return the primary Qwen perception provider.
 
-    Priority:
-      1. GroqQwenProvider (fast, <5s) with OpenRouter as automatic failover.
-      2. OpenRouterQwenProvider alone when no GROQ_API_KEY is set.
+    Architecture (V1.md):
+      PRIMARY:  GroqQwenProvider  — Groq API for speed (Qwen3.8-27B via Groq).
+      FALLBACK: OpenRouterQwenProvider — same model, different provider.
 
-    This ensures the Groq -> OpenRouter failover chain is active whenever
-    GROQ_API_KEY is present, rather than bypassing Groq entirely.
+    Groq receives the REAL package images (not an OCR text manifest) so that
+    Qwen can visually read + semantically understand all 3 package faces itself.
     """
     global _PROVIDER_INSTANCE
     if _PROVIDER_INSTANCE is None:
-        groq_key = getattr(config, "GROQ_API_KEY", None) or os.getenv("GROQ_API_KEY")
-        openrouter = OpenRouterQwenProvider()
-        if groq_key and len(str(groq_key).strip()) > 5:
-            # Primary = Groq (fast); fallback = OpenRouter (same model, slower)
-            _PROVIDER_INSTANCE = GroqQwenProvider(fallback_provider=openrouter)
-            logger.info("[PROVIDER] Using GroqQwenProvider (primary) + OpenRouterQwenProvider (fallback).")
-        else:
-            # No Groq key — use OpenRouter directly
-            _PROVIDER_INSTANCE = openrouter
-            logger.info("[PROVIDER] GROQ_API_KEY not set — using OpenRouterQwenProvider directly.")
+        _PROVIDER_INSTANCE = GroqQwenProvider()
+        logger.info("[PROVIDER] Initialized GroqQwenProvider as primary perception engine (fallback: OpenRouter).")
     return _PROVIDER_INSTANCE
 
 

@@ -189,7 +189,7 @@ if MAX_UPLOAD_BYTES <= 0:
 #
 # Both paths return `List[OcrLine]` in ORIGINAL image coordinates, so
 # `classify_fields()` and the rule engine are unaffected by the choice.
-ENABLE_REGION_FIRST_OCR = _env_bool("LMPC_ENABLE_REGION_FIRST_OCR", True)
+ENABLE_REGION_FIRST_OCR = _env_bool("LMPC_ENABLE_REGION_FIRST_OCR", False)
 
 # Groq Multimodal Perception configuration (V1.md)
 GROQ_API_KEY: str | None = os.environ.get("GROQ_API_KEY")
