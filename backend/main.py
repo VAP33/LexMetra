@@ -71,7 +71,6 @@ from product_similarity import (
 )
 from ocr_extraction import classify_fields, run_ocr
 import pytesseract
-from vlm_verifier import verify_ambiguous_field, verify_ambiguous_field_gemini, recover_fields_from_image
 from visual_recovery import merge_visual_candidates
 from db import persistence as db
 from report import build_inspection_report_pdf
@@ -643,55 +642,11 @@ def _infer_applicability_context(
 
 def _apply_vlm_verification(result: ProductInspection, pil_img: Image.Image) -> list[dict]:
     """
-    Advisory-only semantic ambiguity check for UNCERTAIN facts.
-
-    This NEVER changes result.overall_status, a fact's status, or any
-    rule-engine decision. It only adds an advisory note a human reviewer can
-    read alongside the deterministic finding. Disabled unless
-    VLM_VERIFICATION_ENABLED=true and ANTHROPIC_API_KEY is configured; any
-    failure (missing SDK, network, bad response) is swallowed so the core
-    inspection pipeline never depends on an external API being available.
+    DEPRECATED: VLM verification removed from critical /scan path.
+    Groq multimodal perception is now the primary semantic authority.
+    This function is kept as a stub for backward compatibility.
     """
-    if not config.VLM_VERIFICATION_ENABLED:
-        return []
-
-    notes: list[dict] = []
-    for fact in result.facts:
-        if fact.status != FactStatus.UNCERTAIN:
-            continue
-        if fact.confidence is not None and fact.confidence < 0.2:
-            # Very low/no evidence — a semantic ambiguity check adds nothing;
-            # this is a missing-evidence case, not a wording-ambiguity case.
-            continue
-        try:
-            if config.GEMINI_API_KEY:
-                verification = verify_ambiguous_field_gemini(
-                    field=fact.field,
-                    extracted_text=fact.extracted_value or "",
-                    rule_requirement=fact.reason or fact.field,
-                )
-            else:
-                verification = verify_ambiguous_field(
-                    field=fact.field,
-                    extracted_text=fact.extracted_value or "",
-                    rule_requirement=fact.reason or fact.field,
-                )
-        except Exception as exc:  # noqa: BLE001 - advisory path must not break /scan
-            notes.append({
-                "field": fact.field,
-                "status": "verification_unavailable",
-                "detail": str(exc)[:200],
-            })
-            continue
-
-        notes.append({
-            "field": fact.field,
-            "ambiguous": verification.ambiguous,
-            "explanation": verification.explanation,
-            "provider": verification.provider,
-        })
-
-    return notes
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1569,16 +1524,20 @@ async def scan(
     # ------------------------- Dedicated Groq Multimodal Perception ----------------
     # Send all uploaded images (up to 3) in ONE Groq request
     groq_fields = {}
+    groq_raw_result = None
+    groq_error = None
+    
     try:
         groq_images_input = [(f"Face {idx+1}", c_bgr) for idx, (_, c_bgr, _) in enumerate(faces_for_qwen)]
         if not groq_images_input and images_cv:
             groq_images_input = [(f"Face {idx+1}", img) for idx, (_, img) in enumerate(images_cv)]
         
-        groq_res = await groq_vision_service.inspect_package_with_groq(
+        groq_raw_result = await groq_vision_service.inspect_package_with_groq(
             images=groq_images_input,
             timeout_secs=25.0
         )
-        groq_fields = groq_vision_service.groq_result_to_classified_fields(groq_res)
+        groq_fields = groq_vision_service.groq_result_to_classified_fields(groq_raw_result)
+        
         if groq_fields:
             for fld, fld_data in groq_fields.items():
                 if isinstance(fld_data, dict):
@@ -1597,9 +1556,10 @@ async def scan(
             print(f"[+] [/scan] Groq multimodal fields applied ({len(groq_fields)}): {list(groq_fields.keys())}", flush=True)
     except Exception as e:
         import traceback as _tb
+        groq_error = str(e)
         logger.error("Groq vision perception failed in /scan: %s\n%s", e, _tb.format_exc())
         print(f"[!] [/scan] Groq Multimodal FAILED: {e}", flush=True)
-        raise HTTPException(status_code=502, detail=f"Groq vision inspection failed: {e}")
+        # Continue execution with OCR-only fields - Groq failure is not critical
 
 
     # 0. Split-field reconstruction across multi-surface captures (only if Qwen was not used)
@@ -1864,6 +1824,12 @@ async def scan(
 
     return {
         "inspection": result,
+        "groq_perception": {
+            "raw_result": groq_raw_result,
+            "extracted_fields": groq_fields,
+            "error": groq_error,
+            "status": "success" if groq_raw_result else ("failed" if groq_error else "not_attempted"),
+        },
         "regulatory_scope": regulatory_scope_info,
         "rag_grounding": [g.model_dump() for g in grounded_legal_knowledge],
         "raw_ocr_lines": [

@@ -53,12 +53,9 @@ import {
 } from "@/lib/types";
 import {
   ApiError,
-  addSessionCapture,
   checkHealth,
   clearSession,
-  createSession,
   extractPreview,
-  finalizeSession,
   getInspectionDetail,
   getStoredToken,
   getStoredUser,
@@ -69,12 +66,11 @@ import {
   reportPdfUrl,
   type AuthedUser,
   type ExtractPreviewResponse,
-  type SurfaceType,
   preprocessParallel,
   resolveImageUrl,
   scanPackagesMulti,
 } from "@/lib/api-client";
-import { fromFinalizedInspection, fromInspectionRow, fromScanResponse, createOfflineInspection } from "@/lib/adapters";
+import { fromInspectionRow, fromScanResponse } from "@/lib/adapters";
 import { dataUrlToBlob } from "@/lib/data-url";
 import { type Language, getTranslation } from "@/lib/i18n";
 import { TeslaScannerAnimation } from "./TeslaScannerAnimation";
@@ -1732,15 +1728,10 @@ function ProcessingRunner({
         window.setTimeout(() => onDone(inspection), 300);
       })
       .catch((err: unknown) => {
-        console.warn("[Offline Fallback Engine Triggered] Generating client inspection:", err);
         window.clearInterval(interval);
         setStageIdx(4);
-        try {
-          const fallback = createOfflineInspection({}, []);
-          window.setTimeout(() => onDone(fallback), 300);
-        } catch {
-          onError(err instanceof ApiError ? err.message : "Analysis complete.");
-        }
+        console.error("[Inspection Flow Error]", err);
+        onError(err instanceof ApiError ? err.message : (err instanceof Error ? err.message : "Inspection failed. Please check network and backend."));
       });
 
     return () => window.clearInterval(interval);
@@ -3883,8 +3874,8 @@ export function InspectionApp() {
       const rawScanRes = await scanPackagesMulti(blobs, details);
       return fromScanResponse(rawScanRes, { productId: details.productId }, targetImages[0] || pendingImages[0]);
     } catch (err) {
-      console.warn("[Inspection Flow Fallback] /scan failed, running statutory check:", err);
-      return createOfflineInspection(details, targetImages);
+      console.error("[Inspection Flow Error] /scan request failed:", err);
+      throw err;
     }
   }
 
