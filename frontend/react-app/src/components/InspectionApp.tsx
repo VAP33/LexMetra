@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  CircleSlash,
   ClipboardCheck,
   Download,
   FileText,
@@ -110,9 +111,10 @@ type View =
   | "customer"
   | "seniorRegional";
 
-function getNavItems(lang: Language): Array<{ label: string; view: View; icon: LucideIcon }> {
+function getNavItems(lang: Language, role?: string): Array<{ label: string; view: View; icon: LucideIcon }> {
+  let allItems: Array<{ label: string; view: View; icon: LucideIcon }> = [];
   if (lang === "hi") {
-    return [
+    allItems = [
       { label: "अवलोकन", view: "landing", icon: Sparkles },
       { label: "डैशबोर्ड", view: "home", icon: LayoutDashboard },
       { label: "निरीक्षण सूची", view: "history", icon: HistoryIcon },
@@ -124,9 +126,8 @@ function getNavItems(lang: Language): Array<{ label: string; view: View; icon: L
       { label: "उपभोक्ता पोर्टल", view: "customer", icon: Users },
       { label: "प्रोफ़ाइल", view: "profile", icon: UserRound },
     ];
-  }
-  if (lang === "mr") {
-    return [
+  } else if (lang === "mr") {
+    allItems = [
       { label: "आढावा", view: "landing", icon: Sparkles },
       { label: "डॅशबोर्ड", view: "home", icon: LayoutDashboard },
       { label: "तपासणी सूची", view: "history", icon: HistoryIcon },
@@ -138,19 +139,50 @@ function getNavItems(lang: Language): Array<{ label: string; view: View; icon: L
       { label: "नागरिक पोर्टल", view: "customer", icon: Users },
       { label: "प्रोफाइल", view: "profile", icon: UserRound },
     ];
+  } else {
+    allItems = [
+      { label: "Overview", view: "landing", icon: Sparkles },
+      { label: "Dashboard", view: "home", icon: LayoutDashboard },
+      { label: "Inspections", view: "history", icon: HistoryIcon },
+      { label: "Register", view: "register", icon: ClipboardCheck },
+      { label: "Review Queue", view: "reviewQueue", icon: ShieldAlert },
+      { label: "Senior Intel", view: "seniorRegional", icon: Globe },
+      { label: "Regulatory Rules", view: "regulatory", icon: FileText },
+      { label: "Authority Dockets", view: "authority", icon: ShieldCheck },
+      { label: "Citizen Portal", view: "customer", icon: Users },
+      { label: "Profile", view: "profile", icon: UserRound },
+    ];
   }
-  return [
-    { label: "Overview", view: "landing", icon: Sparkles },
-    { label: "Dashboard", view: "home", icon: LayoutDashboard },
-    { label: "Inspections", view: "history", icon: HistoryIcon },
-    { label: "Register", view: "register", icon: ClipboardCheck },
-    { label: "Review Queue", view: "reviewQueue", icon: ShieldAlert },
-    { label: "Senior Intel", view: "seniorRegional", icon: Globe },
-    { label: "Regulatory Rules", view: "regulatory", icon: FileText },
-    { label: "Authority Dockets", view: "authority", icon: ShieldCheck },
-    { label: "Citizen Portal", view: "customer", icon: Users },
-    { label: "Profile", view: "profile", icon: UserRound },
-  ];
+
+  const r = (role || "").toLowerCase();
+  if (r === "customer" || r === "consumer") {
+    return allItems.filter((i) => i.view === "landing" || i.view === "customer" || i.view === "profile");
+  }
+  if (r === "authority") {
+    return allItems.filter(
+      (i) =>
+        i.view === "landing" ||
+        i.view === "authority" ||
+        i.view === "seniorRegional" ||
+        i.view === "history" ||
+        i.view === "register" ||
+        i.view === "regulatory" ||
+        i.view === "profile"
+    );
+  }
+  if (r === "inspector" || r === "reviewer" || r === "senior_inspector") {
+    return allItems.filter(
+      (i) =>
+        i.view === "landing" ||
+        i.view === "home" ||
+        i.view === "history" ||
+        i.view === "register" ||
+        i.view === "reviewQueue" ||
+        i.view === "regulatory" ||
+        i.view === "profile"
+    );
+  }
+  return allItems;
 }
 
 const statusStyles: Record<
@@ -187,10 +219,10 @@ function Button({
   disabled?: boolean;
 }) {
   const variants = {
-    primary: "bg-primary text-primary-foreground hover:bg-primary/90",
-    secondary: "bg-card text-foreground ring-1 ring-inset ring-border hover:bg-muted",
-    quiet: "text-muted-foreground hover:bg-muted hover:text-foreground",
-    danger: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+    primary: "bg-purple-700 hover:bg-purple-800 text-white font-bold shadow-sm",
+    secondary: "bg-white text-slate-900 border border-slate-300 hover:bg-slate-50 hover:text-black font-bold shadow-xs",
+    quiet: "bg-transparent text-slate-700 hover:bg-slate-100 hover:text-slate-900 font-semibold",
+    danger: "bg-red-600 hover:bg-red-700 text-white font-bold shadow-sm",
   };
   return (
     <button
@@ -267,17 +299,17 @@ function Header({
   onLanguageChange?: (l: Language) => void;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-purple-900/40 bg-gradient-to-r from-brand-950 via-brand-900 to-purple-950 text-white shadow-md">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white text-slate-900 shadow-xs">
       <div className="h-1.5 w-full tricolor-stripe" />
       <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3.5">
-          <button type="button" aria-label="Open navigation" onClick={onMenu} className="rounded-lg p-2 text-purple-200 hover:bg-white/10 md:hidden">
+          <button type="button" aria-label="Open navigation" onClick={onMenu} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden">
             <Menu className="h-5 w-5" />
           </button>
           
           {/* Official DCA Logo in Left Corner */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-purple-300/30">
+            <div className="flex items-center justify-center rounded-xl bg-white p-1.5 shadow-sm border border-slate-200 ring-1 ring-slate-100">
               <img
                 src="/dca-logo.png"
                 alt="Department of Consumer Affairs, Govt of India"
@@ -286,12 +318,12 @@ function Header({
             </div>
             <div className="hidden sm:block">
               <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-saffron-400 animate-pulse" />
-                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-saffron-300">{eyebrow}</p>
+                <span className="h-2 w-2 rounded-full bg-saffron-500 animate-pulse" />
+                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-saffron-600">{eyebrow}</p>
               </div>
-              <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+              <h1 className="text-base font-bold tracking-tight text-slate-900 flex items-center gap-2">
                 <span>{title}</span>
-                <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-govgreen border border-emerald-200">
                   LMPC 2011 Verified
                 </span>
               </h1>
@@ -302,25 +334,25 @@ function Header({
         <div className="flex items-center gap-2.5 sm:gap-3">
           {/* Global Header Language Switcher */}
           {onLanguageChange && (
-            <div className="inline-flex rounded-lg border border-purple-400/30 bg-purple-950/60 p-0.5 text-xs font-semibold shadow-inner">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => onLanguageChange("en")}
-                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "en" ? "bg-purple-600 text-white font-bold shadow-xs" : "text-purple-200 hover:text-white"}`}
+                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "en" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
               >
                 EN
               </button>
               <button
                 type="button"
                 onClick={() => onLanguageChange("hi")}
-                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "hi" ? "bg-purple-600 text-white font-bold shadow-xs" : "text-purple-200 hover:text-white"}`}
+                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "hi" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
               >
                 हिन्दी
               </button>
               <button
                 type="button"
                 onClick={() => onLanguageChange("mr")}
-                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "mr" ? "bg-purple-600 text-white font-bold shadow-xs" : "text-purple-200 hover:text-white"}`}
+                className={`rounded-md px-2 py-1 transition text-[11px] ${lang === "mr" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"}`}
               >
                 मराठी
               </button>
@@ -328,16 +360,16 @@ function Header({
           )}
 
           {online === false ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/20 px-2.5 py-1 text-xs font-semibold text-red-300 border border-destructive/30">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 border border-red-200">
               <WifiOff className="h-3 w-3" />Offline
             </span>
           ) : (
-            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300 border border-emerald-400/30">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />Central Live
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-govgreen border border-emerald-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />Central Live
             </span>
           )}
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20 shadow-sm hover:bg-white/20 transition-colors">
-            <UserRound className="h-4 w-4 text-saffron-300" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-800 border border-slate-200 shadow-xs hover:bg-slate-200 transition-colors">
+            <UserRound className="h-4 w-4 text-purple-700" />
           </div>
         </div>
       </div>
@@ -347,8 +379,8 @@ function Header({
 
 const AppHeader = Header;
 
-function DesktopRail({ view, onNavigate, lang = "en" }: { view: View; onNavigate: (view: View) => void; lang?: Language }) {
-  const currentNavItems = getNavItems(lang);
+function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNavigate: (view: View) => void; lang?: Language; role?: string }) {
+  const currentNavItems = getNavItems(lang, role);
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-purple-200/80 bg-white px-4 py-5 md:flex shadow-sm">
       <div className="h-1.5 w-full tricolor-stripe mb-4 rounded-full" />
@@ -886,7 +918,16 @@ function FilterBar({ search, setSearch, filter, setFilter }: { search: string; s
       <div className="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
         <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
         {(["ALL", "COMPLIANT", "VIOLATION", "UNCERTAIN", "EXEMPT"] as const).map((item) => (
-          <button type="button" key={item} onClick={() => setFilter(item)} className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${filter === item ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
+          <button
+            type="button"
+            key={item}
+            onClick={() => setFilter(item)}
+            className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold transition-colors shadow-xs ${
+              filter === item
+                ? "bg-purple-700 text-white shadow-xs"
+                : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
+            }`}
+          >
             {item === "ALL" ? "All" : statusLabel(item)}
           </button>
         ))}
@@ -1743,10 +1784,12 @@ function DeclarationRow({
 }) {
   const statusMap: Record<DeclarationStatus, { label: string; className: string; icon: LucideIcon }> = {
     VERIFIED: { label: "Verified", className: "text-success", icon: Check },
+    NON_COMPLIANT: { label: "Non-Compliant", className: "text-destructive", icon: XCircle },
     MISSING: { label: "Not detected", className: "text-destructive", icon: XCircle },
     REVIEW: { label: "Review", className: "text-warning", icon: Info },
     EXEMPT: { label: "Exempt", className: "text-brand", icon: ShieldCheck },
     UNOBSERVED: { label: "Not detected", className: "text-muted-foreground", icon: CircleHelp },
+    NOT_APPLICABLE: { label: "Not applicable", className: "text-muted-foreground", icon: CircleSlash },
   };
   const [expanded, setExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -2287,8 +2330,8 @@ function DynamicEvidenceCrop({
 
     setLoading(true);
     setLoadError(false);
+    const resolvedSrc = resolveImageUrl(imageSrc) || imageSrc;
     const img = new Image();
-    img.crossOrigin = "anonymous";
     img.onload = () => {
       setLoading(false);
       const canvas = canvasRef.current;
@@ -2394,11 +2437,45 @@ function DynamicEvidenceCrop({
     };
 
     img.onerror = () => {
-      setLoading(false);
-      setLoadError(true);
+      // Fallback without protocol/relative differences
+      if (!resolvedSrc.startsWith("http") && typeof window !== "undefined") {
+        const fallbackUrl = `http://127.0.0.1:8000${resolvedSrc.startsWith("/") ? "" : "/"}${resolvedSrc}`;
+        const retryImg = new Image();
+        retryImg.onload = () => {
+          setLoading(false);
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const nw = retryImg.naturalWidth;
+          const nh = retryImg.naturalHeight;
+          const padX = Math.max(bbox.width * 0.4, 40);
+          const padY = Math.max(bbox.height * 0.4, 30);
+          const cropX = Math.max(0, bbox.x - padX);
+          const cropY = Math.max(0, bbox.y - padY);
+          const cropW = Math.max(1, Math.min(nw, bbox.x + bbox.width + padX) - cropX);
+          const cropH = Math.max(1, Math.min(nh, bbox.y + bbox.height + padY) - cropY);
+          canvas.width = 720;
+          canvas.height = Math.max(260, Math.min(Math.round(720 * (cropH / cropW)), 520));
+          ctx.fillStyle = "#09090b";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          const scale = Math.min(canvas.width / cropW, canvas.height / cropH);
+          const rw = cropW * scale;
+          const rh = cropH * scale;
+          ctx.drawImage(retryImg, cropX, cropY, cropW, cropH, (canvas.width - rw) / 2, (canvas.height - rh) / 2, rw, rh);
+        };
+        retryImg.onerror = () => {
+          setLoading(false);
+          setLoadError(true);
+        };
+        retryImg.src = fallbackUrl;
+      } else {
+        setLoading(false);
+        setLoadError(true);
+      }
     };
 
-    img.src = imageSrc;
+    img.src = resolvedSrc;
   }, [imageSrc, bbox, polygon, label, confidence]);
 
   if (!bbox || bbox.width <= 0 || bbox.height <= 0) {
@@ -2538,6 +2615,22 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
   // Target bounding box for evidence crop (raw pixel space)
   const targetBbox = activeRegion?.bboxPx || activeDecl?.evidenceBboxPx;
 
+  // Auto-sync active surface to declaration panel
+  useEffect(() => {
+    if (activeDecl?.provenance?.surfaceType) {
+      const targetFace = activeDecl.provenance.surfaceType;
+      const match = surfaces.find(
+        (s) =>
+          s.surfaceType.toLowerCase() === targetFace.toLowerCase() ||
+          s.faceLabel?.toLowerCase() === targetFace.toLowerCase() ||
+          (activeDecl.provenance?.surfaceId && s.surfaceId.toLowerCase() === activeDecl.provenance.surfaceId.toLowerCase())
+      );
+      if (match && match.surfaceType !== activeSurfaceType) {
+        setActiveSurfaceType(match.surfaceType);
+      }
+    }
+  }, [activeDecl, surfaces]);
+
   function handleSelectDeclaration(field: string, targetFace?: string) {
     setSelectedLabel(field);
     const decl = inspection.declarations.find((d) => d.field.toLowerCase() === field.toLowerCase());
@@ -2669,10 +2762,10 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                               [st.surfaceType]: "canonical",
                             }));
                           }}
-                          className={`rounded-md px-2 py-0.5 transition ${
+                          className={`rounded-md px-2.5 py-1 text-xs transition ${
                             currentMode === "canonical"
-                              ? "bg-background text-foreground font-bold shadow-xs"
-                              : "text-muted-foreground hover:text-foreground"
+                              ? "bg-purple-700 text-white font-bold shadow-xs"
+                              : "text-slate-700 hover:text-slate-900 font-semibold"
                           }`}
                         >
                           Scan
@@ -2685,10 +2778,10 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
                               [st.surfaceType]: "original",
                             }));
                           }}
-                          className={`rounded-md px-2 py-0.5 transition ${
+                          className={`rounded-md px-2.5 py-1 text-xs transition ${
                             currentMode === "original"
-                              ? "bg-background text-foreground font-bold shadow-xs"
-                              : "text-muted-foreground hover:text-foreground"
+                              ? "bg-purple-700 text-white font-bold shadow-xs"
+                              : "text-slate-700 hover:text-slate-900 font-semibold"
                           }`}
                         >
                           Raw
@@ -3461,33 +3554,65 @@ function LoginView({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
               type="button"
-              id="quick-admin-login"
+              id="quick-inspector-login"
               disabled={submitting}
-              onClick={() => handleQuickLogin("admin", "password123", "seniorRegional")}
+              onClick={() => handleQuickLogin("inspector", "password123", "home")}
               className="flex items-center gap-2.5 p-3 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 text-left transition-all group"
             >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-foreground group-hover:text-primary">Field Inspector</p>
+                <p className="text-[10px] text-muted-foreground truncate">inspector / password123</p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              id="quick-authority-login"
+              disabled={submitting}
+              onClick={() => handleQuickLogin("authority", "password123", "authority")}
+              className="flex items-center gap-2.5 p-3 rounded-xl border border-purple-300/40 bg-purple-500/5 hover:bg-purple-500/10 text-left transition-all group"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-700 text-white">
+                <ClipboardCheck className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-foreground group-hover:text-purple-700">Statutory Authority</p>
+                <p className="text-[10px] text-muted-foreground truncate">authority / password123</p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              id="quick-admin-login"
+              disabled={submitting}
+              onClick={() => handleQuickLogin("admin", "password123", "seniorRegional")}
+              className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-muted/40 hover:bg-muted text-left transition-all group"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
                 <Globe className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-foreground group-hover:text-primary">Admin / Senior Regional</p>
+                <p className="text-xs font-bold text-foreground group-hover:text-primary">Senior Admin</p>
                 <p className="text-[10px] text-muted-foreground truncate">admin / password123</p>
               </div>
             </button>
 
             <button
               type="button"
-              id="quick-inspector-login"
+              id="quick-consumer-login"
               disabled={submitting}
-              onClick={() => handleQuickLogin("inspector", "password123", "home")}
-              className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-muted/40 hover:bg-muted text-left transition-all group"
+              onClick={() => handleQuickLogin("customer", "password123", "customer")}
+              className="flex items-center gap-2.5 p-3 rounded-xl border border-cyan-300/40 bg-cyan-500/5 hover:bg-cyan-500/10 text-left transition-all group"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
-                <ShieldCheck className="h-4 w-4" />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-700 text-white">
+                <Users className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-foreground group-hover:text-primary">Field Inspector</p>
-                <p className="text-[10px] text-muted-foreground truncate">inspector / password123</p>
+                <p className="text-xs font-bold text-foreground group-hover:text-cyan-700">Citizen Consumer</p>
+                <p className="text-[10px] text-muted-foreground truncate">customer / password123</p>
               </div>
             </button>
           </div>
@@ -3677,9 +3802,23 @@ export function InspectionApp() {
   }, [toast]);
 
   function go(nextView: View) {
-    setView(nextView);
-    if (!["result", "detail", "evidence", "report"].includes(nextView)) setSelected(undefined);
-    if (nextView === "scan") {
+    let targetView = nextView;
+    // RBAC Route Guarding: Protect unauthorized routes based on session role
+    if (user?.role === "customer" || user?.role === "consumer") {
+      const allowedViews = ["customer", "landing", "profile", "login"];
+      if (!allowedViews.includes(targetView)) {
+        targetView = "customer";
+      }
+    } else if (user?.role === "authority") {
+      const forbiddenViews = ["scan", "preprocessing", "scanDetails", "processing"];
+      if (forbiddenViews.includes(targetView)) {
+        targetView = "authority";
+      }
+    }
+
+    setView(targetView);
+    if (!["result", "detail", "evidence", "report"].includes(targetView)) setSelected(undefined);
+    if (targetView === "scan") {
       setPendingImages([]);
       setCanonicalImages([]);
     }
@@ -3711,7 +3850,7 @@ export function InspectionApp() {
       isExportOnly: false,
       retailBundleCount: 1,
       isImported: false,
-    });
+    }, urls);
   }
 
   function handlePreprocessingError(message: string) {
@@ -3720,8 +3859,10 @@ export function InspectionApp() {
 
   const pendingRunRef = useRef<() => Promise<Inspection>>(() => Promise.reject(new Error("no scan queued")));
 
-  async function runScanSession(details: ScanDetails): Promise<Inspection> {
-    const targetImages = canonicalImages.length > 0 ? canonicalImages : pendingImages;
+  async function runScanSession(details: ScanDetails, overrideImages?: string[]): Promise<Inspection> {
+    const targetImages = (overrideImages && overrideImages.length > 0)
+      ? overrideImages
+      : (canonicalImages.length > 0 ? canonicalImages : pendingImages);
     try {
       const session = await createSession({
         productId: details.productId,
@@ -3752,17 +3893,17 @@ export function InspectionApp() {
       }
 
       const inspection = await finalizeSession(session.session_id);
-      return fromFinalizedInspection(inspection, { productId: details.productId }, pendingImages[0] || canonicalImages[0]);
+      return fromFinalizedInspection(inspection, { productId: details.productId }, targetImages[0] || pendingImages[0]);
     } catch (err) {
       console.warn("[Offline Engine Active] Server unreachable, running local client-side LMPC statutory engine:", err);
       return createOfflineInspection(details, targetImages);
     }
   }
 
-  function submitDetails(details: ScanDetails) {
+  function submitDetails(details: ScanDetails, overrideImages?: string[]) {
     setProcessingError(undefined);
     setView("processing");
-    pendingRunRef.current = () => runScanSession(details);
+    pendingRunRef.current = () => runScanSession(details, overrideImages);
   }
 
   function handleProcessingDone(inspection: Inspection) {
@@ -3897,7 +4038,7 @@ export function InspectionApp() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {!inFocusedFlow && <DesktopRail view={view} onNavigate={go} lang={lang} />}
+      {!inFocusedFlow && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role} />}
       {!inFocusedFlow && <div className="md:pl-64">{content}</div>}
       {inFocusedFlow && content}
       {!inFocusedFlow && <BottomNav view={view} onNavigate={go} lang={lang} />}

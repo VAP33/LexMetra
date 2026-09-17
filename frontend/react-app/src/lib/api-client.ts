@@ -45,7 +45,7 @@ export class ApiError extends Error {
 
 export interface AuthedUser {
   username: string;
-  role: "customer" | "inspector" | "reviewer" | "senior_inspector" | "admin";
+  role: "customer" | "consumer" | "inspector" | "reviewer" | "senior_inspector" | "authority" | "admin";
 }
 
 export function getStoredToken(): string | null {

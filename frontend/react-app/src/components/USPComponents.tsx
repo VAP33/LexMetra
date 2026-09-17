@@ -99,7 +99,7 @@ export function PackageIntegrityCard({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/60 pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">USP 1 · Computer Vision</p>
+            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Package Integrity · Computer Vision</p>
             <span className="rounded-full bg-brand/10 border border-brand/20 px-2 py-0.5 text-[10px] font-bold text-brand">
               Advisory Signal
             </span>
@@ -227,7 +227,7 @@ export function FssaiVerificationCard({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border/60 pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">USP 2 · Multi-Regulatory</p>
+            <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Cross-Regulatory · Multi-Agency</p>
             <span className="rounded-full bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-400">
               FSSAI Statutory Check
             </span>
@@ -582,7 +582,7 @@ export function AuthorityDashboardView({ onBack }: { onBack: () => void }) {
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 hover:text-black transition shadow-xs"
         >
           Back to home
         </button>
@@ -601,8 +601,8 @@ export function AuthorityDashboardView({ onBack }: { onBack: () => void }) {
           <span className="text-[11px] text-muted-foreground">Violations & Alterations</span>
         </div>
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">New Inquiries</p>
-          <p className="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">{counts.submitted}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600">New Inquiries</p>
+          <p className="mt-1 text-2xl font-bold text-amber-600">{counts.submitted}</p>
           <span className="text-[11px] text-muted-foreground">Awaiting assignment</span>
         </div>
         <div className="rounded-2xl border border-brand/30 bg-brand/5 p-4">
@@ -619,10 +619,10 @@ export function AuthorityDashboardView({ onBack }: { onBack: () => void }) {
             key={st}
             type="button"
             onClick={() => setStatusFilter(st)}
-            className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-xl px-3 py-1.5 text-xs font-bold transition shadow-xs ${
               statusFilter === st
-                ? "bg-foreground text-background"
-                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                ? "bg-purple-700 text-white shadow-xs"
+                : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
             }`}
           >
             {st.replace("_", " ")}
@@ -1059,38 +1059,6 @@ export function MultilingualAssistantWidget({
             </div>
           </div>
 
-          {/* Intuitive Action / Common Task Menu */}
-          <div className="flex gap-1.5 overflow-x-auto border-b border-border/40 bg-muted/20 px-3 py-2 text-[10px] no-scrollbar">
-            {[
-              { label: "Explain inspection", q: "Explain this inspection and its overall findings" },
-              { label: "Explain violation", q: "Explain the violations found on this package" },
-              { label: "Why uncertain?", q: "Why is this inspection or declaration marked uncertain?" },
-              { label: "Show evidence", q: "Show supporting evidence and localized polygon regions" },
-              { label: "Explain rule", q: "Explain the applicable Legal Metrology rules for MRP and Net Weight" },
-              { label: "Summarize", q: "Summarize findings for this package" },
-              { label: "Generate report", q: "Generate report for this inspection" },
-              { label: "🔊 Read aloud", q: "Read summary aloud" },
-            ].map((chip, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => {
-                  if (chip.label === "🔊 Read aloud") {
-                    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-                    if (lastAssistant) {
-                      speakText(lastAssistant.text);
-                      return;
-                    }
-                  }
-                  handleSend(chip.q);
-                }}
-                className="shrink-0 rounded-full border border-border/70 bg-card px-2.5 py-1 font-medium text-foreground hover:border-brand hover:text-brand transition shadow-2xs"
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-
           {/* Messages */}
           <div className="flex-1 space-y-3 overflow-y-auto p-4 text-xs">
             {messages.map((m, idx) => (
@@ -1114,6 +1082,30 @@ export function MultilingualAssistantWidget({
                 </div>
               </div>
             ))}
+            {/* Floating contextual suggestion cards (Claude-style) */}
+            {messages.length <= 1 && (
+              <div className="pt-2">
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Suggested Inquiries:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { title: "Explain findings", desc: "Break down all statutory checks & status", q: "Explain this inspection and its overall findings" },
+                    { title: "Package violations", desc: "Analyze reasons for non-compliance", q: "Explain the violations found on this package" },
+                    { title: "Show visual evidence", desc: "Inspect localized bounding polygons", q: "Show supporting evidence and localized polygon regions" },
+                    { title: "Statutory rules", desc: "LMPC 2011 font height & MRP rules", q: "Explain the applicable Legal Metrology rules for MRP and Net Weight" },
+                  ].map((card, cIdx) => (
+                    <button
+                      key={cIdx}
+                      type="button"
+                      onClick={() => handleSend(card.q)}
+                      className="flex flex-col text-left p-2.5 rounded-xl border border-border/80 bg-background/80 hover:bg-muted/80 hover:border-brand transition shadow-2xs group"
+                    >
+                      <span className="font-semibold text-foreground group-hover:text-brand">{card.title}</span>
+                      <span className="text-[10px] text-muted-foreground mt-0.5">{card.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {loading && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" /> Legal Metrology grounding in progress…

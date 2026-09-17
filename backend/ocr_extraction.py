@@ -790,6 +790,10 @@ def _value_shape(field: str, text: str) -> bool:
         return _extract_date(text) is not None
 
     if field == "batch_no":
+        cleaned = text.strip()
+        # Strictly reject date patterns from being shaped as batch codes
+        if _extract_date(cleaned) is not None or re.match(r"^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$", cleaned) or re.match(r"^\d{1,2}[/.-]\d{2,4}$", cleaned):
+            return False
         return bool(re.search(r"\b[A-Z0-9][A-Z0-9./_-]{3,}\b", text, re.I))
 
     if field == "net_quantity":

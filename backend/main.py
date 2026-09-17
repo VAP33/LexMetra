@@ -135,10 +135,12 @@ def startup() -> None:
         if config.BOOTSTRAP_DEMO_USERS and config.DEV_MODE:
             for u, p, r, n in [
                 ("admin", "password123", "admin", "System Admin"),
+                ("authority", "password123", "authority", "Statutory Metrology Authority"),
                 ("senior_inspector", "password123", "senior_inspector", "Senior Metrology Officer"),
                 ("inspector", "password123", "inspector", "Field Inspector"),
                 ("reviewer", "password123", "reviewer", "Metrology Reviewer"),
                 ("customer", "password123", "customer", "Citizen Consumer"),
+                ("consumer", "password123", "consumer", "Citizen Consumer"),
             ]:
 
                 if not db.get_user_by_username(u):
@@ -1691,7 +1693,8 @@ async def scan(
     if label_product_id:
         s_pid = str(label_product_id).strip()
         digits_pid = re.sub(r"\D", "", s_pid)
-        if "/-" in s_pid or "₹" in s_pid or "rs" in s_pid.lower() or (resolved_mrp and digits_pid == str(int(resolved_mrp))):
+        curr_mrp_check = accumulated_fields.get("mrp", {}).get("numeric_value") or mrp
+        if "/-" in s_pid or "₹" in s_pid or "rs" in s_pid.lower() or (curr_mrp_check and digits_pid == str(int(curr_mrp_check))):
             label_product_id = None
             accumulated_fields.pop("product_id", None)
 

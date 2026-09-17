@@ -44,13 +44,13 @@ export function LandingPage({
 
   return (
     <div className="min-h-screen bg-white text-slate-900 flex flex-col justify-between selection:bg-saffron-500 selection:text-white">
-      {/* Top Navigation Bar with Tricolor Ribbon & Brand Purple Header */}
-      <header className="border-b border-purple-900/40 bg-gradient-to-r from-brand-950 via-brand-900 to-purple-950 text-white sticky top-0 z-50 shadow-md">
+      {/* Top Navigation Bar with Tricolor Ribbon & Crisp White Navbar */}
+      <header className="border-b border-slate-200 bg-white text-slate-900 sticky top-0 z-50 shadow-xs">
         <div className="h-1.5 w-full tricolor-stripe" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           {/* Left Corner Logo */}
           <div className="flex items-center gap-3.5">
-            <div className="rounded-2xl bg-white p-2 shadow-md ring-2 ring-purple-300/30">
+            <div className="rounded-2xl bg-white p-1.5 shadow-sm border border-slate-200 ring-1 ring-slate-100">
               <img
                 src="/dca-logo.png"
                 alt="Department of Consumer Affairs, Govt of India"
@@ -59,15 +59,15 @@ export function LandingPage({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-base font-black tracking-widest text-white">LEXMETRA</span>
-                <span className="bg-saffron-500/25 border border-saffron-400/50 text-saffron-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                <span className="text-base font-black tracking-widest text-slate-900">LEXMETRA</span>
+                <span className="bg-saffron-50 border border-saffron-200 text-saffron-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                   STATUTORY AI
                 </span>
-                <span className="bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider hidden sm:inline">
+                <span className="bg-emerald-50 border border-emerald-200 text-govgreen text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider hidden sm:inline">
                   DCA VERIFIED
                 </span>
               </div>
-              <p className="text-[11px] font-semibold text-purple-200 tracking-wider uppercase">
+              <p className="text-[11px] font-semibold text-slate-500 tracking-wider uppercase">
                 Department of Consumer Affairs · Govt of India
               </p>
             </div>
@@ -76,14 +76,14 @@ export function LandingPage({
           <div className="flex items-center gap-3">
             <button
               onClick={onConsumerPortal}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-govgreen bg-white hover:bg-emerald-50 border-2 border-emerald-400/60 transition-all shadow-xs"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-800 bg-white hover:bg-slate-50 border-2 border-slate-300 transition-all shadow-xs"
             >
               <Users className="h-4 w-4 text-govgreen" />
               Citizen Portal
             </button>
             <button
               onClick={onOfficerLogin}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-saffron-500 to-orange-600 hover:from-saffron-600 hover:to-orange-700 text-white border border-saffron-400/50 shadow-sm transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-saffron-500 to-orange-600 hover:from-saffron-600 hover:to-orange-700 text-white border border-saffron-500 shadow-sm transition-all"
             >
               <Lock className="h-3.5 w-3.5 text-white" />
               Officer Sign In

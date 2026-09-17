@@ -335,8 +335,13 @@ def parse_batch_code(text: str, label_prefix: Optional[str] = None) -> Optional[
     if not code_text or len(code_text) < 2:
         return None
 
-    # Do not treat date patterns (e.g. 03/2026, 12/24) as batch codes
-    if re.match(r"^\d{1,2}[/.-]\d{2,4}$", code_text):
+    # Do not treat date patterns (e.g. 03/2026, 12/24, 13/05/26, 13/05/2026, 2026-05-13, 13-MAY-26) as batch codes
+    if (
+        re.match(r"^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$", code_text)
+        or re.match(r"^\d{1,2}[/.-]\d{2,4}$", code_text)
+        or re.match(r"^\d{4}[/.-]\d{1,2}[/.-]\d{1,2}$", code_text)
+        or re.match(r"^\d{1,2}[-\s][A-Za-z]{3,9}[-\s]\d{2,4}$", code_text)
+    ):
         return None
     # Do not treat pure monetary amounts as batch codes
     if re.match(r"^(?:₹|rs)?\s*\d+(?:\.\d{2})?$", code_text, re.I):
