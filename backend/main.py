@@ -37,7 +37,7 @@ import httpx
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
@@ -138,6 +138,7 @@ def startup() -> None:
                 ("senior_inspector", "password123", "senior_inspector", "Senior Metrology Officer"),
                 ("inspector", "password123", "inspector", "Field Inspector"),
                 ("reviewer", "password123", "reviewer", "Metrology Reviewer"),
+                ("authority", "password123", "reviewer", "Statutory Authority Officer"),
                 ("customer", "password123", "customer", "Citizen Consumer"),
             ]:
 
@@ -169,6 +170,16 @@ if _FRONTEND_DIR.exists():
 if config.UPLOAD_DIR:
     config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=str(config.UPLOAD_DIR)), name="uploads")
+
+
+@app.api_route("/dca-logo.png", methods=["GET", "HEAD"], include_in_schema=False)
+def dca_logo():
+    logo_path = _FRONTEND_DIR / "react-app" / "public" / "dca-logo.png"
+    if not logo_path.exists():
+        logo_path = _FRONTEND_DIR / "dca-logo.png"
+    if logo_path.exists():
+        return FileResponse(str(logo_path), media_type="image/png")
+    return Response(status_code=404)
 
 
 @app.get("/", include_in_schema=False)
@@ -2246,12 +2257,24 @@ async def finalize_session(
                         c_bgr = cv2.imread(orig_p)
                 if c_bgr is not None:
                     h, w = c_bgr.shape[:2]
+                    orig_dims = obs.get("original_dimensions")
+                    orig_w, orig_h = w, h
+                    if orig_dims and len(orig_dims) == 2:
+                        orig_w, orig_h = int(orig_dims[0]), int(orig_dims[1])
+                    else:
+                        orig_p = cap.get("image_path")
+                        if orig_p and os.path.exists(orig_p):
+                            try:
+                                with Image.open(orig_p) as _im:
+                                    orig_w, orig_h = _im.size
+                            except Exception:
+                                pass
                     t = CoordinateTransform(
                         source_space=CoordinateSpace.CANONICAL_PIXEL,
                         target_space=CoordinateSpace.ORIGINAL_PIXEL,
                         matrix=inv_m if inv_m else [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
                         source_dims=(w, h),
-                        target_dims=(w, h),
+                        target_dims=(orig_w, orig_h),
                     )
                     faces_multi.append((f"Face {i+1}", c_bgr, t))
             if faces_multi:

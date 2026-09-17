@@ -370,16 +370,24 @@ def verify_ambiguous_field_with_provider(
 
 
 def _gemini_provider_call(prompt: str, *, model: str = "gemini-2.5-flash-lite") -> str:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
             "GEMINI_API_KEY is not set. The semantic verifier requires an "
             "explicit API key and does not fabricate an offline model result."
         )
-    genai.configure(api_key=api_key)
-    client = genai.GenerativeModel(model, system_instruction=VERIFIER_SYSTEM_PROMPT)
-    response = client.generate_content(prompt, generation_config={"temperature": 0})
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=VERIFIER_SYSTEM_PROMPT,
+            temperature=0,
+            response_mime_type="application/json",
+        ),
+    )
     return (response.text or "").strip()
 
 
@@ -480,18 +488,33 @@ def _extract_json_object(text: str) -> Optional[dict]:
         data = json.loads(cleaned)
         return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, TypeError):
-        # Some multimodal models wrap JSON in a short prefix/suffix despite the
-        # instruction. Recover only the first balanced JSON object, never arbitrary
-        # prose, so we do not accidentally parse a legal conclusion.
+        # Models sometimes add a one-line preamble.  Accept one *complete*
+        # balanced object only; never guess closing brackets or parse a partial
+        # prefix because that would truncate declarations without telling the UI.
         start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start < 0 or end <= start:
+        if start < 0:
             return None
-        try:
-            data = json.loads(cleaned[start:end + 1])
-            return data if isinstance(data, dict) else None
-        except (json.JSONDecodeError, TypeError):
-            return None
+        depth, in_string, escaped = 0, False, False
+        for index, char in enumerate(cleaned[start:], start):
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\" and in_string:
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+            elif not in_string and char == "{":
+                depth += 1
+            elif not in_string and char == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        data = json.loads(cleaned[start:index + 1])
+                        return data if isinstance(data, dict) else None
+                    except (json.JSONDecodeError, TypeError):
+                        return None
+        return None
 
 
 def _coerce_visual_field(item: Any, *, image_id: str, surface_id: Optional[str]) -> Optional[dict]:
@@ -561,7 +584,8 @@ def recover_fields_from_image(
         raise RuntimeError("GEMINI_API_KEY is not set for visual recovery.")
 
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
     except ImportError as exc:
         raise RuntimeError("google-generativeai is not installed.") from exc
 
@@ -581,11 +605,14 @@ def recover_fields_from_image(
         + VISUAL_RECOVERY_PROMPT
     )
 
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model_client = genai.GenerativeModel(model)
-    response = model_client.generate_content(
-        [prompt, image.convert("RGB")],
-        generation_config={"temperature": 0},
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    response = client.models.generate_content(
+        model=model,
+        contents=[prompt, image.convert("RGB")],
+        config=types.GenerateContentConfig(
+            temperature=0,
+            response_mime_type="application/json",
+        ),
     )
     text = getattr(response, "text", "") or ""
     data = _extract_json_object(text)

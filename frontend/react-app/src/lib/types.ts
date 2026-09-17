@@ -60,7 +60,7 @@ export function mapCanonicalStatus(status: RawCanonicalStatus): DeclarationStatu
     // Something was read but it is not conclusive: label without a value, a
     // value without a passing check, or an explicit reviewer referral.
     case "PARTIALLY_DETECTED": return "REVIEW";
-    case "DETECTED": return "REVIEW";
+    case "DETECTED": return "VERIFIED";
     case "REVIEW_REQUIRED": return "REVIEW";
     default: return "REVIEW";
   }

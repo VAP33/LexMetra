@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { type Inspection } from "@/lib/types";
 import { type Language } from "@/lib/i18n";
+import { LexMetraLogo } from "./InspectionApp";
 
 interface CustomerDashboardProps {
   inspections?: Inspection[];
@@ -86,12 +87,8 @@ export function CustomerDashboard({
                 <ArrowLeft className="h-5 w-5" />
               </button>
             )}
-            <div className="flex items-center justify-center rounded-2xl bg-white p-1.5 shadow-sm ring-1 ring-purple-300/30">
-              <img
-                src="/dca-logo.png"
-                alt="Department of Consumer Affairs, Govt of India"
-                className="h-10 w-auto object-contain max-w-[140px] sm:max-w-[180px]"
-              />
+            <div className="flex items-center justify-center rounded-2xl bg-white p-1 sm:p-1.5 shadow-sm ring-1 ring-purple-300/30">
+              <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[130px] sm:max-w-[180px]" />
             </div>
             <div>
               <div className="flex items-center gap-2">

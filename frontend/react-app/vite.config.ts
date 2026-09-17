@@ -2,7 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // FastAPI mounts the production bundle at /app. Vite development remains at
+  // / so `npm run dev` continues to work at http://localhost:5173/.
+  base: mode === 'production' ? '/app/' : '/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -20,4 +23,4 @@ export default defineConfig({
       '/auth': 'http://127.0.0.1:8000',
     },
   },
-})
+}))

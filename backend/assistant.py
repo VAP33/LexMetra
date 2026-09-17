@@ -22,11 +22,42 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import os
+import re
+import config
+from google import genai
+
 logger = logging.getLogger("lexmetra.assistant")
 
 LANG_EN = "en"
 LANG_HI = "hi"
 LANG_MR = "mr"
+
+STATUTORY_RULEBOOK = """
+COMPREHENSIVE STATUTORY RULES IMPLEMENTED IN LEXMETRA:
+1. Legal Metrology Act, 2009 & Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC 2011):
+   - Rule 6(1)(a): Name and complete address of the manufacturer, or packer, or importer (including Country of Origin for imported commodities).
+   - Rule 6(1)(b): Generic or common name of the commodity contained in the package.
+   - Rule 6(1)(c): Net quantity in terms of standard unit of weight or measure (g, kg, ml, l, m) or number.
+   - Rule 6(1)(d): Month and year in which commodity is manufactured or pre-packed. Perishable commodities must state 'Best Before' or 'Use By' date.
+   - Rule 6(1)(da): Maximum Retail Price (MRP) in Indian Rupees (₹ or Rs.) inclusive of all taxes. Overcharging above declared MRP is an offence under Section 36(1).
+   - Rule 6(11) (GSR 779(E)): Unit Sale Price (USP) must be declared in ₹ per g or ₹ per ml if net quantity <= 1kg/1L, and in ₹ per kg or ₹ per l if net quantity > 1kg/1L. Must match mathematical division (MRP / Net Quantity).
+   - Rule 6(1)(f): Consumer care details: Name/designation of official, complete postal address, telephone number, and email for complaints.
+   - Rule 7 & Schedule II: Minimum font height of numerals and letters based on Principal Display Area (PDA):
+     * Area <= 50 cm²: min 1.0 mm (blown/moulded 2.0 mm)
+     * 50 cm² < Area <= 100 cm²: min 1.5 mm (blown/moulded 3.0 mm)
+     * 100 cm² < Area <= 500 cm²: min 2.5 mm (blown/moulded 4.0 mm)
+     * 500 cm² < Area <= 2500 cm²: min 4.0 mm (blown/moulded 6.0 mm)
+     * Area > 2500 cm²: min 6.0 mm
+   - Rule 9: Manner in which declaration shall be made: prominent, legible, definite, plain and conspicuous, not obscure, printed with contrasting background.
+   - Rule 18 & Section 36(1): Selling, distributing or delivering non-compliant pre-packaged commodities is punishable with fine up to ₹25,000 for first offence, ₹50,000 for second offence, and up to ₹1,00,000 or imprisonment for subsequent offences.
+2. Food Safety and Standards (Packaging and Labelling) Regulations, 2020 (FSSAI):
+   - 14-digit FSSAI license / registration number and logo on all food commodities.
+   - Green dot in square for Vegetarian / Brown triangle in square for Non-Vegetarian.
+   - Nutritional facts table and ingredient list in descending order of weight.
+3. Package Integrity & Anti-Counterfeiting:
+   - Print quality inspection, tampering detection, and barcode alignment (EAN-13/GS1).
+"""
 
 LEGAL_PROVISIONS_KNOWLEDGE: Dict[str, Dict[str, str]] = {
     "net_quantity": {
@@ -72,6 +103,55 @@ LEGAL_PROVISIONS_KNOWLEDGE: Dict[str, Dict[str, str]] = {
 }
 
 
+def _call_gemini_assistant(
+    query: str,
+    target_lang: str,
+    product_context_str: str,
+) -> Optional[str]:
+    """Invoke Gemini Flash Lite with full statutory rules knowledge and product context."""
+    if not getattr(config, "GEMINI_API_KEY", None):
+        return None
+
+    lang_instructions = {
+        "en": "Respond in English. Keep the tone professional, authoritative, and helpful.",
+        "hi": "Respond in Hindi (हिन्दी) script. Keep the tone respectful, official, and clear for Indian citizens and enforcement officers.",
+        "mr": "Respond in Marathi (मराठी) script. Keep the tone respectful, official, and clear for Maharashtra enforcement officers and citizens.",
+    }
+    lang_inst = lang_instructions.get(target_lang, lang_instructions["en"])
+
+    prompt = f"""You are LexMetra AI Statutory Assistant for the Department of Consumer Affairs, Ministry of Consumer Affairs, Food & Public Distribution, Government of India.
+You specialize in Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC 2011) and FSSAI packaging norms.
+
+{STATUTORY_RULEBOOK}
+
+{product_context_str}
+
+USER QUERY:
+"{query}"
+
+INSTRUCTIONS:
+1. {lang_inst}
+2. Ground your answer in the specific product context provided above (name, values, declarations, compliance status).
+3. If the user asks about a specific rule, cite the exact rule number and explain its statutory implication.
+4. If the product has any missing declaration, explain whether it requires officer review or is a violation.
+5. Format the response cleanly in a structured point-wise format:
+   - Use numbered headings (1., 2., 3.) for key statutory sections.
+   - Use bullet points (- ) for detailed requirements or observations.
+   - Avoid cluttered asterisk chains or messy symbols. Present data cleanly for government officials and consumers.
+"""
+    try:
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+        )
+        if response and response.text:
+            return response.text.strip()
+    except Exception as e:
+        logger.warning("Gemini assistant call failed: %s", e)
+    return None
+
+
 def process_assistant_query(
     query: str,
     language: str = LANG_EN,
@@ -104,6 +184,30 @@ def process_assistant_query(
                 if d.get("canonicalPolygonPx") or d.get("evidence"):
                     evidence_items.append(d)
 
+    # Build rich product context string
+    decl_lines = []
+    for k, v in declarations.items():
+        decl_lines.append(f"  * {k}: {v}")
+    decl_text = "\n".join(decl_lines) if decl_lines else "  (No declarations extracted yet)"
+
+    finding_lines = []
+    for f in findings:
+        status_f = f.get("status", "UNKNOWN")
+        desc = f.get("requirement_description") or f.get("rule_id", "Rule")
+        finding_lines.append(f"  * [{status_f}] {desc}: {f.get('reason', '')}")
+    findings_text = "\n".join(finding_lines) if finding_lines else "  (No negative findings flagged)"
+
+    product_context_str = f"""
+CURRENT INSPECTION ON SCREEN:
+- Product Name: {p_name}
+- Overall Status: {verdict}
+- Extracted Declarations:
+{decl_text}
+- Statutory Findings:
+{findings_text}
+- Total Vector Evidence Polygons Recorded: {len(evidence_items)}
+"""
+
     def _format_res(
         msg_text: str,
         speech_text: str,
@@ -127,7 +231,20 @@ def process_assistant_query(
             d.update(extra)
         return d
 
-    # 1. Action: Explain this inspection / Summarize findings
+    # 1. First attempt: Intelligent grounded response via Gemini Flash Lite
+    llm_response = _call_gemini_assistant(query, target_lang, product_context_str)
+    if llm_response:
+        speech_clean = re.sub(r"[*#_`]", "", llm_response)
+        speech_first_para = speech_clean.split("\n\n")[0][:250]
+        return _format_res(
+            llm_response,
+            speech_first_para,
+            "LLM_GROUNDED_QUERY",
+            "Legal Metrology (Packaged Commodities) Rules, 2011",
+            ["Explain this inspection", "Explain a violation", "Show supporting evidence", "Explain this rule", "Generate report"]
+        )
+
+    # 2. Deterministic Fallback: Explain this inspection / Summarize findings
     if any(k in q_lower for k in [
         "explain this inspection", "summarize findings", "summary", "overview",
         "समझाओ", "सांगा", "सारांश", "तपासणी समजावून सांगा", "निरीक्षण समझाइए"

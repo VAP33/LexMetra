@@ -1,61 +1,56 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
-  ShieldCheck,
-  FileText,
-  Sparkles,
-  ArrowRight,
-  CheckCircle2,
-  Lock,
-  Layers,
-  Download,
   Camera,
+  ShieldCheck,
+  CheckCircle2,
+  FileText,
+  ArrowRight,
   ChevronRight,
   Scale,
+  Sparkles,
+  Layers,
+  Lock,
   Users,
+  Download,
   Globe,
 } from "lucide-react";
+
+import { LexMetraLogo } from "./InspectionApp";
 
 interface LandingPageProps {
   onStartScan: () => void;
   onOfficerLogin: () => void;
   onConsumerPortal: () => void;
+  lang?: "en" | "hi" | "mr";
+  onLanguageChange?: (l: "en" | "hi" | "mr") => void;
 }
 
 export function LandingPage({
   onStartScan,
   onOfficerLogin,
   onConsumerPortal,
+  lang = "en",
+  onLanguageChange,
 }: LandingPageProps) {
   const [activeStage, setActiveStage] = useState(0);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setActiveStage((prev) => (prev + 1) % 4);
-    }, 2800);
-    return () => clearInterval(timer);
-  }, []);
-
   const stages = [
-    { title: "Multi-Panel Image Ingestion", sub: "Parallel 6-Angle High-Resolution Capture", color: "text-saffron-600" },
-    { title: "Computer Vision & OCR Vectorization", sub: "PaddleOCR + Homography Rectification", color: "text-brand-800" },
+    { title: "6-Face Synchronized Capture", sub: "Homography Surface Reconstruction", color: "text-brand" },
+    { title: "Computer Vision & OCR Vectorization", sub: "High-Speed Perception Pipeline", color: "text-brand-800" },
     { title: "LMPC Statutory Rule Engine", sub: "Legal Metrology Rules 2011 + Rule 12 Unit Pricing", color: "text-govgreen" },
     { title: "Verified PDF Inspection Report", sub: "Tamper-Proof Audit Docket Export", color: "text-saffron-600" },
   ];
 
   return (
     <div className="min-h-screen bg-white text-slate-900 flex flex-col justify-between selection:bg-saffron-500 selection:text-white">
-      {/* Top Navigation Bar with Tricolor Ribbon & Brand Purple Header */}
-      <header className="border-b border-purple-900/40 bg-gradient-to-r from-brand-950 via-brand-900 to-purple-950 text-white sticky top-0 z-50 shadow-md">
+      {/* Top Navigation Bar with Tricolor Ribbon & DBIM Gov Blue Header */}
+      <header className="border-b border-brand-900/40 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white sticky top-0 z-50 shadow-md">
         <div className="h-1.5 w-full tricolor-stripe" />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[76px] py-2 flex items-center justify-between flex-wrap gap-3">
           {/* Left Corner Logo */}
           <div className="flex items-center gap-3.5">
-            <div className="rounded-2xl bg-white p-2 shadow-md ring-2 ring-purple-300/30">
-              <img
-                src="/dca-logo.png"
-                alt="Department of Consumer Affairs, Govt of India"
-                className="h-10 w-auto object-contain max-w-[140px] sm:max-w-[190px]"
-              />
+            <div className="rounded-2xl bg-white p-1 sm:p-1.5 shadow-md ring-2 ring-brand-300/30">
+              <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[130px] sm:max-w-[180px]" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -67,23 +62,62 @@ export function LandingPage({
                   DCA VERIFIED
                 </span>
               </div>
-              <p className="text-[11px] font-semibold text-purple-200 tracking-wider uppercase">
+              <p className="text-[11px] font-semibold text-brand-200 tracking-wider uppercase">
                 Department of Consumer Affairs · Govt of India
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+            {/* Screenshot 2 Language Toggle Pill */}
+            {onLanguageChange && (
+              <div className="inline-flex items-center gap-1 rounded-2xl border border-slate-200/90 bg-white/95 p-1 text-xs font-semibold shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => onLanguageChange("en")}
+                  className={`rounded-xl px-3 py-1 transition-all text-xs ${
+                    lang === "en"
+                      ? "bg-[#7C3AED] text-white font-bold shadow-xs"
+                      : "text-slate-800 hover:text-slate-950 font-semibold"
+                  }`}
+                >
+                  EN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onLanguageChange("hi")}
+                  className={`rounded-xl px-3 py-1 transition-all text-xs ${
+                    lang === "hi"
+                      ? "bg-[#7C3AED] text-white font-bold shadow-xs"
+                      : "text-slate-800 hover:text-slate-950 font-semibold"
+                  }`}
+                >
+                  हिन्दी
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onLanguageChange("mr")}
+                  className={`rounded-xl px-3 py-1 transition-all text-xs ${
+                    lang === "mr"
+                      ? "bg-[#7C3AED] text-white font-bold shadow-xs"
+                      : "text-slate-800 hover:text-slate-950 font-semibold"
+                  }`}
+                >
+                  मराठी
+                </button>
+              </div>
+            )}
+
             <button
               onClick={onConsumerPortal}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-govgreen bg-white hover:bg-emerald-50 border-2 border-emerald-400/60 transition-all shadow-xs"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-govgreen bg-white hover:bg-emerald-50 border-2 border-emerald-400/60 transition-all shadow-xs"
             >
               <Users className="h-4 w-4 text-govgreen" />
               Citizen Portal
             </button>
             <button
               onClick={onOfficerLogin}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-saffron-500 to-orange-600 hover:from-saffron-600 hover:to-orange-700 text-white border border-saffron-400/50 shadow-sm transition-all"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-saffron-500 to-orange-600 hover:from-saffron-600 hover:to-orange-700 text-white border border-saffron-400/50 shadow-sm transition-all"
             >
               <Lock className="h-3.5 w-3.5 text-white" />
               Officer Sign In
@@ -96,7 +130,7 @@ export function LandingPage({
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-16 grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center flex-1 bg-white">
         {/* Left Column: Punchline & Value Proposition */}
         <div className="lg:col-span-7 space-y-7">
-          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-purple-50 border border-purple-200 text-brand-900 text-xs font-bold shadow-xs">
+          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-brand-900 text-xs font-bold shadow-xs">
             <Sparkles className="h-4 w-4 text-saffron-600 animate-pulse" />
             <span>Ministry of Consumer Affairs · Legal Metrology Division</span>
           </div>
@@ -127,18 +161,18 @@ export function LandingPage({
             </button>
             <button
               onClick={onOfficerLogin}
-              className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-2xl bg-brand-900 hover:bg-brand-950 text-white font-bold text-sm border-2 border-purple-300 transition-all shadow-sm"
+              className="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-2xl bg-brand-900 hover:bg-brand-950 text-white font-bold text-sm border-2 border-brand-300 transition-all shadow-sm"
             >
               <Globe className="h-4 w-4 text-saffron-400" />
               <span>Officer & Authority Portal</span>
-              <ChevronRight className="h-4 w-4 text-purple-200" />
+              <ChevronRight className="h-4 w-4 text-brand-200" />
             </button>
           </div>
 
           {/* Capabilities Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-6 border-t border-purple-100">
-            <div className="p-4 rounded-2xl bg-white border-2 border-purple-200/80 hover:border-brand-500 transition-colors shadow-xs">
-              <div className="h-9 w-9 rounded-xl bg-purple-50 text-brand-800 flex items-center justify-center mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-6 border-t border-slate-200">
+            <div className="p-4 rounded-2xl bg-white border-2 border-slate-200/90 hover:border-brand-500 transition-colors shadow-xs">
+              <div className="h-9 w-9 rounded-xl bg-brand-50 text-brand-800 flex items-center justify-center mb-3">
                 <Layers className="h-5 w-5" />
               </div>
               <p className="text-xs font-bold text-brand-950 uppercase tracking-wider">6-Face 360° Scan</p>
@@ -165,11 +199,11 @@ export function LandingPage({
 
         {/* Right Column: Live Interactive Simulation & Scanner Animation on White */}
         <div className="lg:col-span-5 relative">
-          <div className="relative rounded-3xl border-2 border-purple-200/90 bg-white p-6 shadow-xl shadow-purple-900/10 overflow-hidden">
+          <div className="relative rounded-3xl border-2 border-slate-200 bg-white p-6 shadow-xl shadow-brand-900/10 overflow-hidden">
             <div className="h-1.5 w-full tricolor-stripe mb-4 rounded-full" />
             
             {/* Header Stage Indicator */}
-            <div className="flex items-center justify-between border-b border-purple-100 pb-3 mb-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-saffron-600">
                   REAL-TIME PERCEPTION PIPELINE
@@ -184,7 +218,7 @@ export function LandingPage({
                     key={idx}
                     onClick={() => setActiveStage(idx)}
                     className={`h-2.5 rounded-full transition-all ${
-                      activeStage === idx ? "w-6 bg-saffron-500 shadow-xs" : "w-2.5 bg-purple-100"
+                      activeStage === idx ? "w-6 bg-saffron-500 shadow-xs" : "w-2.5 bg-slate-200"
                     }`}
                   />
                 ))}
@@ -197,20 +231,20 @@ export function LandingPage({
             </div>
 
             {/* Simulated Scanner Viewport on Pure White */}
-            <div className="relative aspect-[4/3] rounded-2xl bg-slate-50 border-2 border-purple-100 overflow-hidden flex items-center justify-center p-4">
+            <div className="relative aspect-[4/3] rounded-2xl bg-slate-50 border-2 border-slate-100 overflow-hidden flex items-center justify-center p-4">
               {/* Grid Background */}
               <div className="absolute inset-0 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:16px_16px]" />
 
               {/* Package Mock Representation */}
-              <div className="relative w-44 h-56 rounded-xl bg-white border-2 border-purple-200 shadow-lg flex flex-col justify-between p-3.5 z-10">
+              <div className="relative w-44 h-56 rounded-xl bg-white border-2 border-slate-200 shadow-lg flex flex-col justify-between p-3.5 z-10">
                 {/* Brand & Top Header */}
-                <div className="flex items-center justify-between border-b border-purple-100 pb-2">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                   <span className="text-[10px] font-extrabold tracking-widest text-brand-900">PREMIUM COFFEE</span>
-                  <span className="text-[8px] bg-purple-50 text-brand-800 border border-purple-200 px-1.5 py-0.5 rounded font-bold">150g</span>
+                  <span className="text-[8px] bg-brand-50 text-brand-800 border border-brand-200 px-1.5 py-0.5 rounded font-bold">150g</span>
                 </div>
 
                 {/* Simulated Bounding Box 1: MRP */}
-                <div className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 1 ? "border-brand-600 bg-purple-50/80 shadow-sm" : "border-slate-200"}`}>
+                <div className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 1 ? "border-brand bg-brand-50/80 shadow-sm" : "border-slate-200"}`}>
                   <div className="flex items-center justify-between text-[9px]">
                     <span className="text-slate-800 font-mono font-bold">MRP: ₹420.00</span>
                     {activeStage >= 1 && <span className="text-brand-700 font-bold text-[8px]">99% CONF</span>}
@@ -256,7 +290,7 @@ export function LandingPage({
             </div>
 
             {/* Bottom PDF Export Simulation */}
-            <div className="mt-4 pt-3 border-t border-purple-100 flex items-center justify-between">
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <FileText className="h-4 w-4 text-brand-800" />
                 <span className="text-xs text-brand-950 font-bold">Exportable PDF Audit Docket</span>
@@ -271,7 +305,7 @@ export function LandingPage({
       </main>
 
       {/* Footer on Crisp White */}
-      <footer className="border-t border-purple-200/80 bg-purple-50/40 py-6 text-center text-xs text-slate-600">
+      <footer className="border-t border-slate-200 bg-slate-50/60 py-6 text-center text-xs text-slate-600">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="font-medium">© 2026 LexMetra · Department of Consumer Affairs, Government of India</p>
           <div className="flex items-center gap-4 font-semibold text-brand-900">
