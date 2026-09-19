@@ -168,6 +168,8 @@ _REACT_DIST_DIR = _FRONTEND_DIR / "react-app" / "dist"
 
 if _REACT_DIST_DIR.exists():
     app.mount("/app", StaticFiles(directory=str(_REACT_DIST_DIR), html=True), name="react_app")
+    if (_REACT_DIST_DIR / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(_REACT_DIST_DIR / "assets")), name="react_assets")
 
 if _FRONTEND_DIR.exists():
     app.mount("/frontend", StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
