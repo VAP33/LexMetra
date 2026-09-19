@@ -751,8 +751,16 @@ def assess_region_quality(image_bgr: Optional[np.ndarray], bbox: List[int]) -> D
 # ---------------------------------------------------------------------------
 
 def _digits_only(s: Any) -> str:
-    """Return only decimal digits from a string (OCR-normalized)."""
-    return re.sub(r"[^0-9]", "", normalize_ocr_text(str(s or ""), apply_substitutions=True))
+    """
+    Return only decimal digits from a string.
+
+    SAFETY: Must NOT run the OCR glyph-substitution table first — that table
+    maps digits to letters (0->o, 1->i, 5->s, 8->b, 2->z, 6->g, 9->q) for
+    FUZZY TEXT matching only. Applying it before digit extraction destroys
+    every real digit (e.g. "8901030018591" -> "3" once the substitution runs),
+    which silently corrupted MRP/net-qty/barcode/FSSAI/phone comparisons.
+    """
+    return re.sub(r"[^0-9]", "", normalize_ocr_text(str(s or ""), apply_substitutions=False))
 
 
 def _token_set(s: Any) -> set:
@@ -768,11 +776,16 @@ def _parse_net_quantity(s: Any) -> Optional[Tuple[float, str]]:
     """Return (numeric_amount, unit_abbrev) for a net quantity declaration like '250 g' or '1 kg'."""
     if not s:
         return None
-    t = normalize_ocr_text(str(s), apply_substitutions=True).lower()
-    num_match = re.search(r"(\d+(?:\.\d+)?)", t)
+    # SAFETY: extract the digit amount BEFORE applying the OCR glyph-confusion
+    # substitution table (that table is for fuzzy TEXT matching only and
+    # corrupts real digits, e.g. "100 g" -> "ioo grams", losing the amount).
+    t_digits_pass = normalize_ocr_text(str(s), apply_substitutions=False).lower()
+    num_match = re.search(r"(\d+(?:\.\d+)?)", t_digits_pass)
     if not num_match:
         return None
     amount = float(num_match.group(1))
+    # Unit word matching still benefits from substitution-tolerant text.
+    t = normalize_ocr_text(str(s), apply_substitutions=True).lower()
     unit_map = {
         "g": "g", "gm": "g", "gram": "g", "grams": "g",
         "kg": "kg", "kgs": "kg", "kilogram": "kg", "kilograms": "kg",
@@ -822,10 +835,18 @@ def _semantic_consumer_care_match(ref_str: Any, insp_str: Any) -> Tuple[bool, st
 
 
 def _parse_mrp_amount(s: Any) -> Optional[float]:
-    """Extract the numeric MRP amount (first number) from ₹ / Rs formatted strings."""
+    """
+    Extract the numeric MRP amount (first number) from ₹ / Rs formatted strings.
+
+    SAFETY: apply_substitutions=False — the OCR glyph-confusion table (0->o,
+    1->i, 5->s, ...) is for fuzzy TEXT comparison only. Running it before
+    numeric extraction corrupts real digits (e.g. "420.00" -> "4zo oo") and
+    silently produces the wrong amount (or None), which previously caused
+    real MRP matches to be reported as mismatches/ambiguous.
+    """
     if not s:
         return None
-    nums = re.findall(r"\d+(?:\.\d+)?", normalize_ocr_text(str(s), apply_substitutions=True))
+    nums = re.findall(r"\d+(?:\.\d+)?", normalize_ocr_text(str(s), apply_substitutions=False))
     if not nums:
         return None
     return float(nums[0])
