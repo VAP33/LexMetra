@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Camera,
   CheckCircle2,
@@ -13,10 +13,12 @@ import {
   ExternalLink,
   X,
   Send,
+  History,
+  ClipboardCheck,
 } from "lucide-react";
 import { type Inspection } from "@/lib/types";
 import { type Language } from "@/lib/i18n";
-import { AppHeader } from "./InspectionApp";
+import { AppHeader } from "./inspection-app";
 
 interface CustomerDashboardProps {
   inspections?: Inspection[];
@@ -61,6 +63,16 @@ export function CustomerDashboard({
       : "0.00";
 
   const consumerScans = inspections.slice(0, 10);
+
+  const isLoggedInConsumer = !!user && (user?.role === "customer" || user?.role === "consumer");
+
+  const statsRecent = useMemo(() => {
+    const total = inspections.length;
+    const violations = inspections.filter((i) => i.status === "VIOLATION").length;
+    const saved = inspections.filter((i) => i.saved).length;
+    const recent = inspections.slice(0, 5);
+    return { total, violations, saved, recent };
+  }, [inspections]);
 
   function handleFileGrievance(e: React.FormEvent) {
     e.preventDefault();
@@ -176,6 +188,234 @@ export function CustomerDashboard({
             </div>
           </div>
         </section>
+
+        {isLoggedInConsumer && (
+          <>
+            {/* Stat Cards */}
+            <section className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
+                    <History className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {lang === "hi" ? "कुल निरीक्षण" : lang === "mr" ? "एकूण तपासणी" : "Total Inspections"}
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-slate-900">{statsRecent.total}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 text-red-700">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {lang === "hi" ? "उल्लंघन सूचित" : lang === "mr" ? "उल्लंघन आढळले" : "Violations Flagged"}
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-slate-900">{statsRecent.violations}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                    <ClipboardCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {lang === "hi" ? "रजिस्टर में दर्ज" : lang === "mr" ? "नोंदवहीत नोंद" : "In Compliance Register"}
+                    </p>
+                    <p className="mt-1 text-2xl font-black text-slate-900">{statsRecent.saved}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Inspection History */}
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                    <History className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900">
+                      {lang === "hi" ? "मेरा निरीक्षण इतिहास" : lang === "mr" ? "माझी तपासणी नोंदी" : "My Inspection History"}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      {lang === "hi" ? "आपके द्वारा किए गए सभी स्कैन का रिकॉर्ड" : lang === "mr" ? "तुमच्या सर्व स्कॅनचा नोंदवही" : "Record of every scan you have performed"}
+                    </p>
+                  </div>
+                </div>
+                {statsRecent.total > 5 && onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("history")}
+                    className="inline-flex items-center gap-1 rounded-lg bg-purple-50 px-3 py-1.5 text-[11px] font-bold text-purple-800 hover:bg-purple-100 transition"
+                  >
+                    {lang === "hi" ? "सभी देखें" : lang === "mr" ? "सर्व पहा" : "View all"} <ChevronRight className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              {statsRecent.recent.length === 0 ? (
+                <div className="px-5 py-10 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 mb-3">
+                    <History className="h-6 w-6" />
+                  </div>
+                  <p className="text-sm font-bold text-slate-700">
+                    {lang === "hi" ? "अभी कोई स्कैन नहीं" : lang === "mr" ? "अद्याप कोणतेही स्कॅन नाही" : "No scans yet"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 font-medium max-w-sm mx-auto">
+                    {lang === "hi"
+                      ? "अपना पहला पैकेज स्कैन करें और निरीक्षण इतिहास बनाना शुरू करें।"
+                      : lang === "mr"
+                      ? "तुमची पहिली पॅकेज स्कॅन करा आणि तपासणी नोंदवही सुरू करा."
+                      : "Scan your first package to start building your inspection history."}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {statsRecent.recent.map((item) => {
+                    const isViolation = item.status === "VIOLATION";
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onOpenInspection(item)}
+                        className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-slate-50 transition group"
+                      >
+                        <div className="h-12 w-11 shrink-0 overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
+                          {item.image ? (
+                            <img src={item.image} alt={item.product} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-slate-400">
+                              <Package className="h-5 w-5" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="truncate text-sm font-bold text-slate-900 group-hover:text-purple-800">{item.product}</h4>
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                                isViolation
+                                  ? "bg-red-50 text-red-700 border border-red-200"
+                                  : item.status === "UNCERTAIN"
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                  : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              }`}
+                            >
+                              {item.status}
+                            </span>
+                          </div>
+                          <p className="truncate text-[11px] text-slate-500 mt-0.5 font-medium">
+                            {item.dateLabel} · {item.manufacturer || "Manufacturer on label"}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-purple-700 transition shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Compliance Register */}
+            <section className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/40 via-white to-white shadow-xs overflow-hidden">
+              <div className="flex items-center justify-between border-b border-emerald-100 px-5 py-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+                    <ClipboardCheck className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900">
+                      {lang === "hi" ? "मेरा अनुपालन रजिस्टर" : lang === "mr" ? "माझे अनुपालन नोंदवही" : "My Compliance Register"}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      {lang === "hi" ? "आपके द्वारा रजिस्टर में सहेजे गए सत्यापित उत्पाद" : lang === "mr" ? "तुम्ही जतन केलेले पडताळणी नोंदी" : "Verified records you have saved to the register"}
+                    </p>
+                  </div>
+                </div>
+                {statsRecent.saved > 5 && onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("register")}
+                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700 transition shadow-sm"
+                  >
+                    {lang === "hi" ? "पूर्ण रजिस्टर" : lang === "mr" ? "संपूर्ण नोंदवही" : "Full register"} <ChevronRight className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              {statsRecent.saved === 0 ? (
+                <div className="px-5 py-10 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 mb-3">
+                    <ClipboardCheck className="h-6 w-6" />
+                  </div>
+                  <p className="text-sm font-bold text-slate-700">
+                    {lang === "hi" ? "रजिस्टर खाली है" : lang === "mr" ? "नोंदवही रिकामी आहे" : "Register is empty"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500 font-medium max-w-sm mx-auto">
+                    {lang === "hi"
+                      ? "किसी भी स्कैन पर 'Save Inspection' दबाकर इसे स्थायी रूप से अपने अनुपालन रजिस्टर में जोड़ें।"
+                      : lang === "mr"
+                      ? "स्कॅन निकालल्यावर 'Save Inspection' वर क्लिक करून ती अनुपालन नोंदवहीत जतन करा."
+                      : "After any scan result, tap 'Save Inspection' to permanently add it to your Compliance Register."}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-emerald-100/70">
+                  {inspections
+                    .filter((i) => i.saved)
+                    .slice(0, 5)
+                    .map((item) => {
+                      const isViolation = item.status === "VIOLATION";
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => onOpenInspection(item)}
+                          className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-emerald-50/40 transition group"
+                        >
+                          <div className="h-12 w-11 shrink-0 overflow-hidden rounded-xl bg-emerald-100/70 border border-emerald-200">
+                            {item.image ? (
+                              <img src={item.image} alt={item.product} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-emerald-600">
+                                <Package className="h-5 w-5" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="truncate text-sm font-bold text-slate-900 group-hover:text-emerald-800">{item.product}</h4>
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                            </div>
+                            <p className="truncate text-[11px] text-slate-500 mt-0.5 font-medium">
+                              #{item.id} · {item.dateLabel}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                              isViolation
+                                ? "bg-red-50 text-red-700 border border-red-200"
+                                : item.status === "UNCERTAIN"
+                                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            }`}
+                          >
+                            {item.status}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+            </section>
+          </>
+        )}
 
         {/* Consumer Portal Navigation Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">

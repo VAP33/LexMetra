@@ -16,7 +16,7 @@ import {
   Globe,
 } from "lucide-react";
 
-import { LexMetraLogo } from "./InspectionApp";
+import { LexMetraLogo } from "./inspection-app";
 
 interface LandingPageProps {
   onStartScan: () => void;

@@ -73,19 +73,19 @@ import {
 import { fromInspectionRow, fromScanResponse } from "@/lib/adapters";
 import { dataUrlToBlob } from "@/lib/data-url";
 import { type Language, getTranslation } from "@/lib/i18n";
-import { TeslaScannerAnimation } from "./TeslaScannerAnimation";
-import { BeforeAfterSlider } from "./BeforeAfterSlider";
-import { RegulatoryIntelligenceDashboard } from "./RegulatoryIntelligenceDashboard";
+import { TeslaScannerAnimation } from "./tesla-scanner-animation";
+import { BeforeAfterSlider } from "./before-after-slider";
+import { RegulatoryIntelligenceDashboard } from "./regulatory-intelligence-dashboard";
 import {
   PackageIntegrityCard,
   FssaiVerificationCard,
   ConsumerReportModal,
   AuthorityDashboardView,
   MultilingualAssistantWidget,
-} from "./USPComponents";
-import { CustomerDashboard } from "./CustomerDashboard";
-import { SeniorRegionalDashboard } from "./SeniorRegionalDashboard";
-import { LandingPage } from "./LandingPage";
+} from "./usp-components";
+import { CustomerDashboard } from "./customer-dashboard";
+import { SeniorRegionalDashboard } from "./senior-regional-dashboard";
+import { LandingPage } from "./landing-page";
 
 type View =
   | "landing"
@@ -180,7 +180,21 @@ function getNavItems(lang: Language, role?: string): Array<{ label: string; view
         i.view === "profile"
     );
   }
-  if (r === "inspector" || r === "reviewer" || r === "senior_inspector") {
+  if (r === "senior_inspector") {
+    return allItems.filter(
+      (i) =>
+        i.view === "home" ||
+        i.view === "scan" ||
+        i.view === "history" ||
+        i.view === "register" ||
+        i.view === "reviewQueue" ||
+        i.view === "seniorRegional" ||
+        i.view === "authority" ||
+        i.view === "regulatory" ||
+        i.view === "profile"
+    );
+  }
+  if (r === "inspector" || r === "reviewer") {
     return allItems.filter(
       (i) =>
         i.view === "home" ||
@@ -755,19 +769,24 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
   );
 }
 
-function BottomNav({ view, onNavigate, lang = "en" }: { view: View; onNavigate: (view: View) => void; lang?: Language }) {
+function BottomNav({ view, onNavigate, lang = "en", role }: { view: View; onNavigate: (view: View) => void; lang?: Language; role?: string }) {
   const t = getTranslation(lang);
+  const isConsumer = role === "customer";
   return (
     <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-card/95 px-3 pt-2 backdrop-blur md:hidden">
       <div className="mx-auto grid max-w-lg grid-cols-5 items-end">
-        <NavButton label={t.dashboard} icon={LayoutDashboard} active={view === "home"} onClick={() => onNavigate("home")} />
+        <NavButton label={isConsumer ? "Citizen Portal" : t.dashboard} icon={LayoutDashboard} active={isConsumer ? view === "customer" : view === "home"} onClick={() => onNavigate(isConsumer ? "customer" : "home")} />
         <NavButton label={t.history} icon={HistoryIcon} active={view === "history"} onClick={() => onNavigate("history")} />
         <div className="relative -top-5 flex justify-center">
           <button type="button" aria-label="Start a scan" onClick={() => onNavigate("scan")} className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-xl shadow-primary/20 transition-transform active:scale-95">
             <ScanLine className="h-7 w-7" />
           </button>
         </div>
-        <NavButton label={t.reviewQueue} icon={ShieldAlert} active={view === "reviewQueue"} onClick={() => onNavigate("reviewQueue")} />
+        {isConsumer ? (
+          <NavButton label="Help & 1915" icon={CircleHelp} active={view === "customer"} onClick={() => onNavigate("customer")} />
+        ) : (
+          <NavButton label={t.reviewQueue} icon={ShieldAlert} active={view === "reviewQueue"} onClick={() => onNavigate("reviewQueue")} />
+        )}
         <NavButton label={t.profile} icon={UserRound} active={view === "profile"} onClick={() => onNavigate("profile")} />
       </div>
     </nav>
@@ -1135,14 +1154,23 @@ function HomeView({
               <ScanLine className="h-4 w-4" />
               {dt.newScan}
             </Button>
-            <Button onClick={() => onNavigate("seniorRegional")} variant="secondary">
-              <Globe className="h-4 w-4" />
-              {dt.regionalIntel}
-            </Button>
-            <Button onClick={() => onNavigate("authority")} variant="secondary">
-              <ShieldCheck className="h-4 w-4" />
-              {dt.authorityDockets}
-            </Button>
+            {(() => {
+              const r = (user?.role || "").toLowerCase();
+              const isSenior = r === "senior_inspector" || r === "admin" || r === "authority";
+              if (!isSenior) return null;
+              return (
+                <>
+                  <Button onClick={() => onNavigate("seniorRegional")} variant="secondary">
+                    <Globe className="h-4 w-4" />
+                    {dt.regionalIntel}
+                  </Button>
+                  <Button onClick={() => onNavigate("authority")} variant="secondary">
+                    <ShieldCheck className="h-4 w-4" />
+                    {dt.authorityDockets}
+                  </Button>
+                </>
+              );
+            })()}
           </div>
         </section>
 
@@ -4445,35 +4473,6 @@ function ProfileView({
           <BadgeCheck className="ml-auto h-5 w-5 text-success" />
         </section>
 
-        {/* Quick Action: Start Product Scan */}
-        <section className="rounded-2xl border-2 border-purple-200 bg-gradient-to-r from-purple-50/80 via-white to-indigo-50/60 p-5 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="space-y-1">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 text-purple-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                <Sparkles className="h-3 w-3 text-purple-700" />
-                <span>{lang === "hi" ? "त्वरित स्कैन" : lang === "mr" ? "जलद स्कॅन" : "Instant Scanner"}</span>
-              </div>
-              <h3 className="text-base font-extrabold text-slate-900">
-                {lang === "hi" ? "नया पैकेज सत्यापित करें" : lang === "mr" ? "नवीन पॅकेज पडताळणी" : "Scan & Verify Packaged Commodity"}
-              </h3>
-              <p className="text-xs text-slate-600 font-medium">
-                {lang === "hi"
-                  ? "MRP, शुद्ध मात्रा, समाप्ति तिथि और FSSAI अनिवार्य घोषणाओं की जांच के लिए तुरंत फोटो लें।"
-                  : lang === "mr"
-                  ? "MRP, निव्वळ वजन, एक्सपायरी आणि FSSAI वैधानिक बाबी तपासण्यासाठी त्वरित फोटो घ्या."
-                  : "Capture package photos to verify mandatory declarations, unit pricing, and consumer protections."}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate?.("scan")}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold px-5 text-xs shadow-md transition-all active:scale-95 shrink-0"
-            >
-              <Camera className="h-4 w-4 text-saffron-300" />
-              <span>{lang === "hi" ? "स्कैन शुरू करें" : lang === "mr" ? "स्कॅन सुरू करा" : "Start Scan"}</span>
-            </button>
-          </div>
-        </section>
         <section className="rounded-2xl border border-border/70 bg-card">
           <div className="border-b border-border p-5">
             <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Workspace</p>
@@ -4855,6 +4854,8 @@ export function InspectionApp() {
         "detail",
         "evidence",
         "report",
+        "history",
+        "register",
       ];
       if (!allowedViews.includes(targetView)) {
         targetView = "customer";
@@ -5152,7 +5153,7 @@ export function InspectionApp() {
     <div className="min-h-screen bg-background text-foreground">
       {!isLanding && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
       {!isLanding ? <div className="md:pl-64">{content}</div> : content}
-      {!isLanding && <BottomNav view={view} onNavigate={go} lang={lang} />}
+      {!isLanding && <BottomNav view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
       <MultilingualAssistantWidget currentInspection={selected || inspections[0]} lang={lang} onLanguageChange={handleSetLang} />
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-xl md:bottom-8">

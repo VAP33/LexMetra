@@ -5,7 +5,26 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
+    screens: {
+      xs: "360px",
+      sm: "480px",
+      md: "768px",
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+      "3xl": "1920px",
+      "short-landscape": { raw: "(orientation: landscape) and (max-height: 500px)" },
+    },
     extend: {
+      maxWidth: {
+        xs: "20rem",
+      },
+      spacing: {
+        "safe-top": "env(safe-area-inset-top)",
+        "safe-right": "env(safe-area-inset-right)",
+        "safe-bottom": "env(safe-area-inset-bottom)",
+        "safe-left": "env(safe-area-inset-left)",
+      },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
@@ -27,7 +46,7 @@ export default {
         },
         border: "hsl(var(--border))",
         brand: {
-          DEFAULT: "#0A369D", // Indian Gov Blue (DBIM standard)
+          DEFAULT: "#0A369D",
           50: "#F0F5FF",
           100: "#E0EBFF",
           200: "#BAD3FF",
@@ -35,14 +54,14 @@ export default {
           400: "#4D8DFF",
           500: "#1A66FF",
           600: "#0A4DD6",
-          700: "#0A369D", // Primary Gov Blue
+          700: "#0A369D",
           800: "#082976",
-          900: "#061C52", // Ashoka Deep Navy
+          900: "#061C52",
           950: "#030F2D",
           soft: "rgba(10, 54, 157, 0.10)",
         },
         saffron: {
-          DEFAULT: "#FF671F", // National Saffron (Bhagwa / Kesari)
+          DEFAULT: "#FF671F",
           50: "#FFF7ED",
           100: "#FFEDD5",
           200: "#FED7AA",
@@ -55,7 +74,7 @@ export default {
           soft: "rgba(255, 103, 31, 0.14)",
         },
         govgreen: {
-          DEFAULT: "#046A38", // National India Green
+          DEFAULT: "#046A38",
           50: "#F0FDF4",
           100: "#DCFCE7",
           200: "#BBF7D0",
@@ -68,7 +87,7 @@ export default {
           soft: "rgba(4, 106, 56, 0.14)",
         },
         navy: {
-          DEFAULT: "#06038D", // Ashoka Chakra Navy Blue
+          DEFAULT: "#06038D",
           50: "#EFF6FF",
           100: "#DBEAFE",
           500: "#1E40AF",

@@ -30,7 +30,7 @@ import {
 } from "@/lib/api-client";
 import { type Language } from "@/lib/i18n";
 import { type Inspection } from "@/lib/types";
-import { AppHeader } from "./InspectionApp";
+import { AppHeader } from "./inspection-app";
 
 interface RegionalData {
   total_cases: number;

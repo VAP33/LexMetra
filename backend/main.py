@@ -2833,11 +2833,23 @@ async def assistant_tts(req: AssistantTtsInput):
 def review_inspection(
     inspection_id: str,
     req: ReviewRequest,
-    current_user: auth.CurrentUser = Depends(auth.require_reviewer),
+    current_user: auth.CurrentUser = Depends(auth.require_customer),
 ):
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    # Ownership guard: customers/consumers and inspectors/reviewers can only
+    # save/review inspections they themselves created. Senior inspectors,
+    # authority, and admins can review/save any inspection.
+    user_level = auth.ROLE_HIERARCHY.get(current_user.role, 0)
+    senior_level = auth.ROLE_HIERARCHY.get("senior_inspector", 2)
+    owner = detail.get("created_by")
+    if user_level < senior_level and owner is not None and owner != current_user.username:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only save inspections you created.",
+        )
 
     db.mark_reviewed(
         inspection_id,
