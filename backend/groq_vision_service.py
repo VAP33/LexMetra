@@ -164,7 +164,7 @@ async def inspect_package_with_groq(
 
 
 def groq_result_to_classified_fields(groq_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """Convert Groq multimodal response into classified fields compatible with Arya rule engine."""
+    """Convert Groq multimodal response into classified fields compatible with rule engine."""
     classified: Dict[str, Dict[str, Any]] = {}
     
     field_map = {

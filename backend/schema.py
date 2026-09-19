@@ -62,7 +62,7 @@ class DeclarationEvidence(BaseModel):
     image_id: str
     page_or_view: Optional[str] = "other"  # "front", "back", "other"
     bbox: Optional[List[float]] = None     # [x, y, w, h]
-    source: str = "ocr"                    # "ocr", "vlm", "both", "sanskruti_paddle"
+    source: str = "ocr"                    # "ocr", "vlm", "both", "paddle_ocr"
     evidence_id: Optional[str] = None
     face_id: Optional[str] = None
     localization_status: Optional[str] = None

@@ -17,10 +17,15 @@ from __future__ import annotations
 
 from enum import Enum
 import json
+import logging
 import os
+import uuid
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
+
+logger = logging.getLogger("lexmetra.db.persistence")
 
 try:
     import psycopg2
@@ -1319,3 +1324,232 @@ def list_sessions(status: Optional[str] = None, limit: int = 50) -> list[dict]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(query, params)
             return [dict(row) for row in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Package Integrity Comparison Persistence (USP 1)
+# ---------------------------------------------------------------------------
+
+INTEGRITY_STORAGE_DIR = Path(__file__).resolve().parent.parent / "data" / "integrity_records"
+INTEGRITY_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def save_package_integrity_comparison(record: dict) -> str:
+    """
+    Persist a Package Integrity comparison record linked to an inspection.
+    Saves to PostgreSQL package_integrity_comparisons table, with JSON fallback.
+    """
+    comp_id = record.get("comparison_id") or f"pic_{uuid.uuid4().hex[:12]}"
+    record["comparison_id"] = comp_id
+    insp_id = record.get("inspection_id")
+    ts = record.get("timestamp") or datetime.now(timezone.utc).isoformat()
+    record["timestamp"] = ts
+
+    # 1. Dual-write to filesystem cache for 100% offline & demo resilience
+    if insp_id:
+        insp_dir = INTEGRITY_STORAGE_DIR / str(insp_id)
+        insp_dir.mkdir(parents=True, exist_ok=True)
+        file_path = insp_dir / f"{comp_id}.json"
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(record, f, indent=2, ensure_ascii=False, default=_json_default)
+            # Maintain latest pointer
+            latest_path = insp_dir / "latest.json"
+            with open(latest_path, "w", encoding="utf-8") as f:
+                json.dump(record, f, indent=2, ensure_ascii=False, default=_json_default)
+        except Exception as e:
+            logger.warning("Filesystem fallback for integrity record failed: %s", e)
+
+    # 2. Persist to PostgreSQL if connection is available
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS package_integrity_comparisons (
+                        comparison_id           TEXT PRIMARY KEY,
+                        inspection_id           TEXT NOT NULL,
+                        reference_id            TEXT,
+                        reference_name          TEXT,
+                        reference_type          TEXT NOT NULL,
+                        reference_images        JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        inspection_images       JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        timestamp               TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        comparison_status       TEXT NOT NULL,
+                        summary_counts          JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        matched_fields          JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        variable_fields         JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        review_fields           JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        discrepancy_fields      JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        field_comparisons       JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        face_matches            JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        confidence_score        NUMERIC DEFAULT 0.85,
+                        comparison_method       TEXT,
+                        gemini_evidence         JSONB,
+                        explanation             TEXT
+                    );
+                    """
+                )
+                # Truthful Integrity v2 schema extensions (idempotent)
+                for alter_stmt in [
+                    "ALTER TABLE package_integrity_comparisons ADD COLUMN IF NOT EXISTS reference_not_observed_fields JSONB NOT NULL DEFAULT '[]'::jsonb",
+                    "ALTER TABLE package_integrity_comparisons ADD COLUMN IF NOT EXISTS inspection_not_observed_fields JSONB NOT NULL DEFAULT '[]'::jsonb",
+                    "ALTER TABLE package_integrity_comparisons ADD COLUMN IF NOT EXISTS pipeline_version TEXT DEFAULT 'truthful-integrity-v2'",
+                    "ALTER TABLE package_integrity_comparisons ADD COLUMN IF NOT EXISTS detected_differences JSONB NOT NULL DEFAULT '[]'::jsonb",
+                ]:
+                    try:
+                        cur.execute(alter_stmt)
+                    except Exception:
+                        pass
+                cur.execute(
+                    """
+                    INSERT INTO package_integrity_comparisons (
+                        comparison_id, inspection_id, reference_id, reference_name, reference_type,
+                        reference_images, inspection_images, timestamp, comparison_status,
+                        summary_counts, matched_fields, variable_fields, review_fields, discrepancy_fields,
+                        field_comparisons, face_matches, confidence_score, comparison_method,
+                        gemini_evidence, explanation,
+                        reference_not_observed_fields, inspection_not_observed_fields, pipeline_version, detected_differences
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s,
+                        %s, %s, %s, %s
+                    )
+                    ON CONFLICT (comparison_id) DO UPDATE SET
+                        comparison_status = EXCLUDED.comparison_status,
+                        summary_counts = EXCLUDED.summary_counts,
+                        field_comparisons = EXCLUDED.field_comparisons,
+                        explanation = EXCLUDED.explanation,
+                        reference_not_observed_fields = EXCLUDED.reference_not_observed_fields,
+                        inspection_not_observed_fields = EXCLUDED.inspection_not_observed_fields,
+                        pipeline_version = EXCLUDED.pipeline_version,
+                        detected_differences = EXCLUDED.detected_differences;
+                    """,
+                    (
+                        comp_id,
+                        insp_id,
+                        record.get("reference_id"),
+                        record.get("reference_name"),
+                        record.get("reference_type", "UNVERIFIED"),
+                        _json_or_none(record.get("reference_images") or record.get("reference_image_urls") or []),
+                        _json_or_none(record.get("inspection_images") or []),
+                        ts,
+                        record.get("comparison_status") or record.get("status", "UNABLE_TO_VERIFY"),
+                        _json_or_none(record.get("summary_counts") or {}),
+                        _json_or_none(record.get("matched_fields") or []),
+                        _json_or_none(record.get("variable_fields") or []),
+                        _json_or_none(record.get("review_fields") or []),
+                        _json_or_none(record.get("discrepancy_fields") or []),
+                        _json_or_none(record.get("field_comparisons") or []),
+                        _json_or_none(record.get("face_matches") or []),
+                        record.get("confidence_score", 0.85),
+                        record.get("comparison_method"),
+                        _json_or_none(record.get("gemini_evidence")),
+                        record.get("explanation"),
+                        _json_or_none(record.get("reference_not_observed_fields") or []),
+                        _json_or_none(record.get("inspection_not_observed_fields") or []),
+                        record.get("pipeline_version", "truthful-integrity-v2"),
+                        _json_or_none(record.get("detected_differences") or []),
+                    )
+                )
+    except Exception as e:
+        logger.warning("Database insert for package_integrity_comparisons failed: %s", e)
+
+    return comp_id
+
+
+def get_latest_package_integrity_comparison(inspection_id: str) -> Optional[dict]:
+    """
+    Retrieve the latest persisted Package Integrity comparison for an inspection.
+    """
+    # 1. Try PostgreSQL
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM package_integrity_comparisons
+                    WHERE inspection_id = %s
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                    """,
+                    (inspection_id,)
+                )
+                row = cur.fetchone()
+                if row:
+                    d = dict(row)
+                    for k in ("reference_images", "inspection_images", "summary_counts",
+                              "matched_fields", "variable_fields", "review_fields",
+                              "discrepancy_fields", "field_comparisons", "face_matches",
+                              "gemini_evidence", "reference_not_observed_fields",
+                              "inspection_not_observed_fields", "detected_differences"):
+                        if k in d:
+                            d[k] = decode_json_column(d[k]) or d[k]
+                    return d
+    except Exception:
+        pass
+
+    # 2. Try Filesystem fallback
+    insp_dir = INTEGRITY_STORAGE_DIR / str(inspection_id)
+    latest_file = insp_dir / "latest.json"
+    if latest_file.exists():
+        try:
+            with open(latest_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    return None
+
+
+def list_package_integrity_history(inspection_id: str) -> list[dict]:
+    """
+    List all historical comparison records for this inspection, newest first.
+    """
+    results: list[dict] = []
+    seen_ids = set()
+
+    # 1. Try PostgreSQL
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM package_integrity_comparisons
+                    WHERE inspection_id = %s
+                    ORDER BY timestamp DESC
+                    """,
+                    (inspection_id,)
+                )
+                for row in cur.fetchall():
+                    d = dict(row)
+                    for k in ("reference_images", "inspection_images", "summary_counts",
+                              "matched_fields", "variable_fields", "review_fields",
+                              "discrepancy_fields", "field_comparisons", "face_matches",
+                              "gemini_evidence", "reference_not_observed_fields",
+                              "inspection_not_observed_fields", "detected_differences"):
+                        if k in d:
+                            d[k] = decode_json_column(d[k]) or d[k]
+                    seen_ids.add(d["comparison_id"])
+                    results.append(d)
+    except Exception:
+        pass
+
+    # 2. Add any from filesystem not in DB
+    insp_dir = INTEGRITY_STORAGE_DIR / str(inspection_id)
+    if insp_dir.exists():
+        for p in sorted(insp_dir.glob("pic_*.json"), key=os.path.getmtime, reverse=True):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    rec = json.load(f)
+                if rec.get("comparison_id") not in seen_ids:
+                    seen_ids.add(rec.get("comparison_id"))
+                    results.append(rec)
+            except Exception:
+                pass
+
+    return results
+

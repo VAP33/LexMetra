@@ -8,8 +8,8 @@ echo               Department of Consumer Affairs * Legal Metrology
 echo ===============================================================================
 echo Active Subsystems:
 echo   [*] Semantic Authority    : Qwen 3.8 27B (Multimodal Perception Pipeline)
-echo   [*] Evidence Localization : Sanskruti CV (PaddleOCR PP-OCRv6 Vector Polygons)
-echo   [*] Regulatory Engine     : Arya Generic Engine (IN-LMPC-2011:2011-consolidated)
+echo   [*] Evidence Localization : PaddleOCR CV (PP-OCRv6 Vector Polygons)
+echo   [*] Regulatory Engine     : Generic Engine (IN-LMPC-2011:2011-consolidated)
 echo   [*] Multi-Panel DB        : PostgreSQL 18 Local Cluster (Port 5433)
 echo   [*] Interactive Web UI    : React 18 + Vite + SVG Polygon Overlays (Port 5173)
 echo   [*] Intelligence Engine   : 13-Stage Public Social Grievance Surveillance
@@ -17,9 +17,9 @@ echo ===========================================================================
 echo.
 
 REM -------------------------------------------------------------------------------
-REM Environment Configuration (Enforce Sanskruti + Arya Generic Modes)
+REM Environment Configuration (Enforce Paddle + Generic Modes)
 REM -------------------------------------------------------------------------------
-set "EVIDENCE_LOCALIZER_MODE=sanskruti"
+set "EVIDENCE_LOCALIZER_MODE=paddle"
 set "REGULATORY_ENGINE_MODE=generic"
 set "LMPC_ENABLE_PADDLEOCR=true"
 set "ENABLE_LOCALIZATION_YOLO=false"
@@ -81,8 +81,8 @@ echo.
 echo [2/3] Checking FastAPI Backend Service (Port 8000)...
 netstat -ano | findstr ":8000 " >nul 2>&1
 if errorlevel 1 (
-    echo [!] Backend not running on port 8000. Launching with Sanskruti + Arya modes...
-    start "LexMetra Backend - Sanskruti + Arya" cmd /k "cd /d %~dp0backend && set EVIDENCE_LOCALIZER_MODE=sanskruti&& set REGULATORY_ENGINE_MODE=generic&& set LMPC_ENABLE_PADDLEOCR=true&& set ENABLE_LOCALIZATION_YOLO=false&& python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload"
+    echo [!] Backend not running on port 8000. Launching with Paddle + Generic modes...
+    start "LexMetra Backend - Paddle + Generic Engine" cmd /k "cd /d %~dp0backend && set EVIDENCE_LOCALIZER_MODE=paddle&& set REGULATORY_ENGINE_MODE=generic&& set LMPC_ENABLE_PADDLEOCR=true&& set ENABLE_LOCALIZATION_YOLO=false&& python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload"
     timeout /t 4 /nobreak >nul
     echo [OK] FastAPI Backend process initiated.
 ) else (

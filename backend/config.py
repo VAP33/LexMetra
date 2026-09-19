@@ -222,8 +222,8 @@ except Exception:
 # Regulatory engine mode: "legacy" | "shadow" | "generic"
 REGULATORY_ENGINE_MODE: str = os.environ.get("REGULATORY_ENGINE_MODE", "generic").strip().lower()
 
-# Evidence localizer mode: "current" | "shadow" | "sanskruti"
-EVIDENCE_LOCALIZER_MODE: str = os.environ.get("EVIDENCE_LOCALIZER_MODE", "sanskruti").strip().lower()
+# Evidence localizer mode: "current" | "shadow" | "paddle"
+EVIDENCE_LOCALIZER_MODE: str = os.environ.get("EVIDENCE_LOCALIZER_MODE", "paddle").strip().lower()
 
 # Localization thresholds (provisional defaults as per Section 6)
 LOCALIZATION_VERIFIED_THRESHOLD: float = float(os.environ.get("LOCALIZATION_VERIFIED_THRESHOLD", "0.70"))

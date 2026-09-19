@@ -1,8 +1,8 @@
 """
 backend/regulatory_adapter.py
-Adapter between confirmed Qwen extractions and Arya's generic rule engine.
+Adapter between confirmed Qwen extractions and generic rule engine.
 Implements Section 7:
-- Maps confirmed extraction objects into Arya Evidence/EvidenceValue paths without mutating inputs.
+- Maps confirmed extraction objects into Evidence/EvidenceValue paths without mutating inputs.
 - Preserves raw value, normalized value, unit, semantic confidence, source text, image/face.
 - Maps ambiguous/unusable localizations to unusable where visual evidence is required.
 - Maps standard generic paths.
@@ -169,7 +169,7 @@ def build_generic_evidence(
         # so evidence is NEVER blank even when localization couldn't verify the region.
         if loc:
             if loc.bbox_canonical:
-                # Tight/verified canonical bbox from Sanskruti localization
+                # Tight/verified canonical bbox from paddle-based localization
                 raw_bbox = loc.bbox_canonical
             elif loc.coarse_bbox_canonical:
                 # Localization ran but could not verify: use Qwen coarse bbox as fallback
@@ -251,7 +251,7 @@ def evaluate_regulatory_compliance(
     rules_path: Path = GENERIC_RULES_PATH,
 ) -> Tuple[ProductInspection, EngineReport]:
     """
-    Evaluates regulatory compliance using Arya's generic engine.
+    Evaluates regulatory compliance using generic engine.
     Converts EngineReport into standard ProductInspection.
     """
     engine = get_generic_engine(rules_path)
@@ -468,7 +468,7 @@ def evaluate_regulatory_compliance(
             elif c_status == CanonicalStatus.REVIEW_REQUIRED:
                 decl_counts["review_required"] += 1
 
-        # Evidence geometry: prefer tight localized geometry from Sanskruti,
+        # Evidence geometry: prefer tight localized geometry from Paddle,
         # fall back to Qwen coarse bbox so evidence crop is NEVER blank.
         decl_evidence = None
         if loc:
@@ -534,7 +534,7 @@ def evaluate_regulatory_compliance(
                 image_id=final_img_id,
                 page_or_view=face_lbl,
                 bbox=display_bbox,
-                source=loc.localization_source or "sanskruti_paddle",
+                source=loc.localization_source or "paddle_ocr",
                 evidence_id=loc.evidence_id,
                 face_id=final_face_id,
                 localization_status=loc.localization_status.value if hasattr(loc.localization_status, "value") else str(loc.localization_status),
@@ -549,7 +549,7 @@ def evaluate_regulatory_compliance(
             face_label = (ext.get("face") if isinstance(ext, dict) else getattr(ext, "face", None)) or "Face 1"
             img_id = (ext.get("image_id") if isinstance(ext, dict) else getattr(ext, "image_id", None)) or "face_1"
             b = (ext.get("bbox") if isinstance(ext, dict) else getattr(ext, "bbox", None)) or (ext.get("bbox_canonical") if isinstance(ext, dict) else getattr(ext, "bbox_canonical", None))
-            # Fallback when no Sanskruti localization ran at all (legacy mode)
+            # Fallback when no localization ran at all (legacy mode)
             bbox_arr = None
             if b:
                 try:

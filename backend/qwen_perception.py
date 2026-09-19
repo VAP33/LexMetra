@@ -77,7 +77,7 @@ OUTPUT SCHEMA (JSON):
 
 CRITICAL RULES:
 1. PRODUCT_NAME: Always extract the product's brand and generic name (e.g. "Hair Actives", "Petroleum Jelly", "Skin Protecting Jelly", "Body Lotion", "Toothpaste"). Populate both top-level "product_name" and include a declaration item with field="PRODUCT_NAME".
-2. PRODUCT_ID: Extract the explicit Product ID, SKU, Item Code, Product Code, or Material Number printed on the package label (e.g. "64934436", "SKU-9021", etc.). On Indian packaged goods, an 8-digit product code (such as "64934436") is often printed vertically or horizontally beside or above the barcode. Do NOT confuse this with the barcode/GTIN number (which is 12-14 digits like 8909106043251). Never substitute the barcode. Extract the exact printed Product ID into "product_id" and populate a declaration item with field="PRODUCT_ID".
+2. PRODUCT_ID: Extract the explicit Product ID, SKU, Item Code, Product Code, or Material Number printed on the package label. IMPORTANT HINT: The product ID / SKU is straight away mentioned directly below the barcode itself (or immediately adjacent to / underneath the barcode bars and digits, e.g. '64934436' or item/material code). Do NOT confuse this with the 12-14 digit barcode/GTIN number. Never substitute the barcode. Extract the exact printed Product ID into "product_id" and populate a declaration item with field="PRODUCT_ID".
 3. MRP vs USP: Carefully match labels with their actual values!
    - MRP is the total package retail price (e.g. "MRP ₹: 800.00", "₹800.00").
    - USP is the Unit Sale Price per unit (e.g. "₹ 26.67 per ml", "26.67/ml").
@@ -1493,9 +1493,11 @@ class GroqQwenProvider(QwenProvider):
 
             prompt = (
                 LEXMETRA_SYSTEM_PROMPT + "\n\n"
-                "Extract all statutory declarations visible on these package faces. "
-                "Preserve face identification as 'Face 1', 'Face 2', 'Face 3'. "
-                "Output JSON matching the schema strictly without markdown or truncation."
+                "CRITICAL EXTRACTION HINTS:\n"
+                "- PRODUCT_ID: The product ID / SKU is straight away mentioned directly below the barcode itself (or right underneath / beside the barcode bars and digits, e.g. '64934436'). Look right below the barcode to extract the product ID.\n"
+                "- Extract all statutory declarations visible on these package faces.\n"
+                "- Preserve face identification as 'Face 1', 'Face 2', 'Face 3'.\n"
+                "- Output JSON matching the schema strictly without markdown or truncation."
             )
             loop = asyncio.get_running_loop()
             candidate_models = [config.GEMINI_OCR_MODEL]

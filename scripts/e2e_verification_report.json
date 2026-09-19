@@ -344,7 +344,7 @@
     }
   },
   "active_modes": {
-    "evidence_localizer": "sanskruti",
+    "evidence_localizer": "paddle",
     "regulatory_engine": "generic"
   },
   "inspection_id": ":scan-eb48db8c",

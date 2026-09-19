@@ -23,7 +23,7 @@ class RegulatoryService:
     Central service for evaluating regulatory compliance across execution modes:
     - 'legacy': Executes the existing deterministic rule engine only.
     - 'shadow': Executes legacy (authoritative) and generic in-memory; logs differences.
-    - 'generic': Executes Arya's generic engine as the authority.
+    - 'generic': Executes the generic engine as the authority.
     """
 
     def __init__(self, mode: Optional[str] = None):
@@ -76,7 +76,7 @@ class RegulatoryService:
 
         if self.mode == "generic":
 
-            # Arya generic engine is authoritative
+            # Generic engine is authoritative
             generic_result, _ = evaluate_regulatory_compliance(
                 inspection_id=inspection_id,
                 sale_type=sale_type,

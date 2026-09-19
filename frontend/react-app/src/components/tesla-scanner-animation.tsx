@@ -62,15 +62,6 @@ const STAGES = [
   },
 ];
 
-const DETECTED_TAGS = [
-  { label: "MRP", val: "₹185.00 (Incl. Taxes)" },
-  { label: "Net Qty", val: "250 g Standard" },
-  { label: "MFD / EXP", val: "05/2026 • Valid" },
-  { label: "USP", val: "₹0.74 / g" },
-  { label: "FSSAI", val: "14-Digit Lic Verified" },
-  { label: "Consumer Care", val: "1800-11-1915" },
-];
-
 export function TeslaScannerAnimation({
   currentStage: _currentStage,
   stageIndex = 0,
@@ -425,19 +416,6 @@ export function TeslaScannerAnimation({
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-        </div>
-
-        {/* Live Detected Declaration Badges */}
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          {DETECTED_TAGS.slice(0, Math.min(activeStage + 2, DETECTED_TAGS.length)).map((tag, idx) => (
-            <div
-              key={idx}
-              className="animate-in fade-in zoom-in-95 duration-200 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] shadow-2xs"
-            >
-              <span className="font-bold text-slate-500">{tag.label}:</span>
-              <span className="font-extrabold text-purple-900">{tag.val}</span>
-            </div>
-          ))}
         </div>
 
         {/* 5-Stage Stepper Rail */}

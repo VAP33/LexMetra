@@ -1,6 +1,6 @@
 """
 backend/localization/service.py
-Localization service implementing the core Sanskruti localization algorithm
+Localization service implementing the core Paddle-based localization algorithm
 according to Section 6 and Section 12 specifications.
 """
 

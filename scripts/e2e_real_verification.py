@@ -102,7 +102,7 @@ def main():
     assert len(classified_qwen_fields) > 0, "Qwen produced no fields!"
 
     # 6. Finalize session passing the authoritative Qwen fields
-    print("\n[Step 5] Finalizing Session (Paddle Localization + Arya Regulatory Evaluation)...")
+    print("\n[Step 5] Finalizing Session (Paddle Localization + Regulatory Evaluation)...")
     mrp_val = classified_qwen_fields.get("mrp", {}).get("numeric_value") or classified_qwen_fields.get("mrp", {}).get("normalized_value")
     finalize_payload = {
         "confirmed_fields": classified_qwen_fields,
@@ -183,9 +183,9 @@ def main():
             "reason": d.get("reason"),
         })
 
-    # 10. Check Arya Generic Ruleset
-    print(f"\nArya Ruleset ID / Version: {fin_data.get('applicable_rule_version')}")
-    print("Arya Declarations Summary:", json.dumps(fin_data.get("declaration_summary"), indent=2))
+    # 10. Check Generic Ruleset
+    print(f"\nRuleset ID / Version: {fin_data.get('applicable_rule_version')}")
+    print("Declarations Summary:", json.dumps(fin_data.get("declaration_summary"), indent=2))
 
     # Save complete verification report to json artifact
     report = {

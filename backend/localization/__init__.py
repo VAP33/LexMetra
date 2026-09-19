@@ -1,6 +1,6 @@
 """
 Localization package providing evidence localization and polygon extraction
-using ported Sanskruti CV components under strict isolation.
+using ported PaddleOCR CV components under strict isolation.
 """
 
 from localization.models import (

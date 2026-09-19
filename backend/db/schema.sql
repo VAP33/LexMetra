@@ -423,3 +423,39 @@ CREATE TABLE IF NOT EXISTS inspection_surfaces (
 CREATE INDEX IF NOT EXISTS idx_inspection_surfaces_inspection
     ON inspection_surfaces(inspection_id);
 
+-- ---------------------------------------------------------------------------
+-- package_integrity_comparisons
+--
+-- Persisted Package Integrity comparison records (USP 1).
+-- Records full canonical field comparison, reference/inspected evidence crops,
+-- bounding boxes, summary counts, model versions, and comparison history.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS package_integrity_comparisons (
+    comparison_id           TEXT PRIMARY KEY,
+    inspection_id           TEXT NOT NULL
+                            REFERENCES inspections(inspection_id)
+                            ON DELETE CASCADE,
+    reference_id            TEXT,
+    reference_name          TEXT,
+    reference_type          TEXT NOT NULL,
+    reference_images        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    inspection_images       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    timestamp               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    comparison_status       TEXT NOT NULL,
+    summary_counts          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    matched_fields          JSONB NOT NULL DEFAULT '[]'::jsonb,
+    variable_fields         JSONB NOT NULL DEFAULT '[]'::jsonb,
+    review_fields           JSONB NOT NULL DEFAULT '[]'::jsonb,
+    discrepancy_fields      JSONB NOT NULL DEFAULT '[]'::jsonb,
+    field_comparisons       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    face_matches            JSONB NOT NULL DEFAULT '[]'::jsonb,
+    confidence_score        NUMERIC DEFAULT 0.85,
+    comparison_method       TEXT,
+    gemini_evidence         JSONB,
+    explanation             TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pkg_integrity_inspection
+    ON package_integrity_comparisons(inspection_id, timestamp DESC);
+
+

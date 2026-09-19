@@ -17,6 +17,7 @@ Design principles:
 
 from __future__ import annotations
 import asyncio
+import base64
 import io
 import logging
 import os
@@ -97,6 +98,7 @@ from localization.models import LocalizationSurface, LocalizedEvidence, Localiza
 
 import package_integrity
 import fssai_verification
+import departmental_verification
 import consumer_reporting
 import assistant
 
@@ -2394,7 +2396,7 @@ async def finalize_session(
     localizer_mode = getattr(config, "EVIDENCE_LOCALIZER_MODE", "current")
     localized_evidence_list: List[LocalizedEvidence] = []
 
-    if localizer_mode in ("shadow", "sanskruti"):
+    if localizer_mode in ("shadow", "paddle", "sanskruti"):
         try:
             h = localizer_svc.health()
             print(f"[*] [finalize_session] Localizer health: available={h['available']}, engine={h['engine']}, fallback={h['fallback_reason']}", flush=True)
@@ -2429,7 +2431,7 @@ async def finalize_session(
         grounded_rule_versions=grounded_rule_versions,
         regulatory_module=regulatory_scope_info.get("primary_module", "lmpc"),
         package_structure=pkg_structure,
-        localized_evidence=localized_evidence_list if localizer_mode == "sanskruti" else None,
+        localized_evidence=localized_evidence_list if localizer_mode in ("paddle", "sanskruti") else None,
     )
 
 
@@ -2586,15 +2588,27 @@ def get_inspection(
 
     # Enrich with FSSAI & Package Integrity if not present
     if "package_integrity" not in detail:
-        insp_data = detail.get("inspection") or detail
-        p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id")
-        p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name")
-        img_path = detail.get("image_path") or detail.get("image")
-        try:
-            integrity_res = package_integrity.evaluate_package_integrity(img_path, product_id=p_id, product_name=p_name)
-            detail["package_integrity"] = integrity_res.to_dict()
-        except Exception:
-            pass
+        persisted_integrity = db.get_latest_package_integrity_comparison(inspection_id)
+        if persisted_integrity:
+            detail["package_integrity"] = persisted_integrity
+        else:
+            insp_data = detail.get("inspection") or detail
+            p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id")
+            p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name")
+            img_path = detail.get("image_path") or detail.get("image")
+            try:
+                integrity_res = package_integrity.evaluate_package_integrity(img_path, product_id=p_id, product_name=p_name)
+                rep_dict = integrity_res.to_dict()
+                rep_dict["inspection_id"] = inspection_id
+                detail["package_integrity"] = rep_dict
+                # PERSISTENCE: Always save every computed comparison, even UNABLE_TO_VERIFY.
+                # This ensures page reload restores the exact same comparison_id without re-running OCR.
+                try:
+                    db.save_package_integrity_comparison(rep_dict)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
     if "fssai" not in detail:
         insp_data = detail.get("inspection") or detail
@@ -2620,15 +2634,260 @@ def get_inspection_integrity(
     inspection_id: str,
     current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
+    # Rule: Restore the exact comparison without silently recomputing every time the page loads
+    persisted = db.get_latest_package_integrity_comparison(inspection_id)
+    if persisted:
+        return persisted
+
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    if detail.get("package_integrity"):
+        rec = detail["package_integrity"]
+        rec["inspection_id"] = inspection_id
+        try:
+            db.save_package_integrity_comparison(rec)
+        except Exception:
+            pass
+        return rec
+
     insp_data = detail.get("inspection") or detail
     p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id")
     p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name")
     img_path = detail.get("image_path") or detail.get("image")
-    res = package_integrity.evaluate_package_integrity(img_path, product_id=p_id, product_name=p_name)
-    return res.to_dict()
+    declarations = insp_data.get("declarations") or []
+
+    all_insp_paths = []
+    if img_path:
+        all_insp_paths.append(str(img_path))
+    for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
+        if isinstance(s, dict):
+            sp = (
+                s.get("original_image_path")
+                or s.get("canonical_image_path")
+                or s.get("image_url")
+                or s.get("image_path")
+                or s.get("image_id")
+            )
+            if sp and str(sp) not in all_insp_paths:
+                all_insp_paths.append(str(sp))
+    for c in (detail.get("captures") or insp_data.get("captures") or []):
+        if isinstance(c, dict):
+            cp = c.get("image_id")
+            if cp and str(cp) not in all_insp_paths:
+                all_insp_paths.append(str(cp))
+
+    res = package_integrity.evaluate_package_integrity(
+        img_path,
+        inspected_image_paths=all_insp_paths,
+        product_id=p_id,
+        product_name=p_name,
+        inspection_declarations=declarations,
+    )
+    report_dict = res.to_dict()
+    report_dict["inspection_id"] = inspection_id
+    # PERSISTENCE: Always save every computed comparison, even UNABLE_TO_VERIFY.
+    # This ensures page reload restores the exact same comparison_id/statuses/values.
+    try:
+        db.save_package_integrity_comparison(report_dict)
+    except Exception:
+        pass
+    detail["package_integrity"] = report_dict
+    try:
+        db.save_inspection_detail(inspection_id, detail)
+    except Exception:
+        pass
+    return report_dict
+
+
+@app.get("/integrity/{inspection_id}")
+def get_integrity_direct(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    return get_inspection_integrity(inspection_id, current_user=current_user)
+
+
+@app.get("/inspections/{inspection_id}/integrity/history")
+@app.get("/integrity/{inspection_id}/history")
+def get_inspection_integrity_history(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    """
+    Returns comparison history list for this inspection, newest first.
+    """
+    history = db.list_package_integrity_history(inspection_id)
+    return {"history": history, "count": len(history)}
+
+
+@app.post("/integrity/compare")
+async def compare_package_integrity(
+    inspection_id: str = Form(...),
+    reference_type: str = Form("UNVERIFIED"),  # TRUSTED | DEMO | UNVERIFIED
+    reference_file: Optional[UploadFile] = File(default=None),
+    reference_files: List[UploadFile] = File(default=[]),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    upload_list: List[UploadFile] = []
+    if reference_files and isinstance(reference_files, (list, tuple)):
+        upload_list.extend([f for f in reference_files if hasattr(f, "filename") and f.filename])
+    elif reference_files and hasattr(reference_files, "filename") and reference_files.filename:
+        upload_list.append(reference_files)
+    if reference_file and hasattr(reference_file, "filename") and reference_file.filename:
+        if reference_file not in upload_list and getattr(reference_file, "filename", None) not in [f.filename for f in upload_list]:
+            upload_list.append(reference_file)
+
+    custom_ref_paths: List[str] = []
+    for f in upload_list:
+        ref_filename = f"ref_{uuid.uuid4().hex[:8]}_{f.filename}"
+        ref_dest = config.UPLOAD_DIR / ref_filename
+        contents = await f.read()
+        with open(ref_dest, "wb") as out_f:
+            out_f.write(contents)
+        custom_ref_paths.append(str(ref_dest))
+
+    insp_data = detail.get("inspection") or detail
+    p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id")
+    p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name")
+    primary_img_path = detail.get("image_path") or detail.get("image")
+    declarations = insp_data.get("declarations") or []
+
+    all_insp_paths = []
+    if primary_img_path:
+        all_insp_paths.append(str(primary_img_path))
+    for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
+        if isinstance(s, dict):
+            sp = (
+                s.get("original_image_path")
+                or s.get("canonical_image_path")
+                or s.get("image_url")
+                or s.get("image_path")
+                or s.get("image_id")
+            )
+            if sp and str(sp) not in all_insp_paths:
+                all_insp_paths.append(str(sp))
+    for c in (detail.get("captures") or insp_data.get("captures") or []):
+        if isinstance(c, dict):
+            cp = c.get("image_id")
+            if cp and str(cp) not in all_insp_paths:
+                all_insp_paths.append(str(cp))
+
+    res = package_integrity.evaluate_package_integrity(
+        primary_img_path,
+        inspected_image_paths=all_insp_paths,
+        product_id=p_id,
+        product_name=p_name,
+        inspection_declarations=declarations,
+        custom_reference_path=custom_ref_paths[0] if custom_ref_paths else None,
+        custom_reference_paths=custom_ref_paths,
+        custom_reference_type=reference_type,
+    )
+    report_dict = res.to_dict()
+    report_dict["inspection_id"] = inspection_id
+    # Persist the new comparison record as a distinct historical version
+    try:
+        db.save_package_integrity_comparison(report_dict)
+    except Exception as exc:
+        logger.warning("Failed saving comparison record: %s", exc)
+    detail["package_integrity"] = report_dict
+    try:
+        db.save_inspection_detail(inspection_id, detail)
+    except Exception:
+        pass
+    return report_dict
+
+
+class FssaiVerifyInput(BaseModel):
+    inspection_id: str
+    license_number: Optional[str] = None
+    product_category: Optional[str] = None
+    declared_manufacturer: Optional[str] = None
+
+
+@app.post("/regulatory/fssai/verify")
+def verify_regulatory_fssai(
+    req: FssaiVerifyInput,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    detail = db.get_inspection_detail(req.inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    insp_data = detail.get("inspection") or detail
+    cat = req.product_category or insp_data.get("commodity_category") or insp_data.get("product_category") or "food"
+    raw_fields = {}
+    for d in (insp_data.get("declarations") or []):
+        if isinstance(d, dict):
+            raw_fields[d.get("field")] = d.get("value")
+    for f in (detail.get("facts") or []):
+        if isinstance(f, dict) and f.get("field"):
+            raw_fields[f.get("field")] = f.get("extracted_value")
+
+    if req.license_number:
+        raw_fields["fssai_license_number"] = req.license_number
+    if req.declared_manufacturer:
+        raw_fields["manufacturer_name"] = req.declared_manufacturer
+
+    res = fssai_verification.verify_fssai_compliance(cat, raw_fields)
+    res_dict = res.to_dict()
+    detail["fssai"] = res_dict
+    try:
+        db.save_inspection_detail(req.inspection_id, detail)
+    except Exception:
+        pass
+    return res_dict
+
+
+@app.get("/regulatory/fssai/{inspection_id}")
+def get_regulatory_fssai(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    return get_inspection_fssai(inspection_id, current_user=current_user)
+
+
+@app.get("/inspections/{inspection_id}/regulatory-cross-verification")
+@app.get("/regulatory/cross-verification/{inspection_id}")
+def get_regulatory_cross_verification(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+    insp_data = detail.get("inspection") or detail
+    cat = insp_data.get("commodity_category") or insp_data.get("product_category") or insp_data.get("category")
+    p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or insp_data.get("product")
+    gtin = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("productId") or insp_data.get("product_id")
+
+    raw_fields = {}
+    for d in (insp_data.get("declarations") or []):
+        if isinstance(d, dict):
+            raw_fields[d.get("field")] = d.get("value")
+    for f in (detail.get("facts") or []):
+        if isinstance(f, dict) and f.get("field"):
+            raw_fields[f.get("field")] = f.get("extracted_value")
+
+    all_lines = detail.get("ocr_lines") or []
+    mfg_entry = raw_fields.get("manufacturer_name") or raw_fields.get("manufacturer_name_address")
+    mfg = mfg_entry.get("value") if isinstance(mfg_entry, dict) else str(mfg_entry) if mfg_entry else None
+
+    dossier = departmental_verification.generate_departmental_regulatory_dossier(
+        inspection_id=inspection_id,
+        product_category=cat,
+        product_name=p_name,
+        raw_ocr_fields=raw_fields,
+        all_ocr_lines=all_lines,
+        product_gtin=str(gtin) if gtin else None,
+        declared_manufacturer=str(mfg) if mfg else None,
+    )
+    return dossier.to_dict()
 
 
 @app.get("/inspections/{inspection_id}/fssai")
@@ -2640,7 +2899,10 @@ def get_inspection_fssai(
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
     insp_data = detail.get("inspection") or detail
-    cat = insp_data.get("commodity_category") or insp_data.get("product_category") or "food"
+    cat = insp_data.get("commodity_category") or insp_data.get("product_category") or insp_data.get("category") or "food"
+    p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or insp_data.get("product")
+    gtin = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("productId") or insp_data.get("product_id")
+
     raw_fields = {}
     for d in (insp_data.get("declarations") or []):
         if isinstance(d, dict):
@@ -2648,8 +2910,151 @@ def get_inspection_fssai(
     for f in (detail.get("facts") or []):
         if isinstance(f, dict) and f.get("field"):
             raw_fields[f.get("field")] = f.get("extracted_value")
-    res = fssai_verification.verify_fssai_compliance(cat, raw_fields)
-    return res.to_dict()
+
+    all_lines = detail.get("ocr_lines") or []
+    mfg_entry = raw_fields.get("manufacturer_name") or raw_fields.get("manufacturer_name_address")
+    mfg = mfg_entry.get("value") if isinstance(mfg_entry, dict) else str(mfg_entry) if mfg_entry else None
+
+    # Generate full departmental dossier to ensure VLM commodity classification is unified
+    dossier = departmental_verification.generate_departmental_regulatory_dossier(
+        inspection_id=inspection_id,
+        product_category=cat,
+        product_name=p_name,
+        raw_ocr_fields=raw_fields,
+        all_ocr_lines=all_lines,
+        product_gtin=str(gtin) if gtin else None,
+        declared_manufacturer=str(mfg) if mfg else None,
+    )
+
+    fssai_dept = next((d for d in dossier.departments if d.department_code == "FSSAI"), None)
+    res = fssai_verification.verify_fssai_compliance(
+        cat,
+        raw_fields,
+        all_ocr_lines=all_lines,
+        is_food_hint=dossier.commodity.is_food,
+        gtin=str(gtin) if gtin else None,
+    )
+    res_dict = res.to_dict()
+    res_dict["commodity_classification"] = dossier.commodity.to_dict()
+    res_dict["departmental_dossier"] = dossier.to_dict()
+    return res_dict
+
+
+class CaptureReadinessInput(BaseModel):
+    image_base64: str
+
+
+@app.post("/capture/readiness")
+def assess_capture_readiness(
+    req: CaptureReadinessInput,
+):
+    """
+    Lightweight assistive capture readiness evaluator.
+    Returns dynamic perspective quadrilateral, blur, glare, coverage, and guidance.
+    Does NOT invoke Gemini or heavy neural networks on camera frames.
+    """
+    try:
+        b64_data = req.image_base64
+        if "," in b64_data:
+            b64_data = b64_data.split(",", 1)[1]
+        img_bytes = base64.b64decode(b64_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img_bgr is None:
+            return {"is_ready": False, "guidance": "Hold steady", "corners": []}
+
+        h, w = img_bgr.shape[:2]
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+        # 1. Blur evaluation: Laplacian variance
+        lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        is_blur_ok = lap_var > 45.0
+
+        # 2. Glare & exposure evaluation
+        glare_px = np.sum(gray > 248)
+        glare_ratio = float(glare_px) / float(h * w)
+        is_glare_ok = glare_ratio < 0.14
+
+        # Prioritize blur & glare feedback
+        if not is_blur_ok:
+            fallback_guidance = "Hold steady"
+        elif not is_glare_ok:
+            fallback_guidance = "Reduce glare"
+        else:
+            fallback_guidance = "Center package"
+
+        # 3. Package boundary detection
+        import package_preprocessor
+        b_res = package_preprocessor.detect_package_boundary(img_bgr)
+        detected = bool(b_res.get("detected"))
+        corners = b_res.get("corners", [])
+
+        # Default fallback corners if not detected
+        if not detected or len(corners) != 4:
+            margin_x = int(w * 0.15)
+            margin_y = int(h * 0.15)
+            default_corners = [
+                [margin_x, margin_y],
+                [w - margin_x, margin_y],
+                [w - margin_x, h - margin_y],
+                [margin_x, h - margin_y],
+            ]
+            return {
+                "is_ready": False,
+                "detected": False,
+                "guidance": fallback_guidance,
+                "corners": default_corners,
+                "blur_score": round(lap_var, 1),
+                "glare_ratio": round(glare_ratio, 3),
+            }
+
+        pts = np.array(corners, dtype=np.float32)
+        quad_area = cv2.contourArea(pts)
+        frame_area = w * h
+        area_ratio = float(quad_area) / float(frame_area)
+
+        min_x = np.min(pts[:, 0])
+        max_x = np.max(pts[:, 0])
+        min_y = np.min(pts[:, 1])
+        max_y = np.max(pts[:, 1])
+
+        touches_edge = (min_x < w * 0.02) or (max_x > w * 0.98) or (min_y < h * 0.02) or (max_y > h * 0.98)
+
+        if not is_blur_ok:
+            guidance = "Hold steady"
+            is_ready = False
+        elif not is_glare_ok:
+            guidance = "Reduce glare"
+            is_ready = False
+        elif area_ratio < 0.18:
+            guidance = "Move closer"
+            is_ready = False
+        elif area_ratio > 0.88 or touches_edge:
+            guidance = "Move farther"
+            is_ready = False
+        else:
+            top_w = np.linalg.norm(pts[1] - pts[0])
+            bot_w = np.linalg.norm(pts[2] - pts[3])
+            ratio = max(top_w, bot_w) / max(1.0, min(top_w, bot_w))
+            if ratio > 1.8:
+                guidance = "Rotate / Align camera"
+                is_ready = False
+            else:
+                guidance = "Ready for capture"
+                is_ready = True
+
+        return {
+            "is_ready": is_ready,
+            "detected": True,
+            "guidance": guidance,
+            "corners": [[round(float(c[0]), 1), round(float(c[1]), 1)] for c in corners],
+            "blur_score": round(lap_var, 1),
+            "glare_ratio": round(glare_ratio, 3),
+            "area_ratio": round(area_ratio, 3),
+        }
+    except Exception as exc:
+        logger.warning("Capture readiness check error: %s", exc)
+        return {"is_ready": False, "guidance": "Hold steady", "corners": []}
 
 
 # ---------------------------------------------------------------------------
@@ -2954,7 +3359,7 @@ def update_inspection_fact(
     """
     Inline correction on Inspection Results:
     1. Updates the canonical fact value in persisted database.
-    2. Dynamically re-runs Arya's Rule Engine on updated facts.
+    2. Dynamically re-runs Rule Engine on updated facts.
     3. Re-evaluates compliance status, findings, and score breakdown.
     4. Records immutable audit event with reviewer identity.
     """
@@ -2998,7 +3403,7 @@ def update_inspection_fact(
                 "raw_text": d.get("value"),
             }
 
-    # Re-evaluate with Arya Regulatory Service
+    # Re-evaluate with Regulatory Service
     reg_service = RegulatoryService()
     try:
         qty_val = float(extractions_dict.get("net_quantity", {}).get("value", 0) or 0)

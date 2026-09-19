@@ -1,5 +1,5 @@
 """
-Region proposal module ported from Sanskruti CV.
+Region proposal module ported from PaddleOCR CV.
 Extracts candidate text/declaration contours and bounding envelopes on a surface image.
 """
 

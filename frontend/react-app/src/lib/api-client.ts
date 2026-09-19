@@ -686,27 +686,178 @@ export function reportPdfUrl(id: string): string {
 // USP 1: Package Integrity Verification
 // ---------------------------------------------------------------------------
 
+export interface DifferenceItemData {
+  field_name?: string;
+  reference_value?: string;
+  inspection_value?: string;
+  difference_type?: string;
+  bbox: [number, number, number, number];
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  confidence: number;
+  description?: string;
+  evidence_crop_base64?: string;
+  field_classification?: "STATIC" | "VARIABLE" | "VERSION_SENSITIVE";
+  is_suspicious?: boolean;
+  finding_category?:
+    | "ACTUAL_DIFFERENCE"
+    | "OCR_UNCERTAINTY"
+    | "INSUFFICIENT_IMAGE_QUALITY"
+    | "LEGITIMATE_PRODUCTION_VARIATION";
+  ocr_confidence?: number;
+  image_quality_score?: number;
+  normalized_similarity?: number;
+  observation_note?: string;
+}
+
+export interface FaceMatchData {
+  reference_face_index: number;
+  reference_face_name?: string;
+  reference_image?: string;
+  reference_image_url?: string;
+  inspected_face_index: number;
+  inspected_image?: string;
+  inspected_image_url?: string;
+  fidelity_score: number;
+  status: "ALIGNED" | "UNALIGNED";
+}
+
+export interface FieldComparisonData {
+  field_name: string;
+  field_key: string;
+  field_classification: "STATIC" | "VARIABLE" | "VERSION_SENSITIVE" | string;
+  reference_value: string;
+  inspection_value: string;
+  status: "MATCH" | "EXPECTED TO VARY" | "REVIEW REQUIRED" | "POTENTIAL DISCREPANCY" | string;
+  is_suspicious: boolean;
+  finding_category?: string;
+  reason: string;
+  observation_note?: string;
+  reference_crop_base64?: string;
+  inspection_crop_base64?: string;
+  reference_bbox?: [number, number, number, number];
+  inspection_bbox?: [number, number, number, number];
+  confidence: number;
+  image_quality_score?: number;
+  normalized_similarity?: number;
+  severity: "LOW" | "MEDIUM" | "HIGH" | string;
+}
+
+export interface ComparisonHistoryItem {
+  comparison_id: string;
+  inspection_id: string;
+  timestamp: string;
+  reference_name?: string;
+  comparison_status?: string;
+  status?: string;
+  summary_counts?: {
+    consistent?: number;
+    review_required?: number;
+    potential_discrepancy?: number;
+    total_evaluated?: number;
+  };
+  field_comparisons?: FieldComparisonData[];
+  reference_image_urls?: string[];
+  reference_images?: string[];
+  confidence_score?: number;
+  explanation?: string;
+}
+
 export interface IntegrityReportData {
-  status: "NO SIGNIFICANT DIFFERENCE DETECTED" | "POTENTIAL ALTERATION DETECTED" | "UNABLE TO VERIFY";
+  status:
+    | "NO_SIGNIFICANT_DIFFERENCE_DETECTED"
+    | "POTENTIAL_ALTERATION_DETECTED"
+    | "UNABLE_TO_VERIFY"
+    | "NO SIGNIFICANT DIFFERENCE DETECTED"
+    | "POTENTIAL ALTERATION DETECTED"
+    | "UNABLE TO VERIFY";
   product_id?: string;
   has_reference: boolean;
+  reference_type?: "TRUSTED" | "DEMO" | "UNVERIFIED";
   reference_image_url?: string;
+  reference_image_urls?: string[];
   inspected_image_url?: string;
   comparison_method: string;
   confidence_score: number;
-  detected_differences: Array<{
-    bbox: [number, number, number, number];
-    severity: "LOW" | "MEDIUM" | "HIGH";
-    confidence: number;
-    description: string;
-  }>;
+  detected_differences: DifferenceItemData[];
+  face_matches?: FaceMatchData[];
   explanation: string;
+  source_tag?: string;
+  reference_source_notice?: string;
   is_advisory: boolean;
   disclaimer: string;
+  // Comparison Record & UI Summary
+  comparison_id?: string;
+  timestamp?: string;
+  reference_name?: string;
+  summary_counts?: {
+    consistent: number;
+    review_required: number;
+    potential_discrepancy: number;
+    total_evaluated?: number;
+  };
+  field_comparisons?: FieldComparisonData[];
+  matched_fields?: string[];
+  variable_fields?: string[];
+  review_fields?: string[];
+  discrepancy_fields?: string[];
 }
 
 export async function getPackageIntegrity(inspectionId: string): Promise<IntegrityReportData> {
-  return request<IntegrityReportData>(`/inspections/${encodeURIComponent(inspectionId)}/integrity`);
+  return request<IntegrityReportData>(`/integrity/${encodeURIComponent(inspectionId)}`);
+}
+
+export async function getPackageIntegrityHistory(
+  inspectionId: string
+): Promise<{ history: ComparisonHistoryItem[]; count: number }> {
+  try {
+    return await request<{ history: ComparisonHistoryItem[]; count: number }>(
+      `/inspections/${encodeURIComponent(inspectionId)}/integrity/history`
+    );
+  } catch {
+    try {
+      return await request<{ history: ComparisonHistoryItem[]; count: number }>(
+        `/integrity/${encodeURIComponent(inspectionId)}/history`
+      );
+    } catch {
+      return { history: [], count: 0 };
+    }
+  }
+}
+
+export async function comparePackageIntegrity(
+  inspectionId: string,
+  referenceFiles?: File | File[],
+  referenceType: "TRUSTED" | "DEMO" | "UNVERIFIED" = "UNVERIFIED"
+): Promise<IntegrityReportData> {
+  const formData = new FormData();
+  formData.append("inspection_id", inspectionId);
+  formData.append("reference_type", referenceType);
+
+  if (referenceFiles) {
+    const list = Array.isArray(referenceFiles) ? referenceFiles : [referenceFiles];
+    list.forEach((file) => {
+      formData.append("reference_files", file);
+    });
+    if (list.length > 0) {
+      formData.append("reference_file", list[0]); // backward compatibility
+    }
+  }
+
+  const token = getStoredToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_BASE}/integrity/compare`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new ApiError(`Failed to compare integrity: ${errText}`, response.status);
+  }
+  return response.json();
 }
 
 // ---------------------------------------------------------------------------
@@ -714,7 +865,15 @@ export async function getPackageIntegrity(inspectionId: string): Promise<Integri
 // ---------------------------------------------------------------------------
 
 export interface FssaiVerificationData {
-  status: "VERIFIED / MATCH" | "MISMATCH DETECTED" | "UNABLE TO VERIFY" | "NOT APPLICABLE";
+  status:
+    | "VERIFIED"
+    | "MISMATCH_DETECTED"
+    | "LICENSE_NOT_FOUND"
+    | "UNABLE_TO_VERIFY"
+    | "NOT_APPLICABLE"
+    | "DEMO_VERIFIED"
+    | "MANUAL_REVIEW_REQUIRED"
+    | "VERIFIED / MATCH";
   is_food: boolean;
   license_number?: string;
   registration_type?: string;
@@ -725,10 +884,105 @@ export interface FssaiVerificationData {
   details: Record<string, any>;
   evidence_text?: string;
   explanation: string;
+  source_tag?: string;
+  official_verification_url?: string;
+  is_demo_data?: boolean;
+  gtin_product_identity?: string;
+  fssai_business_identity?: string;
 }
 
 export async function getFssaiVerification(inspectionId: string): Promise<FssaiVerificationData> {
-  return request<FssaiVerificationData>(`/inspections/${encodeURIComponent(inspectionId)}/fssai`);
+  return request<FssaiVerificationData>(`/regulatory/fssai/${encodeURIComponent(inspectionId)}`);
+}
+
+export async function verifyRegulatoryFssai(payload: {
+  inspection_id: string;
+  license_number?: string;
+  product_category?: string;
+  declared_manufacturer?: string;
+}): Promise<FssaiVerificationData> {
+  return request<FssaiVerificationData>("/regulatory/fssai/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Generalized Departmental Regulatory Cross-Verification
+// ---------------------------------------------------------------------------
+
+export interface DepartmentVerificationResult {
+  department_code: "FSSAI" | "CDSCO" | "BIS" | "BEE" | "LMPC" | "CIBRC" | string;
+  department_name: string;
+  governing_act: string;
+  ministry: string;
+  is_applicable: boolean;
+  applicability_reason: string;
+  identifier_name: string;
+  extracted_identifier?: string | null;
+  product_gtin?: string | null;
+  verification_status: "LIVE" | "DEMO" | "MANUAL" | "UNAVAILABLE" | "NOT_APPLICABLE";
+  official_portal_url?: string;
+  source_tag?: string;
+  is_demo_data?: boolean;
+  licensee_name?: string | null;
+  licensee_premises?: string | null;
+  jurisdiction?: string | null;
+  valid_until?: string | null;
+  evidence_text?: string | null;
+  explanation: string;
+  advisory_notes?: string;
+}
+
+export interface CommodityClassificationData {
+  primary_category: string;
+  category_label: string;
+  commodity_subtype: string;
+  is_food: boolean;
+  regulatory_signals: string[];
+  confidence: number;
+  classification_source: string;
+  explanation: string;
+}
+
+export interface DepartmentalRegulatoryDossierData {
+  inspection_id: string;
+  commodity: CommodityClassificationData;
+  primary_regulator: string;
+  departments: DepartmentVerificationResult[];
+  summary: string;
+  timestamp?: string;
+}
+
+export async function getDepartmentalCrossVerification(inspectionId: string): Promise<DepartmentalRegulatoryDossierData> {
+  return request<DepartmentalRegulatoryDossierData>(`/inspections/${encodeURIComponent(inspectionId)}/regulatory-cross-verification`);
+}
+
+// ---------------------------------------------------------------------------
+// Smart Mobile Capture Readiness
+// ---------------------------------------------------------------------------
+
+export interface CaptureReadinessData {
+  is_ready: boolean;
+  detected: boolean;
+  guidance: string;
+  corners: Array<[number, number]>;
+  blur_score?: number;
+  glare_ratio?: number;
+  area_ratio?: number;
+}
+
+export async function checkCaptureReadiness(imageBase64: string): Promise<CaptureReadinessData> {
+  const response = await fetch(`${API_BASE}/capture/readiness`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_base64: imageBase64 }),
+  });
+  if (!response.ok) {
+    return { is_ready: false, detected: false, guidance: "Hold steady", corners: [] };
+  }
+  return response.json();
 }
 
 // ---------------------------------------------------------------------------
