@@ -478,11 +478,15 @@ function Header({
           </button>
 
           {/* LexMetra Generated Brand Logo */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => onNavigate?.("landing")}
+            className="flex items-center gap-2 sm:gap-3 rounded-xl hover:bg-white/5 px-1.5 py-1 -mx-1.5 -my-1 transition active:scale-[0.98]"
+          >
             <div className="flex items-center justify-center rounded-xl bg-white p-1 sm:p-1.5 shadow-sm ring-1 ring-brand-300/30">
               <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[140px] sm:max-w-[190px]" />
             </div>
-            <div className="hidden sm:block">
+            <div className="hidden sm:block text-left">
               <div className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-saffron-400 animate-pulse" />
                 <p className="text-[10px] font-bold uppercase tracking-[.18em] text-saffron-300">{eyebrow || defaultEyebrow}</p>
@@ -491,7 +495,7 @@ function Header({
                 <span>{title}</span>
               </h1>
             </div>
-          </div>
+          </button>
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2 flex-wrap sm:flex-nowrap justify-end">
@@ -697,7 +701,11 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
       <div className="h-1.5 w-full tricolor-stripe mb-4 rounded-full" />
 
       {/* LexMetra Sidebar Card */}
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-gradient-to-b from-brand-50/40 to-white p-3.5 shadow-xs">
+      <button
+        type="button"
+        onClick={() => onNavigate("landing")}
+        className="mb-6 w-full rounded-2xl border border-slate-200 bg-gradient-to-b from-brand-50/40 to-white p-3.5 shadow-xs hover:border-brand-300 hover:shadow-sm transition-all active:scale-[0.98]"
+      >
         <div className="text-center">
           <div className="flex items-center justify-center gap-1.5">
             <p className="text-sm font-black tracking-widest text-brand-900">LEXMETRA</p>
@@ -705,7 +713,7 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
           </div>
           <p className="text-[10px] font-bold uppercase tracking-[.06em] text-govgreen mt-0.5">Legal Metrology Directorate</p>
         </div>
-      </div>
+      </button>
 
       <nav className="space-y-1">
         {currentNavItems.map((item) => {
@@ -5142,7 +5150,7 @@ export function InspectionApp() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {!isLanding && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role} />}
+      {!isLanding && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
       {!isLanding ? <div className="md:pl-64">{content}</div> : content}
       {!isLanding && <BottomNav view={view} onNavigate={go} lang={lang} />}
       <MultilingualAssistantWidget currentInspection={selected || inspections[0]} lang={lang} onLanguageChange={handleSetLang} />
