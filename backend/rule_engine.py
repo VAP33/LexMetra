@@ -247,6 +247,30 @@ def _evidence_for_extraction(extraction: Optional[RawExtraction]) -> List[Eviden
     ]
 
 
+def _human_field_name(field: str) -> str:
+    """Format raw field identifier into clear, formal, natural text without raw snake_case."""
+    mapping = {
+        "common_name": "Generic / Product Name",
+        "product_name": "Product Name",
+        "product_id": "Product ID / SKU",
+        "mrp": "Maximum Retail Price (MRP)",
+        "net_quantity": "Net Quantity",
+        "unit_sale_price": "Unit Sale Price",
+        "batch_no": "Batch / Lot Number",
+        "mfg_date": "Date of Manufacture",
+        "best_before_use_by": "Best Before / Expiry Date",
+        "manufacturer_name_address": "Manufacturer Name & Address",
+        "manufacturer_name": "Manufacturer Name & Address",
+        "marketer_name": "Marketer Name & Address",
+        "consumer_care": "Consumer Care Details",
+        "country_of_origin": "Country of Origin",
+        "standard_pack_size": "Standard Pack Size",
+    }
+    if field in mapping:
+        return mapping[field]
+    return field.replace("_", " ").title()
+
+
 def agreement_cap(
     extraction: Optional[RawExtraction],
     status: FactStatus,
@@ -711,26 +735,26 @@ def _evaluate_declaration_rule(
                 elif extraction.confidence < low_confidence_threshold:
                     status = FactStatus.UNCERTAIN
                     reason = (
-                        f"'{field}' was detected, but extraction confidence "
+                        f"{_human_field_name(field)} was detected, but extraction confidence "
                         f"{extraction.confidence:.2f} is below the configured "
                         f"threshold {low_confidence_threshold:.2f}."
                     )
                     review = True
                 else:
                     status = FactStatus.PASS
-                    reason = f"'{field}' is evidenced on the package label."
+                    reason = f"{_human_field_name(field)} is verified on the package label."
                     review = False
             elif extraction.confidence < low_confidence_threshold:
                 status = FactStatus.UNCERTAIN
                 reason = (
-                    f"'{field}' was detected, but extraction confidence "
+                    f"{_human_field_name(field)} was detected, but extraction confidence "
                     f"{extraction.confidence:.2f} is below the configured "
                     f"threshold {low_confidence_threshold:.2f}."
                 )
                 review = True
             else:
                 status = FactStatus.PASS
-                reason = f"'{field}' is evidenced on the package label."
+                reason = f"{_human_field_name(field)} is verified on the package label."
                 review = False
 
             fact = _make_fact(
@@ -2185,11 +2209,11 @@ def run_inspection(
             r6_rule = _find_rule(rules, "LMPC-2011-R6-DECLARATIONS", "LMPC-2011-R6")
             if batch_ext.confidence < low_confidence_threshold:
                 b_status = FactStatus.UNCERTAIN
-                b_reason = f"'batch_no' was detected ('{batch_ext.value}'), but extraction confidence {batch_ext.confidence:.2f} is below the configured threshold {low_confidence_threshold:.2f}."
+                b_reason = f"Batch / Lot Number was detected ('{batch_ext.value}'), but extraction confidence {batch_ext.confidence:.2f} is below the configured threshold {low_confidence_threshold:.2f}."
                 b_review = True
             else:
                 b_status = FactStatus.PASS
-                b_reason = f"'batch_no' is evidenced on the package label."
+                b_reason = f"Batch / Lot Number is verified on the package label."
                 b_review = False
             b_fact = _make_fact(
                 field="batch_no",
@@ -2553,11 +2577,11 @@ def _build_canonical_declarations(
 
         if fact and fact.status == FactStatus.PASS and extracted_val:
             status = CanonicalStatus.VERIFIED
-            reason = fact.reason or f"'{canonical_name}' verified compliant."
+            reason = fact.reason or f"{canonical_name} verified compliant on package label."
             validation = ValidationDetails(present=True, readable=True, correct_format=True, compliant=True)
         elif fact and fact.status == FactStatus.FAIL:
             status = CanonicalStatus.NON_COMPLIANT
-            reason = fact.reason or f"'{canonical_name}' violates statutory requirement."
+            reason = fact.reason or f"{canonical_name} violates statutory requirement."
             validation = ValidationDetails(present=bool(extracted_val), readable=bool(extracted_val), correct_format=False, compliant=False)
         elif extracted_val is not None and str(extracted_val).strip():
             ext_status = getattr(ext, "status", None) if ext else None
@@ -2567,20 +2591,20 @@ def _build_canonical_declarations(
                 reason = (
                     (fact.reason if fact else None)
                     or (ext.reason if ext else None)
-                    or f"'{canonical_name}' detected but requires human review."
+                    or f"{canonical_name} detected but requires human review."
                 )
                 validation = ValidationDetails(present=True, readable=confidence >= 0.4, correct_format=None, compliant=None)
             else:
                 status = CanonicalStatus.VERIFIED
-                reason = f"'{canonical_name}' verified from package label."
+                reason = f"{canonical_name} verified on package label."
                 validation = ValidationDetails(present=True, readable=True, correct_format=True, compliant=True)
         elif ext is not None and (getattr(ext, "label", None) or getattr(ext, "raw_text", None)):
             status = CanonicalStatus.PARTIALLY_DETECTED
-            reason = getattr(ext, "reason", "") or f"Declaration label detected, but value was not reliably detected."
+            reason = getattr(ext, "reason", "") or f"{canonical_name} label detected, but value was not reliably detected."
             validation = ValidationDetails(present=False, readable=None, correct_format=False, compliant=None)
         else:
             status = CanonicalStatus.NOT_DETECTED_IN_PROVIDED_IMAGES
-            reason = f"'{canonical_name}' not detected on label."
+            reason = f"{canonical_name} not detected on label."
             validation = ValidationDetails(present=False, readable=None, correct_format=None, compliant=None)
 
         declarations.append(CanonicalDeclaration(

@@ -729,6 +729,8 @@ def list_inspections(
     limit: int = 50,
     status: Optional[str] = None,
     needs_review: Optional[bool] = None,
+    created_by: Optional[str] = None,
+    created_by_in: Optional[list[str]] = None,
 ) -> list[dict]:
     """
     Return newest inspections first.
@@ -760,6 +762,14 @@ def list_inspections(
             )
             """
         )
+
+    if created_by:
+        conditions.append("created_by = %s")
+        params.append(created_by)
+    elif created_by_in:
+        placeholders = ", ".join(["%s"] * len(created_by_in))
+        conditions.append(f"created_by IN ({placeholders})")
+        params.extend(created_by_in)
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)

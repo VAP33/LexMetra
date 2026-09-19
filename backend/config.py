@@ -133,18 +133,26 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", False) and bool(
+
+def get_gemini_api_key() -> str:
+    k = os.environ.get("GEMINI_API_KEY", "")
+    if not k:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
+            k = os.environ.get("GEMINI_API_KEY", "")
+        except Exception:
+            pass
+    return k
+
+GEMINI_API_KEY = get_gemini_api_key()
+VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", True) and bool(
     ANTHROPIC_API_KEY or GEMINI_API_KEY
 )
 
-# Gemini is used for a bounded, image-to-structured-text request.  A request
-# that cannot complete within this budget falls back to the deterministic OCR
-# path while the independent Groq/OpenRouter perception path continues. This
-# is deliberately a latency target, not a promise:
-# network and provider time are outside the local process.
-GEMINI_OCR_MODEL = os.environ.get("GEMINI_OCR_MODEL", "gemini-3.6-flash")
-GEMINI_OCR_TIMEOUT_SECONDS = float(os.environ.get("GEMINI_OCR_TIMEOUT_SECONDS", "12"))
+# Gemini is used for high-speed multimodal perception and OCR
+GEMINI_OCR_MODEL = os.environ.get("GEMINI_OCR_MODEL", "gemini-3.5-flash-lite")
+GEMINI_OCR_TIMEOUT_SECONDS = float(os.environ.get("GEMINI_OCR_TIMEOUT_SECONDS", "15"))
 GEMINI_OCR_MAX_OUTPUT_TOKENS = int(os.environ.get("GEMINI_OCR_MAX_OUTPUT_TOKENS", "8192"))
 
 # ---------------------------------------------------------------------------

@@ -119,7 +119,7 @@ def _call_gemini_assistant(
     }
     lang_inst = lang_instructions.get(target_lang, lang_instructions["en"])
 
-    prompt = f"""You are LexMetra AI Statutory Assistant for the Department of Consumer Affairs, Ministry of Consumer Affairs, Food & Public Distribution, Government of India.
+    prompt = f"""You are LexMetra AI, an intelligent compliance and legal metrology assistant. Do not mention any Department, Ministry, or Government in greetings.
 You specialize in Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC 2011) and FSSAI packaging norms.
 
 {STATUTORY_RULEBOOK}
@@ -135,9 +135,9 @@ INSTRUCTIONS:
 3. If the user asks about a specific rule, cite the exact rule number and explain its statutory implication.
 4. If the product has any missing declaration, explain whether it requires officer review or is a violation.
 5. Format the response cleanly in a structured point-wise format:
-   - Use numbered headings (1., 2., 3.) for key statutory sections.
-   - Use bullet points (- ) for detailed requirements or observations.
-   - Avoid cluttered asterisk chains or messy symbols. Present data cleanly for government officials and consumers.
+   - Use numbered points (1., 2., 3.) or hyphenated bullet points (- ).
+   - Emphasize key statutory terms, rules, numbers, and verdicts using bold (**Rule 6(1)(a)**, **MRP: ₹150**, **Compliant**).
+   - NEVER use bare asterisks or asterisks for bullet points. Keep points concise, professional, and clear.
 """
     try:
         client = genai.Client(api_key=config.GEMINI_API_KEY)
@@ -234,11 +234,15 @@ CURRENT INSPECTION ON SCREEN:
     # 1. First attempt: Intelligent grounded response via Gemini Flash Lite
     llm_response = _call_gemini_assistant(query, target_lang, product_context_str)
     if llm_response:
-        speech_clean = re.sub(r"[*#_`]", "", llm_response)
-        speech_first_para = speech_clean.split("\n\n")[0][:250]
+        speech_clean = re.sub(r"[*#_`~]", "", llm_response)
+        speech_full = re.sub(r"^[•\-\*]\s*", "", speech_clean, flags=re.MULTILINE)
+        speech_full = re.sub(r"(\d+)\.\s*", r"\1. ", speech_full)
+        speech_full = re.sub(r"\n+\s*", ". ", speech_full)
+        speech_full = re.sub(r"\.{2,}", ".", speech_full)
+        speech_full = re.sub(r"\s+", " ", speech_full).strip()
         return _format_res(
             llm_response,
-            speech_first_para,
+            speech_full,
             "LLM_GROUNDED_QUERY",
             "Legal Metrology (Packaged Commodities) Rules, 2011",
             ["Explain this inspection", "Explain a violation", "Show supporting evidence", "Explain this rule", "Generate report"]
@@ -442,14 +446,14 @@ CURRENT INSPECTION ON SCREEN:
 
     # Default fallback response
     if target_lang == LANG_MR:
-        msg = f"मी लेक्समेट्रा (LexMetra) सहाय्यक आहे. मी {p_name} च्या तपासणीचे विश्लेषण, कायदेशीर नियम, पुरावे आणि तक्रार प्रक्रियेबद्दल साहाय्य करू शकतो."
-        speech = f"मी लेक्समेट्रा सहाय्यक आहे. आपण काय विचारू इच्छिता?"
+        msg = "नमस्कार! मी लेक्समेट्रा एआय आहे, मी तुम्हाला कशी मदत करू शकतो?"
+        speech = "नमस्कार! मी लेक्समेट्रा एआय आहे, मी तुम्हाला कशी मदत करू शकतो?"
     elif target_lang == LANG_HI:
-        msg = f"मैं लेक्समेट्रा (LexMetra) सहायक हूँ। मैं {p_name} के निरीक्षण, वैधानिक नियमों (LMPC 2011), साक्ष्यों और शिकायत प्रक्रिया में आपकी सहायता कर सकता हूँ।"
-        speech = f"मैं लेक्समेट्रा सहायक हूँ। आप मुझसे निरीक्षण और नियमों के बारे में पूछ सकते हैं।"
+        msg = "नमस्ते! मैं लेक्समेट्रा एआई हूँ, मैं आपकी क्या मदद कर सकता हूँ?"
+        speech = "नमस्ते! मैं लेक्समेट्रा एआई हूँ, मैं आपकी क्या मदद कर सकता हूँ?"
     else:
-        msg = f"I am your LexMetra Assistant, grounded in the inspection data for {p_name}. You can ask me to explain violations, inspect evidence polygons, cite statutory rules, or generate reports in English, Hindi, or Marathi."
-        speech = f"I am your LexMetra Assistant. How can I help you inspect this packaged commodity?"
+        msg = "Hello! I am LexMetra AI, How Can I Help You?"
+        speech = "Hello! I am LexMetra AI, How Can I Help You?"
 
     return _format_res(
         msg, speech, "GENERAL_GUIDANCE", "Legal Metrology Act, 2009",

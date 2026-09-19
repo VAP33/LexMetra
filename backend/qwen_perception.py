@@ -1372,10 +1372,11 @@ class GroqQwenProvider(QwenProvider):
 
     def is_available(self) -> bool:
         """
-        Provider is considered available if either primary Groq is available OR
-        the fallback provider (OpenRouter) is available.
+        Provider is considered available if Gemini direct acceleration is configured,
+        OR primary Groq is available, OR the fallback provider (OpenRouter) is available.
         """
-        return self.is_groq_available() or (self.fallback_provider is not None and self.fallback_provider.is_available())
+        gemini_key = getattr(config, "get_gemini_api_key", lambda: os.environ.get("GEMINI_API_KEY", ""))()
+        return bool(gemini_key) or self.is_groq_available() or (self.fallback_provider is not None and self.fallback_provider.is_available())
 
     def _compute_faces_hash(self, faces: Sequence[Tuple[str, np.ndarray, Any]]) -> str:
         h = hashlib.sha256()
@@ -1432,10 +1433,11 @@ class GroqQwenProvider(QwenProvider):
                     batch, faces, t_pipeline_start=t_p0
                 )
 
-                # After Groq returns, retrieve OCR manifest for bbox enrichment (best-effort).
-                if ocr_future is not None:
+                # After perception returns, retrieve OCR manifest for bbox enrichment if present
+                ocr_fut = locals().get("ocr_future")
+                if ocr_fut is not None:
                     try:
-                        ocr_manifest_res, _, ocr_timing_res = await asyncio.wait_for(ocr_future, timeout=10.0)
+                        ocr_manifest_res, _, ocr_timing_res = await asyncio.wait_for(ocr_fut, timeout=10.0)
                         # Enrich bbox_canonical from OCR manifest for declarations that have no bbox
                         if ocr_manifest_res:
                             for decl in result.declarations:
@@ -1477,12 +1479,14 @@ class GroqQwenProvider(QwenProvider):
         """
         Direct ultra-fast perception using Gemini Flash Lite.
         """
-        if not config.GEMINI_API_KEY:
+        gemini_key = getattr(config, "get_gemini_api_key", lambda: os.environ.get("GEMINI_API_KEY", ""))()
+        if not gemini_key:
+            print("[!] [GEMINI PERCEPTION] No GEMINI_API_KEY available.", flush=True)
             return None
         try:
             from google import genai
             from PIL import Image as _PILImage
-            client = genai.Client(api_key=config.GEMINI_API_KEY)
+            client = genai.Client(api_key=gemini_key)
             pil_images = []
             for fid, img_bgr, _ in faces[:3]:
                 pil_images.append(_PILImage.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)))
@@ -1494,19 +1498,43 @@ class GroqQwenProvider(QwenProvider):
                 "Output JSON matching the schema strictly without markdown or truncation."
             )
             loop = asyncio.get_running_loop()
-            resp = await loop.run_in_executor(
-                None,
-                lambda: client.models.generate_content(
-                    model=config.GEMINI_OCR_MODEL,
-                    contents=[prompt, *pil_images],
-                    config={"response_mime_type": "application/json", "temperature": 0.05}
-                )
-            )
-            raw_text = getattr(resp, "text", "") or ""
+            candidate_models = [config.GEMINI_OCR_MODEL]
+            for alt in ("gemini-3.5-flash-lite", "gemini-3.6-flash"):
+                if alt not in candidate_models:
+                    candidate_models.append(alt)
+
+            raw_text = ""
+            for model_name in candidate_models:
+                try:
+                    print(f"[+] [GEMINI PERCEPTION] Sending {len(pil_images)} faces to {model_name}...", flush=True)
+                    resp = await loop.run_in_executor(
+                        None,
+                        lambda: client.models.generate_content(
+                            model=model_name,
+                            contents=[prompt, *pil_images],
+                            config={"response_mime_type": "application/json", "temperature": 0.05}
+                        )
+                    )
+                    raw_text = getattr(resp, "text", "") or ""
+                    print(f"[+] [GEMINI PERCEPTION SUCCESS] {model_name} returned {len(raw_text)} chars.", flush=True)
+                    break
+                except Exception as m_err:
+                    print(f"[!] [GEMINI PERCEPTION] {model_name} failed ({m_err}). Trying next model...", flush=True)
+
+            if not raw_text:
+                print("[!] [GEMINI PERCEPTION] All Gemini models returned empty text.", flush=True)
+                return None
+
             cleaned = raw_text.strip()
             if cleaned.startswith("```"):
                 cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
             parsed_dict = json.loads(cleaned)
+
+            print("\n" + "=" * 70, flush=True)
+            print("[+] [GEMINI MULTIMODAL RAW EXTRACTION RESULT]:", flush=True)
+            print(json.dumps(parsed_dict, indent=2), flush=True)
+            print("=" * 70 + "\n", flush=True)
+
             return self._parse_and_validate_response(
                 parsed=parsed_dict,
                 inv_transforms=batch.inv_transforms,
@@ -1517,6 +1545,9 @@ class GroqQwenProvider(QwenProvider):
                 used_fallback=False,
             )
         except Exception as gemini_err:
+            print(f"[!] [GEMINI PERCEPTION FAILED] {gemini_err}", flush=True)
+            import traceback as _tb
+            print(_tb.format_exc(), flush=True)
             logger.warning("Gemini perception call failed: %s", gemini_err)
             return None
 
@@ -1562,7 +1593,8 @@ class GroqQwenProvider(QwenProvider):
 
         # Ultra-fast path: When GEMINI_API_KEY is present, execute direct Gemini Flash Lite first!
         # This executes in ~1.8s, eliminating Groq 429 rate limit delays.
-        if config.GEMINI_API_KEY:
+        gemini_key = getattr(config, "get_gemini_api_key", lambda: os.environ.get("GEMINI_API_KEY", ""))()
+        if gemini_key:
             t_gem0 = time.perf_counter()
             print("\n" + "=" * 80, flush=True)
             print(f">>> [GEMINI DIRECT ACCELERATION] id={req_id} | model={config.GEMINI_OCR_MODEL} | faces={face_count}", flush=True)
@@ -1572,7 +1604,7 @@ class GroqQwenProvider(QwenProvider):
                 lat_ms = round((time.perf_counter() - t_gem0) * 1000, 1)
                 print(f"[+] [GEMINI ACCELERATION COMPLETED] Extracted {len(gem_res.declarations)} declarations in {lat_ms}ms.", flush=True)
                 return gem_res
-            print("[!] [GEMINI PRIMARY FAILED] Falling back to Groq API...", flush=True)
+            print("[!] [GEMINI PRIMARY FAILED] Falling back to next available provider...", flush=True)
 
 
         # 1. Provider unavailable check: GROQ_API_KEY missing or invalid -> immediate failover

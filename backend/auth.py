@@ -227,3 +227,38 @@ require_senior_inspector = require_role("senior_inspector")
 require_reviewer = require_role("reviewer")
 require_admin = require_role("admin")
 
+
+async def get_scan_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+) -> CurrentUser:
+    """
+    Dependency for scanning endpoints (/preprocess/parallel, /scan, sessions, etc.).
+    Allows all authenticated roles (consumer/customer, inspector, senior_inspector, admin)
+    as well as guest citizens scanning from the public portal.
+    """
+    if token:
+        try:
+            data = decode_access_token(token)
+            record = db.get_user_by_username(data.username)
+            if record and record.get("is_active", True):
+                return CurrentUser(
+                    user_id=record["user_id"],
+                    username=record["username"],
+                    full_name=record.get("full_name"),
+                    role=record["role"],
+                    is_active=record.get("is_active", True),
+                )
+        except Exception:
+            pass
+    return CurrentUser(
+        user_id=999,
+        username="citizen_user",
+        full_name="Citizen Consumer",
+        role="consumer",
+        is_active=True,
+    )
+
+
+require_scan_access = get_scan_user
+
+

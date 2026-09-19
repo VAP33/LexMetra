@@ -32,26 +32,35 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 import config
 
-# Gemini API key is passed to the supported, explicit GenAI client. Do not rely
-# on global SDK configuration; that was part of the retired SDK surface.
-_GEMINI_API_KEY = config.GEMINI_API_KEY
+try:
+    from google import genai as _genai
+    from google.genai import types as _genai_types
+except ImportError:
+    _genai = None
+    _genai_types = None
 
-# Create one reusable client per process. The SDK client is thread-safe for the
-# stateless `models.generate_content` calls made by OCR.
-if _GEMINI_API_KEY:
+_gemini_client = None
+
+def get_gemini_client():
+    global _gemini_client
+    if _gemini_client is not None:
+        return _gemini_client
+    
+    key = getattr(config, "get_gemini_api_key", lambda: os.environ.get("GEMINI_API_KEY", ""))()
+    if not key or _genai is None:
+        return None
     try:
-        from google import genai as _genai
-        from google.genai import types as _genai_types
         _gemini_client = _genai.Client(
-            api_key=_GEMINI_API_KEY,
+            api_key=key,
             http_options=_genai_types.HttpOptions(
                 timeout=int(config.GEMINI_OCR_TIMEOUT_SECONDS * 1000),
             ),
         )
-    except Exception:
-        _gemini_client = None
-else:
-    _gemini_client = None
+        print(f"[+] [GEMINI CLIENT] Successfully initialized GenAI client with key: {key[:6]}...{key[-4:]}", flush=True)
+        return _gemini_client
+    except Exception as exc:
+        print(f"[!] [GEMINI CLIENT ERROR] Could not initialize GenAI client: {exc}", flush=True)
+        return None
 from semantic_parsers import (
     MoneyValue,
     BatchCandidate,
@@ -271,7 +280,9 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     Returns OcrLine objects compatible with the existing pipeline.
     Falls back gracefully if the API is unavailable or returns unexpected format.
     """
-    if _gemini_client is None:
+    client = get_gemini_client()
+    if client is None:
+        print("[!] [GEMINI OCR] No client available (GEMINI_API_KEY missing or invalid)", flush=True)
         return []
 
     # Convert PIL image to RGB if needed
@@ -292,18 +303,32 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
         "If a field is not visible, omit it entirely."
     )
 
-    try:
-        response = _gemini_client.models.generate_content(
-            model=config.GEMINI_OCR_MODEL,
-            contents=[prompt, rgb_image],
-            config=_genai_types.GenerateContentConfig(
-                temperature=0,
-                response_mime_type="application/json",
-                max_output_tokens=config.GEMINI_OCR_MAX_OUTPUT_TOKENS,
-            ),
-        )
-        text = getattr(response, "text", "") or ""
-    except Exception:
+    response = None
+    candidate_models = [config.GEMINI_OCR_MODEL]
+    for alt in ("gemini-3.5-flash-lite", "gemini-3.6-flash"):
+        if alt not in candidate_models:
+            candidate_models.append(alt)
+
+    text = ""
+    for model_name in candidate_models:
+        try:
+            print(f"[+] [GEMINI OCR] Sending image ({rgb_image.width}x{rgb_image.height}) to {model_name}...", flush=True)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[prompt, rgb_image],
+                config=_genai_types.GenerateContentConfig(
+                    temperature=0,
+                    response_mime_type="application/json",
+                    max_output_tokens=config.GEMINI_OCR_MAX_OUTPUT_TOKENS,
+                ),
+            )
+            text = getattr(response, "text", "") or ""
+            print(f"[+] [GEMINI OCR SUCCESS] {model_name} returned response ({len(text)} chars)", flush=True)
+            break
+        except Exception as e:
+            print(f"[!] [GEMINI OCR] {model_name} failed ({e}). Trying next model...", flush=True)
+
+    if not text:
         return []
 
     # Parse the JSON array response
@@ -314,7 +339,8 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
         if cleaned.startswith("```"):
             cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
         readings = json.loads(cleaned)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"[!] [GEMINI OCR PARSE ERROR] JSON decode failed: {e}", flush=True)
         return []
 
     if not isinstance(readings, list):
@@ -351,6 +377,7 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
             )
         )
 
+    print(f"[+] [GEMINI OCR] Processed {len(lines)} valid bounding box lines from Gemini response.", flush=True)
     return lines
 
 
@@ -361,32 +388,38 @@ def run_ocr(image: Image.Image) -> List[OcrLine]:
     Uses Gemini Vision API as the primary backend when GEMINI_API_KEY is configured,
     for maximum speed and accuracy. Falls back to Tesseract whole-image multi-variant OCR
     if Gemini is unavailable or returns sparse results.
-
-    The whole-image approach is preferred because it avoids the complexity of region
-    proposal and is much faster for typical package labels. The region-first pipeline
-    is only invoked as a fallback when whole-image OCR produces very sparse results
-    (< 8 lines), eliminating 15-20s of redundant CPU delay.
     """
     lines: List[OcrLine] = []
 
     # 1. Gemini Vision API (primary when configured)
-    if _GEMINI_API_KEY:
+    gemini_client = get_gemini_client()
+    if gemini_client is not None:
+        print("[*] [OCR PIPELINE] Executing Gemini Vision OCR...", flush=True)
         try:
             gemini_lines = _ocr_gemini(image)
             if gemini_lines:
                 lines.extend(gemini_lines)
-        except Exception:
-            pass
+                print(f"[+] [OCR PIPELINE] Gemini Vision OCR extracted {len(gemini_lines)} lines.", flush=True)
+            else:
+                print("[!] [OCR PIPELINE] Gemini Vision returned 0 lines, falling back to local OCR.", flush=True)
+        except Exception as e:
+            print(f"[!] [OCR PIPELINE] Gemini Vision error ({e}), falling back to local OCR.", flush=True)
+    else:
+        print("[*] [OCR PIPELINE] Gemini client unavailable. Using local OCR engines.", flush=True)
 
     # 2. Whole-image Tesseract OCR (fallback or secondary)
     if not config.ENABLE_REGION_FIRST_OCR or len(lines) < 8:
         try:
+            print(f"[*] [OCR PIPELINE] Running Tesseract whole-image OCR (current lines={len(lines)})...", flush=True)
             whole_lines = _run_ocr_whole_image(image)
             lines.extend(whole_lines)
-        except Exception:
-            pass
+            print(f"[+] [OCR PIPELINE] Tesseract OCR completed. Total lines before dedupe: {len(lines)}", flush=True)
+        except Exception as e:
+            print(f"[!] [OCR PIPELINE] Tesseract OCR error: {e}", flush=True)
 
-    return _dedupe_lines(lines)
+    deduped = _dedupe_lines(lines)
+    print(f"[+] [OCR PIPELINE] Final line count after dedupe: {len(deduped)}", flush=True)
+    return deduped
 
 
 def _run_ocr_whole_image(image: Image.Image) -> List[OcrLine]:

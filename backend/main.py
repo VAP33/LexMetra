@@ -30,7 +30,10 @@ _BACKEND_DIR = str(Path(__file__).resolve().parent)
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
+import logging
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("lexmetra.api")
 
 import cv2
 import httpx
@@ -610,7 +613,7 @@ def _prepare_extractions(classified: Dict[str, dict]) -> Dict[str, RawExtraction
     }
 
 
-PERISHABLE_CATEGORIES = {"food", "beverage", "dairy", "bakery", "confectionery"}
+PERISHABLE_CATEGORIES = {"food", "beverage", "dairy", "bakery", "confectionery", "coffee", "tea", "snack", "spice", "grain", "oil", "juice"}
 
 
 def _infer_applicability_context(
@@ -619,25 +622,14 @@ def _infer_applicability_context(
     classified: Dict[str, dict],
     is_imported_hint: Optional[bool] = None,
 ) -> tuple[bool, bool]:
-    """
-    Conservatively infer `best_before_applicable` and `is_imported`.
+    cat = (product_category or "").strip().lower()
+    # If client passed 'other' or empty, check detected product name / keywords for perishable/food items
+    if cat in ("other", "", "general", "non-food"):
+        cn_val = str((classified.get("common_name") or {}).get("value") or "").lower()
+        if any(term in cn_val for term in ("coffee", "tea", "biscuit", "milk", "food", "snack", "oil", "spice", "flour", "atta", "juice", "drink", "chocolate")):
+            cat = "food"
 
-    These flags gate *conditional* Rule 6 requirements (best-before/use-by,
-    country-of-origin). Getting them wrong in either direction is a legal
-    risk, so inference here is deliberately narrow:
-
-    - best_before_applicable: True only when product_category is a known
-      perishable category. This is a coarse category heuristic, not a
-      determination of shelf-stability, and should be confirmed by the
-      inspector for categories outside this list.
-    - is_imported: True only when the caller explicitly says so (e.g. a
-      future 'sale_type=import' or explicit form field) OR when OCR evidence
-      has *positively* extracted a non-empty 'country_of_origin' declaration
-      naming a country other than India. Absence of a country-of-origin
-      field must NOT be treated as "not imported" — that would let an
-      undeclared import silently skip the very check meant to catch it.
-    """
-    best_before_applicable = product_category.strip().lower() in PERISHABLE_CATEGORIES
+    best_before_applicable = cat in PERISHABLE_CATEGORIES or "food" in cat or "beverage" in cat
 
     if is_imported_hint is not None:
         is_imported = bool(is_imported_hint)
@@ -667,7 +659,7 @@ def _apply_vlm_verification(result: ProductInspection, pil_img: Image.Image) -> 
 @app.post("/inspect", response_model=ProductInspection)
 def inspect(
     req: InspectRequest,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ) -> ProductInspection:
     """Run the deterministic compliance engine on already-structured evidence."""
     # Reuse the same field-name bridge as /scan (manufacturer/packer/importer
@@ -724,7 +716,7 @@ async def analyze_image(
     file: UploadFile = File(...),
     product_id: str = Form(...),
     mrp: Optional[float] = Form(None),
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     """
     Run visual alteration/product-history analysis without legal inspection.
@@ -866,7 +858,7 @@ def _infer_suggested_category(accumulated_fields: Dict[str, dict], all_ocr_lines
 async def extract_preview(
     file: Optional[UploadFile] = File(default=None),
     files: List[UploadFile] = File(default=[]),
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     """
     Lightweight OCR extraction preview.
@@ -1200,7 +1192,7 @@ async def preprocess_parallel_endpoint(
     files: List[UploadFile] = File(default=[]),
     product_id: Optional[str] = Form("PACKAGE"),
     margin_pct: float = Form(0.06),
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     """
     Dedicated parallel preprocessing endpoint for up to 3 package faces.
@@ -1296,7 +1288,7 @@ async def scan(
     is_export_only: bool = Form(False),
     retail_bundle_count: Optional[int] = Form(None),
     is_imported: Optional[bool] = Form(None),
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
 
     """
@@ -1532,45 +1524,64 @@ async def scan(
 
         accumulated_fields = capture_session.merge_classified_fields(accumulated_fields, classified)
 
-    # ------------------------- Dedicated Groq Multimodal Perception ----------------
-    # Send all uploaded images (up to 3) in ONE Groq request
-    groq_fields = {}
+    # ------------------------- Multimodal Perception (Gemini / Qwen) ----------------
+    # Send all uploaded images (up to 3) to the multimodal perception engine
+    qwen_fields = {}
     groq_raw_result = None
+    groq_fields = {}
     groq_error = None
-    
-    try:
-        groq_images_input = [(f"Face {idx+1}", c_bgr) for idx, (_, c_bgr, _) in enumerate(faces_for_qwen)]
-        if not groq_images_input and images_cv:
-            groq_images_input = [(f"Face {idx+1}", img) for idx, (_, img) in enumerate(images_cv)]
-        
-        groq_raw_result = await groq_vision_service.inspect_package_with_groq(
-            images=groq_images_input,
-            timeout_secs=25.0
-        )
-        groq_fields = groq_vision_service.groq_result_to_classified_fields(groq_raw_result)
-        
-        if groq_fields:
-            for fld, fld_data in groq_fields.items():
-                if isinstance(fld_data, dict):
-                    tf = fld_data.get("face", "Face 1")
-                    for idx, (img_id, _) in enumerate(images_cv):
-                        if f"Face {idx+1}" == tf:
-                            fld_data["image_id"] = img_id
-                            fld_data["surface_id"] = f"face_{idx+1}"
-                            image_id_owning_label[fld] = img_id
-                            break
+    provider = qwen_perception.get_qwen_provider()
+    if provider.is_available() and faces_for_qwen:
+        try:
+            print(f"\n[*] [/scan] Launching Multimodal Perception across {len(faces_for_qwen)} faces...", flush=True)
+            perception_res = await provider.perceive(faces_for_qwen)
+            qwen_fields = qwen_perception.perception_to_classified_fields(perception_res)
+            if qwen_fields:
+                print(f"[+] [/scan] Perception SUCCESS! Applied {len(qwen_fields)} fields: {list(qwen_fields.keys())}", flush=True)
+                for fld, fld_data in qwen_fields.items():
+                    if isinstance(fld_data, dict):
+                        tf = fld_data.get("face", "Face 1")
+                        for idx, (img_id, _) in enumerate(images_cv):
+                            if f"Face {idx+1}" == tf:
+                                fld_data["image_id"] = img_id
+                                fld_data["surface_id"] = f"face_{idx+1}"
+                                image_id_owning_label[fld] = img_id
+                                break
+                        else:
+                            fld_data["image_id"] = images_cv[0][0] if images_cv else "face_1"
+                            fld_data["surface_id"] = "face_1"
 
-            for fld, fld_data in groq_fields.items():
-                if isinstance(fld_data, dict) and fld_data.get("value"):
-                    accumulated_fields[fld] = fld_data
+                # Direct overwrite with authoritative multimodal extractions
+                if qwen_fields.get("batch_code", {}).get("value") or qwen_fields.get("batch_no", {}).get("value"):
+                    for legacy_batch_key in ("batch_number", "lot_no", "lot_number", "mfg_batch", "batch", "batch_code", "batch_no"):
+                        accumulated_fields.pop(legacy_batch_key, None)
 
-            print(f"[+] [/scan] Groq multimodal fields applied ({len(groq_fields)}): {list(groq_fields.keys())}", flush=True)
-    except Exception as e:
-        import traceback as _tb
-        groq_error = str(e)
-        logger.error("Groq vision perception failed in /scan: %s\n%s", e, _tb.format_exc())
-        print(f"[!] [/scan] Groq Multimodal FAILED: {e}", flush=True)
-        # Continue execution with OCR-only fields - Groq failure is not critical
+                for fld, fld_data in qwen_fields.items():
+                    if isinstance(fld_data, dict) and fld_data.get("value"):
+                        accumulated_fields[fld] = fld_data
+            else:
+                print("[!] [/scan] Perception returned 0 fields. Falling back to OCR extractions.", flush=True)
+        except Exception as e:
+            import traceback as _tb
+            logger.error("Multimodal perception failed in /scan: %s\n%s", e, _tb.format_exc())
+            print(f"[!] [/scan] Multimodal perception FAILED: {e}", flush=True)
+    elif groq_vision_service.is_groq_available():
+        try:
+            groq_images_input = [(f"Face {idx+1}", c_bgr) for idx, (_, c_bgr, _) in enumerate(faces_for_qwen)]
+            if not groq_images_input and images_cv:
+                groq_images_input = [(f"Face {idx+1}", img) for idx, (_, img) in enumerate(images_cv)]
+            
+            groq_raw_result = await groq_vision_service.inspect_package_with_groq(
+                images=groq_images_input,
+                timeout_secs=25.0
+            )
+            groq_fields = groq_vision_service.groq_result_to_classified_fields(groq_raw_result)
+            if groq_fields:
+                for fld, fld_data in groq_fields.items():
+                    if isinstance(fld_data, dict) and fld_data.get("value"):
+                        accumulated_fields[fld] = fld_data
+        except Exception as e:
+            print(f"[!] [/scan] Groq Multimodal FAILED: {e}", flush=True)
 
 
     # 0. Split-field reconstruction across multi-surface captures (only if Qwen was not used)
@@ -1750,8 +1761,14 @@ async def scan(
 
     # ------------------------- Legal evaluation --------------------------
     c_type = (extractions.get("common_name") and extractions["common_name"].value) or product_category
+    effective_category = product_category
+    if effective_category in ("other", "", "general", "non-food") and c_type:
+        c_type_low = str(c_type).lower()
+        if any(term in c_type_low for term in ("coffee", "tea", "biscuit", "milk", "food", "snack", "oil", "spice", "flour", "atta", "juice", "drink", "chocolate")):
+            effective_category = "food"
+
     reg_context = RegulatoryContext(
-        product_category=product_category,
+        product_category=effective_category,
         commodity_type=c_type,
         sale_type=sale_type,
         net_quantity=qty_val,
@@ -1768,7 +1785,7 @@ async def scan(
     result = run_inspection(
         inspection_id=inspection_id,
         sale_type=sale_type,
-        product_category=product_category,
+        product_category=effective_category,
         net_quantity_value=qty_val,
         net_quantity_unit=qty_unit,
         mrp=resolved_mrp,
@@ -1897,7 +1914,7 @@ async def scan(
 @app.post("/sessions")
 def create_session(
     req: CreateSessionRequest,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     session_id = f"{req.product_id}:session-{uuid.uuid4().hex[:10]}" if req.product_id else f"session-{uuid.uuid4().hex[:12]}"
     db.create_session(
@@ -1948,7 +1965,7 @@ async def add_capture(
     session_id: str,
     file: UploadFile = File(...),
     surface_type: Optional[str] = Form(None),
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     session = db.get_session(session_id)
     if not session:
@@ -2081,7 +2098,7 @@ async def add_capture(
 @app.get("/sessions/{session_id}")
 def get_session_status(
     session_id: str,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     session = db.get_session(session_id)
     if not session:
@@ -2141,7 +2158,7 @@ class FinalizeSessionRequest(BaseModel):
 async def finalize_session(
     session_id: str,
     payload: Optional[FinalizeSessionRequest] = None,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ) -> ProductInspection:
     session = db.get_session(session_id)
     if not session:
@@ -2224,7 +2241,7 @@ async def finalize_session(
                         target_dims=(orig_w, orig_h),
                     )
                     faces_multi.append((f"Face {i+1}", c_bgr, t))
-            if faces_multi:
+            if faces_multi and groq_vision_service.is_groq_available():
                 try:
                     groq_inputs = [(fid, bgr) for (fid, bgr, _) in faces_multi]
                     groq_res = await groq_vision_service.inspect_package_with_groq(groq_inputs, timeout_secs=25.0)
@@ -2486,7 +2503,7 @@ def get_inspections(
     limit: int = 50,
     status: Optional[str] = None,
     needs_review: Optional[bool] = None,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     if limit < 1 or limit > 200:
         raise HTTPException(
@@ -2494,10 +2511,24 @@ def get_inspections(
             detail="limit must be between 1 and 200.",
         )
 
+    # Role-based scan isolation:
+    # 1. Consumers/Citizens: only see their own consumer scans
+    # 2. Field Inspectors: see scans by field inspectors / their own scans
+    # 3. Senior Inspector / Authority / Admin: see all scans, including field inspector scans
+    user_role = getattr(current_user, "role", "consumer")
+    user_name = getattr(current_user, "username", "citizen_user")
+
+    created_by_in = None
+    if user_role in ("customer", "consumer"):
+        created_by_in = [user_name, "customer", "consumer", "citizen_user"]
+    elif user_role == "inspector":
+        created_by_in = [user_name, "inspector", "inspector_dev"]
+
     return db.list_inspections(
         limit=limit,
         status=status,
         needs_review=needs_review,
+        created_by_in=created_by_in,
     )
 
 
@@ -2538,13 +2569,14 @@ class AssistantQueryInput(BaseModel):
 class AssistantTtsInput(BaseModel):
     text: str
     language: str = "en"
-    speaker: str = "neha"
+    speaker: str = "shubh"
+    pace: float = 1.15
 
 
 @app.get("/inspections/{inspection_id}")
 def get_inspection(
     inspection_id: str,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
@@ -2584,7 +2616,7 @@ def get_inspection(
 @app.get("/inspections/{inspection_id}/integrity")
 def get_inspection_integrity(
     inspection_id: str,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
@@ -2600,7 +2632,7 @@ def get_inspection_integrity(
 @app.get("/inspections/{inspection_id}/fssai")
 def get_inspection_fssai(
     inspection_id: str,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
@@ -2742,19 +2774,33 @@ async def assistant_tts(req: AssistantTtsInput):
         "mr-in": "mr-IN",
     }
     target_lang = lang_map.get(req.language.lower(), "en-IN")
-    speaker = req.speaker or "neha"
-    clean_text = req.text.strip()[:500]
-    if not clean_text:
+    speaker = req.speaker or "shubh"
+    pace = float(req.pace) if req.pace else 1.15
+
+    # Clean text and insert natural dynamic pauses for points and sections
+    raw_text = req.text.strip()
+    # Remove markdown markup (stars, hashes, ticks)
+    clean = re.sub(r"[*#`_~]", "", raw_text)
+    # Ensure numbered items and bullet points have clear pauses
+    clean = re.sub(r"^[•\-\*]\s*", "", clean, flags=re.MULTILINE)
+    clean = re.sub(r"(\d+)\.\s*", r"\1. ", clean)
+    clean = re.sub(r"\n+\s*", ". ", clean)
+    clean = re.sub(r"\.{2,}", ".", clean)
+    clean = re.sub(r"\s+", " ", clean).strip()[:3500]
+
+    if not clean:
         raise HTTPException(status_code=400, detail="Empty text for TTS.")
 
     payload = {
-        "inputs": [clean_text],
+        "inputs": [clean],
         "target_language_code": target_lang,
         "speaker": speaker,
+        "model": "bulbul:v3",
+        "pace": pace,
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=12.0) as client:
             resp = await client.post(
                 "https://api.sarvam.ai/text-to-speech",
                 json=payload,
@@ -2773,6 +2819,7 @@ async def assistant_tts(req: AssistantTtsInput):
                         "format": "wav",
                         "speaker": speaker,
                         "language": target_lang,
+                        "pace": pace,
                     }
             return JSONResponse(
                 status_code=resp.status_code,
@@ -2849,11 +2896,18 @@ def get_inspection_report(
         resource_id=inspection_id,
     )
     safe_id = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", inspection_id)
+    raw_prod = (
+        detail.get("product_name")
+        or next((d.get("value") for d in detail.get("declarations", []) if d.get("canonical_name") in ("Product Name", "product_name")), None)
+        or "Product"
+    )
+    safe_prod = re.sub(r"[^a-zA-Z0-9]+", "_", str(raw_prod)).strip("_")
+    filename = f"LexMetra_Inspection_Report_{safe_prod}_{safe_id}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{safe_id}_report.pdf"'
+            "Content-Disposition": f'inline; filename="{filename}"'
         },
     )
 
@@ -2861,7 +2915,7 @@ def get_inspection_report(
 @app.get("/products/{product_id}/history")
 def get_product_history(
     product_id: str,
-    current_user: auth.CurrentUser = Depends(auth.require_inspector),
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     return db.product_history(product_id)
 

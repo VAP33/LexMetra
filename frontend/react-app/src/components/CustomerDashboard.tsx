@@ -5,12 +5,10 @@ import {
   ChevronRight,
   Package,
   ShoppingBag,
-  ArrowLeft,
   AlertTriangle,
   PhoneCall,
   Sparkles,
   Calculator,
-  Lock,
   FileCheck2,
   ExternalLink,
   X,
@@ -18,7 +16,7 @@ import {
 } from "lucide-react";
 import { type Inspection } from "@/lib/types";
 import { type Language } from "@/lib/i18n";
-import { LexMetraLogo } from "./InspectionApp";
+import { AppHeader } from "./InspectionApp";
 
 interface CustomerDashboardProps {
   inspections?: Inspection[];
@@ -28,16 +26,22 @@ interface CustomerDashboardProps {
   onBack?: () => void;
   lang?: Language;
   onLanguageChange?: (l: Language) => void;
+  user?: any;
+  onLogout?: () => void;
+  onNavigate?: (view: any) => void;
 }
 
 export function CustomerDashboard({
   inspections = [],
   onStartScan = () => {},
   onOpenInspection = () => {},
-  onOfficerLogin = () => {},
-  onBack,
+  onOfficerLogin: _onOfficerLogin,
+  onBack: _onBack,
   lang = "en",
   onLanguageChange,
+  user,
+  onLogout,
+  onNavigate,
 }: CustomerDashboardProps) {
   const [activeTab, setActiveTab] = useState<"MY_SCANS" | "CHECK_PRICE" | "CONSUMER_RIGHTS">("MY_SCANS");
   const [grievanceModalItem, setGrievanceModalItem] = useState<Inspection | null>(null);
@@ -72,79 +76,15 @@ export function CustomerDashboard({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Consumer Portal Navigation Header */}
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white text-slate-900 shadow-xs">
-        <div className="h-1.5 w-full tricolor-stripe" />
-        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <button
-                type="button"
-                onClick={onBack}
-                aria-label="Back to Home"
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-800 border border-slate-200 hover:bg-slate-200 transition"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-            )}
-            <div className="flex items-center justify-center rounded-2xl bg-white p-1 sm:p-1.5 shadow-sm ring-1 ring-purple-300/30">
-              <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[130px] sm:max-w-[180px]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-base font-black tracking-widest text-white">CONSUMER SUVIDHA</span>
-                <span className="rounded-full bg-saffron-500/30 border border-saffron-400/50 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-saffron-300">
-                  Jago Grahak Jago
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Language Switcher */}
-            {onLanguageChange && (
-              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => onLanguageChange("en")}
-                  className={`rounded-md px-2.5 py-1 transition text-xs ${
-                    lang === "en" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"
-                  }`}
-                >
-                  English
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onLanguageChange("hi")}
-                  className={`rounded-md px-2.5 py-1 transition text-xs ${
-                    lang === "hi" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"
-                  }`}
-                >
-                  हिन्दी
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onLanguageChange("mr")}
-                  className={`rounded-md px-2.5 py-1 transition text-xs ${
-                    lang === "mr" ? "bg-purple-700 text-white font-bold shadow-xs" : "text-slate-700 hover:text-slate-900"
-                  }`}
-                >
-                  मराठी
-                </button>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={onOfficerLogin}
-              className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-saffron-500 to-orange-600 hover:from-saffron-600 hover:to-orange-700 px-3.5 py-2 text-xs font-bold text-white border border-saffron-500 shadow-sm transition-all"
-            >
-              <Lock className="h-3.5 w-3.5 text-white" />
-              Officer Sign In
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        title={lang === "hi" ? "उपभोक्ता सुविधा केंद्र" : lang === "mr" ? "ग्राहक सुविधा केंद्र" : "Consumer Suvidha Portal"}
+        eyebrow={lang === "hi" ? "नागरिक संरक्षण एवं विधिक जांच" : lang === "mr" ? "नागरिक संरक्षण व कायदेशीर पडताळणी" : "CITIZEN PROTECTION & VERIFICATION"}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+        user={user}
+        onLogout={onLogout}
+        onNavigate={onNavigate}
+      />
 
       {/* Main Citizen Workbench */}
       <main className="mx-auto max-w-6xl space-y-7 px-4 pb-28 pt-7 sm:px-6 md:pb-12 lg:px-8">
@@ -154,32 +94,62 @@ export function CustomerDashboard({
             <div className="max-w-2xl space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full bg-purple-100 border border-purple-300 px-3 py-1 text-xs font-bold text-purple-900">
                 <Sparkles className="h-3.5 w-3.5 text-saffron-600" />
-                <span>Zero-Cost Official Package Protection for Every Citizen</span>
+                <span>
+                  {lang === "hi"
+                    ? "प्रत्येक नागरिक के लिए निःशुल्क आधिकारिक पैकेज सुरक्षा"
+                    : lang === "mr"
+                    ? "प्रत्येक नागरिकासाठी विनामूल्य अधिकृत पॅकेज संरक्षण"
+                    : "Zero-Cost Official Package Protection for Every Citizen"}
+                </span>
               </div>
               <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-slate-900">
-                Verify MRP, Expiry & Net Weight Before You Pay.
+                {lang === "hi"
+                  ? "भुगतान करने से पहले MRP, समाप्ति तिथि और शुद्ध वजन सत्यापित करें।"
+                  : lang === "mr"
+                  ? "पैसे देण्यापूर्वी MRP, एक्सपायरी आणि निव्वळ वजन तपासा."
+                  : "Verify MRP, Expiry & Net Weight Before You Pay."}
               </h1>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium">
-                Snap a photo of any grocery, packaged food, medicine, or beverage package. Our Legal Metrology screening checks if you are being overcharged, whether the expiry date is valid, and lets you file a 1-click complaint to the National Consumer Helpline (1915).
+                {lang === "hi"
+                  ? "किसी भी किराना, पैक खाद्य, दवा या पेय पदार्थ के पैकेज की फोटो लें। हमारा विधिक मापविज्ञान स्कैनर जांचता है कि कहीं आपसे अधिक शुल्क तो नहीं लिया जा रहा, और आपको 1-क्लिक में राष्ट्रीय उपभोक्ता हेल्पलाइन (1915) पर शिकायत दर्ज करने देता है।"
+                  : lang === "mr"
+                  ? "कोणत्याही किराणा, पॅकबंद अन्न, औषध किंवा पेयाच्या पॅकेटचा फोटो घ्या. आमचे विधी मापनशास्त्र स्क्रीनिंग आपण जादा पैसे देत नाही ना याची खात्री करते आणि राष्ट्रीय ग्राहक हेल्पलाइन (1915) कडे 1-क्लिकमध्ये तक्रार नोंदवू देते."
+                  : "Snap a photo of any grocery, packaged food, medicine, or beverage package. Our Legal Metrology screening checks if you are being overcharged, whether the expiry date is valid, and lets you file a 1-click complaint to the National Consumer Helpline (1915)."}
               </p>
 
               {/* 4 Consumer Protection Check Chips */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
                 <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-center shadow-xs">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Fair Price</span>
-                  <p className="text-xs font-extrabold text-purple-900 mt-0.5">MRP Verification</p>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                    {lang === "hi" ? "उचित मूल्य" : lang === "mr" ? "रास्त किंमत" : "Fair Price"}
+                  </span>
+                  <p className="text-xs font-extrabold text-purple-900 mt-0.5">
+                    {lang === "hi" ? "MRP सत्यापन" : lang === "mr" ? "MRP पडताळणी" : "MRP Verification"}
+                  </p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-center shadow-xs">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Freshness</span>
-                  <p className="text-xs font-extrabold text-emerald-800 mt-0.5">Expiry / Best Before</p>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                    {lang === "hi" ? "ताजगी व वैधता" : lang === "mr" ? "ताजेपणा व वैधता" : "Freshness"}
+                  </span>
+                  <p className="text-xs font-extrabold text-emerald-800 mt-0.5">
+                    {lang === "hi" ? "समाप्ति तिथि" : lang === "mr" ? "एक्सपायरी तारीख" : "Expiry / Best Before"}
+                  </p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-center shadow-xs">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Exact Quantity</span>
-                  <p className="text-xs font-extrabold text-blue-900 mt-0.5">Declared Net Weight</p>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                    {lang === "hi" ? "सटीक मात्रा" : lang === "mr" ? "अचूक प्रमाण" : "Exact Quantity"}
+                  </span>
+                  <p className="text-xs font-extrabold text-blue-900 mt-0.5">
+                    {lang === "hi" ? "घोषित शुद्ध वजन" : lang === "mr" ? "घोषित निव्वळ वजन" : "Declared Net Weight"}
+                  </p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-center shadow-xs">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Food Safety</span>
-                  <p className="text-xs font-extrabold text-orange-900 mt-0.5">14-Digit FSSAI Lic</p>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                    {lang === "hi" ? "खाद्य सुरक्षा" : lang === "mr" ? "अन्न सुरक्षा" : "Food Safety"}
+                  </span>
+                  <p className="text-xs font-extrabold text-orange-900 mt-0.5">
+                    {lang === "hi" ? "14-अंकीय FSSAI" : lang === "mr" ? "14-अंकी FSSAI" : "14-Digit FSSAI Lic"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -192,10 +162,16 @@ export function CustomerDashboard({
                 className="w-full sm:w-auto inline-flex h-14 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-purple-800 via-purple-700 to-indigo-800 px-8 text-base font-black text-white shadow-xl shadow-purple-700/25 hover:from-purple-900 hover:to-indigo-900 active:scale-95 transition-all"
               >
                 <Camera className="h-6 w-6 text-saffron-300" />
-                <span>Scan Package Photo</span>
+                <span>
+                  {lang === "hi" ? "पैकेज फोटो स्कैन करें" : lang === "mr" ? "पॅकेज फोटो स्कॅन करा" : "Scan Package Photo"}
+                </span>
               </button>
               <span className="text-[11px] font-bold text-slate-500 text-center">
-                Supports up to 6 angles (Front PDP, Back & Sides)
+                {lang === "hi"
+                  ? "6 कोणों (मुख्य PDP, पीछे और किनारों) का समर्थन"
+                  : lang === "mr"
+                  ? "6 कोनांचे समर्थन (मुख्य PDP, मागे व बाजू)"
+                  : "Supports up to 6 angles (Front PDP, Back & Sides)"}
               </span>
             </div>
           </div>
@@ -213,7 +189,11 @@ export function CustomerDashboard({
                   : "text-slate-700 hover:text-slate-900 font-bold"
               }`}
             >
-              My Scanned Products ({consumerScans.length})
+              {lang === "hi"
+                ? `मेरे स्कैन किए उत्पाद (${consumerScans.length})`
+                : lang === "mr"
+                ? `माझी स्कॅन केलेली उत्पादने (${consumerScans.length})`
+                : `My Scanned Products (${consumerScans.length})`}
             </button>
             <button
               type="button"
@@ -224,7 +204,7 @@ export function CustomerDashboard({
                   : "text-slate-700 hover:text-slate-900 font-bold"
               }`}
             >
-              Unit Price Calculator
+              {lang === "hi" ? "इकाई मूल्य कैलकुलेटर" : lang === "mr" ? "एकक किंमत कॅल्क्युलेटर" : "Unit Price Calculator"}
             </button>
             <button
               type="button"
@@ -235,13 +215,15 @@ export function CustomerDashboard({
                   : "text-slate-700 hover:text-slate-900 font-bold"
               }`}
             >
-              Jago Grahak Jago & Helpline 1915
+              {lang === "hi" ? "जागो ग्राहक जागो व 1915" : lang === "mr" ? "जागो ग्राहक जागो व 1915" : "Jago Grahak Jago & Helpline 1915"}
             </button>
           </div>
 
           <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
             <PhoneCall className="h-4 w-4 text-govgreen" />
-            <span>National Consumer Toll-Free: </span>
+            <span>
+              {lang === "hi" ? "राष्ट्रीय उपभोक्ता टोल-फ्री: " : lang === "mr" ? "राष्ट्रीय ग्राहक टोल-फ्री: " : "National Consumer Toll-Free: "}
+            </span>
             <span className="font-extrabold text-slate-900 text-sm">1915</span>
           </div>
         </div>
@@ -505,7 +487,7 @@ export function CustomerDashboard({
                 <CheckCircle2 className="h-12 w-12 text-govgreen mx-auto" />
                 <h4 className="text-base font-bold text-slate-900">Grievance Docket Generated!</h4>
                 <p className="text-xs text-slate-600">
-                  Docket reference #NCH-{Math.floor(100000 + Math.random() * 900000)} has been submitted with image evidence to the Department of Consumer Affairs surveillance cell.
+                  Docket reference #NCH-{Math.floor(100000 + Math.random() * 900000)} has been submitted with image evidence to the Legal Metrology surveillance cell.
                 </p>
               </div>
             ) : (

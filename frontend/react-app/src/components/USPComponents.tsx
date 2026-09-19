@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Sparkles,
   Volume2,
+  VolumeX,
   X,
   XCircle,
 } from "lucide-react";
@@ -127,7 +128,9 @@ export function PackageIntegrityCard({
         <div className="rounded-xl border border-border/60 bg-muted/40 p-4 space-y-3">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">Catalog Comparison Method:</span>
-            <span className="font-mono">{data.comparison_method}</span>
+            <span className="font-medium text-foreground">
+              {data.comparison_method?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Surface Geometry & Color Correlation"}
+            </span>
             <span className="font-semibold text-foreground">Visual Fidelity Score:</span>
             <span className="font-bold text-brand">{(data.confidence_score * 100).toFixed(0)}%</span>
           </div>
@@ -1011,17 +1014,61 @@ export function MultilingualAssistantWidget({
     setInternalLang(l);
     if (onLanguageChange) onLanguageChange(l);
   };
+
+  const getGreeting = (l: "en" | "hi" | "mr") => {
+    if (l === "hi") return "नमस्ते! मैं लेक्समेट्रा एआई हूँ, मैं आपकी क्या मदद कर सकता हूँ?";
+    if (l === "mr") return "नमस्कार! मी लेक्समेट्रा एआय आहे, मी तुम्हाला कशी मदत करू शकतो?";
+    return "Hello! I am LexMetra AI, How Can I Help You?";
+  };
+
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; text: string; sources?: string[] }>>([
     {
       role: "assistant",
-      text: "Namaste! I am LexMetra's Legal Metrology & Multi-Regulatory Assistant. I can explain statutory LMPC 2011 requirements, FSSAI compliance, and Package Integrity in English, हिन्दी, or मराठी.",
+      text: getGreeting(lang),
     },
   ]);
+  const [showPromptCards, setShowPromptCards] = useState(true);
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isVoiceMuted, setIsVoiceMuted] = useState(false);
+
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const isVoiceMutedRef = useRef(false);
+
+  // Update greeting when language changes if only the initial greeting is present
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.length === 1 && prev[0].role === "assistant") {
+        return [{ role: "assistant", text: getGreeting(lang) }];
+      }
+      return prev;
+    });
+  }, [lang]);
+
+  // Sync mute state ref
+  useEffect(() => {
+    isVoiceMutedRef.current = isVoiceMuted;
+    if (isVoiceMuted) {
+      stopAllAudio();
+    }
+  }, [isVoiceMuted]);
+
+  function stopAllAudio() {
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.currentTime = 0;
+      } catch {}
+      currentAudioRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+  }
 
   // Speech Recognition support
   function toggleListening() {
@@ -1058,49 +1105,41 @@ export function MultilingualAssistantWidget({
     }
   }
 
-  // Text-to-Speech support: Sarvam AI Bulbul v3 with fallback to browser speechSynthesis
+  // Text-to-Speech support: Strictly Sarvam AI Bulbul v3 Indian natural voice (shubh)
   async function speakText(text: string) {
-    if (!text) return;
+    if (!text || isVoiceMutedRef.current) return;
+    stopAllAudio();
     setIsSpeaking(true);
 
     try {
-      const audioUrl = await synthesizeSpeech(text, lang);
-      if (audioUrl) {
+      const audioUrl = await synthesizeSpeech(text, lang, "shubh", 1.12);
+      if (audioUrl && !isVoiceMutedRef.current) {
         const audio = new Audio(audioUrl);
-        audio.onended = () => setIsSpeaking(false);
+        currentAudioRef.current = audio;
+        audio.onended = () => {
+          setIsSpeaking(false);
+          currentAudioRef.current = null;
+        };
         audio.onerror = () => {
           setIsSpeaking(false);
-          fallbackBrowserSpeech(text);
+          currentAudioRef.current = null;
         };
         await audio.play();
-        return;
+      } else {
+        setIsSpeaking(false);
       }
-    } catch {
-      // fallback
-    }
-
-    fallbackBrowserSpeech(text);
-  }
-
-  function fallbackBrowserSpeech(text: string) {
-    if (!window.speechSynthesis) {
+    } catch (err) {
+      console.warn("Sarvam AI speech synthesis:", err);
       setIsSpeaking(false);
-      return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang === "hi" ? "hi-IN" : lang === "mr" ? "mr-IN" : "en-IN";
-    utterance.rate = 0.95;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
   }
 
   async function handleSend(textToSend?: string) {
     const q = (textToSend || input).trim();
     if (!q || loading) return;
 
+    // Instantly collapse 3 floating prompt cards on selection
+    setShowPromptCards(false);
     setInput("");
     setMessages((prev) => [...prev, { role: "user", text: q }]);
     setLoading(true);
@@ -1135,47 +1174,98 @@ export function MultilingualAssistantWidget({
     }
   }
 
+  const suggestionCards = [
+    {
+      titleEn: "Explain this inspection",
+      subEn: "Comprehensive review of packaging compliance & facts",
+      titleHi: "इस निरीक्षण को समझाएं",
+      subHi: "पैकेजिंग अनुपालन एवं तथ्यों की विस्तृत समीक्षा",
+      titleMr: "या तपासणीचा अहवाल समजून सांगा",
+      subMr: "पॅकेजिंग कायदेशीर अनुपालन व तथ्यांचे पुनरावलोकन",
+      query: "Explain this inspection and its overall findings",
+    },
+    {
+      titleEn: "Explain package violations",
+      subEn: "Analyze detected LMPC non-compliance and issues",
+      titleHi: "पैकेज उल्लंघनों को समझाएं",
+      subHi: "पहचाने गए LMPC गैर-अनुपालन एवं दोषों का विश्लेषण",
+      titleMr: "पॅकेजवरील उल्लंघने स्पष्ट करा",
+      subMr: "आढळलेले LMPC कायदेशीर नियमभंग आणि त्रुटींचे विश्लेषण",
+      query: "Explain the violations found on this package",
+    },
+    {
+      titleEn: "Statutory rules for MRP & Net Qty",
+      subEn: "Rule 6(1) declarations and Rule 6(11) Unit Sale Price",
+      titleHi: "MRP व शुद्ध वजन विधिक नियम",
+      subHi: "नियम 6(1) घोषणाएं एवं नियम 6(11) इकाई विक्रय मूल्य",
+      titleMr: "MRP व निव्वळ वजनाचे कायदेशीर नियम",
+      subMr: "नियम 6(1) अनिवार्य घोषणा व नियम 6(11) युनिट विक्री किंमत",
+      query: "Explain the applicable Legal Metrology rules for MRP and Net Weight",
+    },
+  ];
+
   return (
     <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40">
       {!isOpen ? (
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="flex h-14 items-center gap-2.5 rounded-full bg-brand px-5 text-brand-foreground shadow-xl shadow-brand/25 transition-transform hover:scale-105 active:scale-95"
+          className="flex h-14 items-center gap-2.5 rounded-full border-2 border-black bg-white px-5 text-black shadow-2xl transition-all hover:scale-105 hover:bg-black hover:text-white active:scale-95 group"
         >
-          <Sparkles className="h-5 w-5" />
-          <span className="text-xs font-bold uppercase tracking-wider">Assistant</span>
+          <Sparkles className="h-5 w-5 text-black group-hover:text-white transition-colors" />
+          <span className="text-xs font-black uppercase tracking-wider">LexMetra AI</span>
         </button>
       ) : (
         <div
-          className={`flex flex-col rounded-3xl border border-border/80 bg-card shadow-2xl overflow-hidden transition-all duration-200 ${
+          className={`flex flex-col rounded-3xl border-2 border-slate-300/80 bg-white text-slate-900 shadow-2xl overflow-hidden transition-all duration-200 animate-in fade-in zoom-in-95 slide-in-from-bottom-6 ${
             isExpanded
               ? "h-[85vh] max-h-[840px] w-[calc(100vw-32px)] sm:w-[680px] md:w-[780px]"
-              : "h-[520px] max-h-[82vh] w-[calc(100vw-32px)] sm:w-[410px]"
+              : "h-[540px] max-h-[84vh] w-[calc(100vw-32px)] sm:w-[420px]"
           }`}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-3.5 py-2.5">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand text-brand-foreground shadow-xs">
+          {/* Header - Clean B&W LexMetra AI without any Department/Ministry */}
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-black text-white shadow-xs">
                 <Sparkles className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-xs font-bold text-foreground">LexMetra Multilingual AI</p>
-                <p className="text-[10px] text-muted-foreground">Grounded Legal Metrology Assistant</p>
+                <p className="text-xs font-black tracking-wide text-black">LexMetra AI</p>
+                <p className="text-[10px] font-medium text-slate-500">Multilingual Voice & Intelligence</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5">
-              {isSpeaking && (
-                <Volume2 className="h-4 w-4 text-brand animate-pulse mr-0.5" />
-              )}
-              {/* Language Switcher - Screenshot 2 Pill style */}
-              <div className="inline-flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white p-0.5 text-[10px] font-semibold shadow-2xs">
+              {/* Voice Mute / Unmute Toggle Button */}
+              <button
+                type="button"
+                onClick={() => setIsVoiceMuted((prev) => !prev)}
+                title={isVoiceMuted ? "Unmute Voice" : "Mute Voice"}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold border transition-all ${
+                  isVoiceMuted
+                    ? "bg-slate-100 text-slate-500 border-slate-300"
+                    : "bg-black text-white border-black"
+                }`}
+              >
+                {isVoiceMuted ? (
+                  <>
+                    <VolumeX className="h-3.5 w-3.5 text-slate-500" />
+                    <span className="text-[10px]">Muted</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className={`h-3.5 w-3.5 text-white ${isSpeaking ? "animate-pulse" : ""}`} />
+                    <span className="text-[10px]">Voice On</span>
+                  </>
+                )}
+              </button>
+
+              {/* Language Switcher - Black and White Pill */}
+              <div className="inline-flex items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-[10px] font-bold shadow-2xs">
                 <button
                   type="button"
                   onClick={() => setLang("en")}
                   className={`px-2 py-0.5 rounded-lg transition-all ${
-                    lang === "en" ? "bg-[#7C3AED] text-white font-bold shadow-2xs" : "text-slate-700 hover:text-slate-950 font-semibold"
+                    lang === "en" ? "bg-black text-white font-bold" : "text-slate-700 hover:text-black font-semibold"
                   }`}
                 >
                   EN
@@ -1184,7 +1274,7 @@ export function MultilingualAssistantWidget({
                   type="button"
                   onClick={() => setLang("hi")}
                   className={`px-2 py-0.5 rounded-lg transition-all ${
-                    lang === "hi" ? "bg-[#7C3AED] text-white font-bold shadow-2xs" : "text-slate-700 hover:text-slate-950 font-semibold"
+                    lang === "hi" ? "bg-black text-white font-bold" : "text-slate-700 hover:text-black font-semibold"
                   }`}
                 >
                   हिन्दी
@@ -1193,7 +1283,7 @@ export function MultilingualAssistantWidget({
                   type="button"
                   onClick={() => setLang("mr")}
                   className={`px-2 py-0.5 rounded-lg transition-all ${
-                    lang === "mr" ? "bg-[#7C3AED] text-white font-bold shadow-2xs" : "text-slate-700 hover:text-slate-950 font-semibold"
+                    lang === "mr" ? "bg-black text-white font-bold" : "text-slate-700 hover:text-black font-semibold"
                   }`}
                 >
                   मराठी
@@ -1204,7 +1294,7 @@ export function MultilingualAssistantWidget({
                 type="button"
                 onClick={() => setIsExpanded(!isExpanded)}
                 title={isExpanded ? "Collapse window" : "Expand window"}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-black transition-colors"
                 aria-label={isExpanded ? "Collapse window" : "Expand window"}
               >
                 {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -1212,7 +1302,7 @@ export function MultilingualAssistantWidget({
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-black"
                 aria-label="Close assistant"
               >
                 <X className="h-4 w-4" />
@@ -1220,18 +1310,18 @@ export function MultilingualAssistantWidget({
             </div>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 space-y-3 overflow-y-auto p-4 text-xs">
+          {/* Messages Container */}
+          <div className="flex-1 space-y-3 overflow-y-auto p-4 text-xs bg-white">
             {messages.map((m, idx) => (
               <div
                 key={idx}
                 className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[88%] rounded-2xl p-3 leading-relaxed ${
+                  className={`max-w-[88%] rounded-2xl p-3.5 leading-relaxed ${
                     m.role === "user"
-                      ? "bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white rounded-br-xs border border-brand-700/60 shadow-xs"
-                      : "bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs shadow-2xs"
+                      ? "bg-black text-white rounded-br-xs shadow-sm font-medium"
+                      : "bg-slate-50 text-slate-900 border border-slate-200/90 rounded-bl-xs shadow-xs"
                   }`}
                 >
                   {m.role === "user" ? (
@@ -1240,54 +1330,54 @@ export function MultilingualAssistantWidget({
                     <FormattedAssistantMessage content={m.text} />
                   )}
                   {m.sources && m.sources.length > 0 && (
-                    <div className="mt-2.5 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500 font-medium">
-                      <strong className="text-brand-900 font-bold">Statutory Sources:</strong> {m.sources.join(" · ")}
+                    <div className="mt-2.5 border-t border-slate-200 pt-1.5 text-[10px] text-slate-500 font-medium">
+                      <strong className="text-black font-bold">Statutory Sources:</strong> {m.sources.join(" · ")}
                     </div>
                   )}
                 </div>
               </div>
             ))}
+
+            {/* 3 Floating Rectangular Prompt Boxes Stacked One Above Another (Claude-style) */}
+            {showPromptCards && messages.length <= 1 && (
+              <div className="pt-2 space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                  {lang === "hi" ? "त्वरित सुझाव:" : lang === "mr" ? "सुचवलेले प्रश्न:" : "Quick Suggestions:"}
+                </p>
+                {suggestionCards.map((card, idx) => {
+                  const title = lang === "hi" ? card.titleHi : lang === "mr" ? card.titleMr : card.titleEn;
+                  const sub = lang === "hi" ? card.subHi : lang === "mr" ? card.subMr : card.subEn;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSend(card.query)}
+                      className="w-full text-left rounded-2xl border border-slate-200 bg-slate-50/70 p-3 hover:bg-black hover:text-white hover:border-black transition-all shadow-xs group active:scale-[0.99] flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-900 group-hover:text-white transition-colors">
+                          {title}
+                        </p>
+                        <p className="text-[10px] text-slate-500 group-hover:text-slate-300 transition-colors truncate mt-0.5">
+                          {sub}
+                        </p>
+                      </div>
+                      <span className="text-slate-400 group-hover:text-white font-bold text-sm shrink-0">→</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {loading && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" /> Legal Metrology grounding in progress…
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin text-black" /> LexMetra AI processing…
               </div>
             )}
           </div>
 
-          {/* Floating Action / Suggestion Chips (placed near bottom right above the input bar) */}
-          <div className="flex gap-1.5 overflow-x-auto border-t border-border/40 bg-muted/20 px-3 py-2 text-[10px] no-scrollbar">
-            {[
-              { label: "Explain inspection", q: "Explain this inspection and its overall findings" },
-              { label: "Explain violation", q: "Explain the violations found on this package" },
-              { label: "Why uncertain?", q: "Why is this inspection or declaration marked uncertain?" },
-              { label: "Show evidence", q: "Show supporting evidence and localized polygon regions" },
-              { label: "Explain rule", q: "Explain the applicable Legal Metrology rules for MRP and Net Weight" },
-              { label: "Summarize", q: "Summarize findings for this package" },
-              { label: "Generate report", q: "Generate report for this inspection" },
-              { label: "🔊 Read aloud", q: "Read summary aloud" },
-            ].map((chip, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => {
-                  if (chip.label === "🔊 Read aloud") {
-                    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-                    if (lastAssistant) {
-                      speakText(lastAssistant.text);
-                      return;
-                    }
-                  }
-                  handleSend(chip.q);
-                }}
-                className="shrink-0 rounded-full border border-border/70 bg-card px-2.5 py-1 font-medium text-foreground hover:border-brand hover:text-brand transition shadow-2xs active:scale-95"
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-
           {/* Input Bar */}
-          <div className="border-t border-border/60 bg-muted/30 p-3">
+          <div className="border-t border-slate-200 bg-white p-3">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -1298,26 +1388,42 @@ export function MultilingualAssistantWidget({
               <button
                 type="button"
                 onClick={toggleListening}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition ${
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all ${
                   isListening
-                    ? "border-red-500 bg-red-500/10 text-red-500 animate-pulse"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground"
+                    ? "border-red-500 bg-red-50 text-red-600 animate-pulse"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-black hover:text-black"
                 }`}
-                title="Voice input"
+                title="Voice input (Mic)"
               >
                 {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </button>
+              {/* Circular waveform icon button beside mic */}
+              <button
+                type="button"
+                onClick={toggleListening}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black text-white shadow-md transition-all hover:scale-105 active:scale-95 ${
+                  isListening ? "ring-2 ring-black animate-pulse" : ""
+                }`}
+                title="Voice Assistant Live Mode"
+              >
+                <span className="flex items-center justify-center gap-[2.5px]">
+                  <span className={`w-[2.5px] rounded-full bg-white transition-all ${isListening || isSpeaking ? "h-3.5 animate-bounce" : "h-2"}`} />
+                  <span className={`w-[2.5px] rounded-full bg-white transition-all ${isListening || isSpeaking ? "h-5 animate-pulse" : "h-3.5"}`} />
+                  <span className={`w-[2.5px] rounded-full bg-white transition-all ${isListening || isSpeaking ? "h-4 animate-bounce" : "h-3"}`} />
+                  <span className={`w-[2.5px] rounded-full bg-white transition-all ${isListening || isSpeaking ? "h-2.5 animate-pulse" : "h-1.5"}`} />
+                </span>
               </button>
               <input
                 type="text"
                 placeholder={lang === "hi" ? "अपना प्रश्न पूछें..." : lang === "mr" ? "तुमचा प्रश्न विचारा..." : "Ask compliance question..."}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                className="h-9 flex-1 rounded-xl border border-border bg-background px-3 text-xs outline-none focus:border-brand"
+                className="h-9 flex-1 rounded-xl border border-slate-300 bg-slate-50 px-3 text-xs outline-none focus:border-black focus:bg-white text-slate-900 transition-colors"
               />
               <button
                 type="submit"
                 disabled={!input.trim() || loading}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground disabled:opacity-40"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-black text-white hover:bg-slate-800 disabled:opacity-40 transition-colors shadow-xs"
               >
                 <Send className="h-4 w-4" />
               </button>

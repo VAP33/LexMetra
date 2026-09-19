@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Camera,
   ShieldCheck,
   CheckCircle2,
   FileText,
   ArrowRight,
+  ChevronDown,
   ChevronRight,
+  Check,
   Scale,
   Sparkles,
   Layers,
   Lock,
-  Users,
   Download,
   Globe,
 } from "lucide-react";
@@ -20,7 +21,7 @@ import { LexMetraLogo } from "./InspectionApp";
 interface LandingPageProps {
   onStartScan: () => void;
   onOfficerLogin: () => void;
-  onConsumerPortal: () => void;
+  onConsumerPortal?: () => void;
   lang?: "en" | "hi" | "mr";
   onLanguageChange?: (l: "en" | "hi" | "mr") => void;
 }
@@ -28,10 +29,24 @@ interface LandingPageProps {
 export function LandingPage({
   onStartScan,
   onOfficerLogin,
-  onConsumerPortal,
+  onConsumerPortal: _onConsumerPortal,
   lang = "en",
   onLanguageChange,
 }: LandingPageProps) {
+  const [isLangOpen, setIsLangOpen] = useState(false);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) {
+        setIsLangOpen(false);
+      }
+    }
+    if (isLangOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isLangOpen]);
   const [activeStage, setActiveStage] = useState(0);
 
   const stages = [
@@ -54,73 +69,79 @@ export function LandingPage({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-base font-black tracking-widest text-slate-900">LEXMETRA</span>
-                <span className="bg-saffron-50 border border-saffron-200 text-saffron-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  STATUTORY AI
-                </span>
-                <span className="bg-emerald-50 border border-emerald-200 text-govgreen text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider hidden sm:inline">
-                  DCA VERIFIED
-                </span>
+                <span className="text-base font-black tracking-widest text-white">LEXMETRA</span>
               </div>
               <p className="text-[11px] font-semibold text-brand-200 tracking-wider uppercase">
-                Department of Consumer Affairs · Govt of India
+                Legal Metrology Division · Govt of India
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
-            {/* Screenshot 2 Language Toggle Pill */}
+            {/* Global Globe Icon Language Menu Dropdown */}
             {onLanguageChange && (
-              <div className="inline-flex items-center gap-1 rounded-2xl border border-slate-200/90 bg-white/95 p-1 text-xs font-semibold shadow-xs">
+              <div className="relative" ref={langMenuRef}>
                 <button
                   type="button"
-                  onClick={() => onLanguageChange("en")}
-                  className={`rounded-xl px-3 py-1 transition-all text-xs ${
-                    lang === "en"
-                      ? "bg-[#7C3AED] text-white font-bold shadow-xs"
-                      : "text-slate-800 hover:text-slate-950 font-semibold"
-                  }`}
+                  aria-label="Select Language"
+                  onClick={() => setIsLangOpen((prev) => !prev)}
+                  className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-white shadow-xs backdrop-blur-xs transition hover:bg-white/20 active:scale-95"
                 >
-                  EN
+                  <Globe className="h-4 w-4 text-saffron-300" />
+                  <span className="text-xs uppercase tracking-wide">
+                    {lang === "hi" ? "हिन्दी" : lang === "mr" ? "मराठी" : "EN"}
+                  </span>
+                  <ChevronDown className={`h-3 w-3 text-brand-200 transition-transform ${isLangOpen ? "rotate-180" : ""}`} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onLanguageChange("hi")}
-                  className={`rounded-xl px-3 py-1 transition-all text-xs ${
-                    lang === "hi"
-                      ? "bg-[#7C3AED] text-white font-bold shadow-xs"
-                      : "text-slate-800 hover:text-slate-950 font-semibold"
-                  }`}
-                >
-                  हिन्दी
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onLanguageChange("mr")}
-                  className={`rounded-xl px-3 py-1 transition-all text-xs ${
-                    lang === "mr"
-                      ? "bg-[#7C3AED] text-white font-bold shadow-xs"
-                      : "text-slate-800 hover:text-slate-950 font-semibold"
-                  }`}
-                >
-                  मराठी
-                </button>
+
+                {isLangOpen && (
+                  <div className="absolute right-0 mt-2 w-44 rounded-2xl border border-slate-200 bg-white p-1.5 text-slate-800 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="px-2.5 py-1.5 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {lang === "hi" ? "भाषा चुनें" : lang === "mr" ? "भाषा निवडा" : "Select Language"}
+                    </div>
+                    <div className="py-1 space-y-0.5">
+                      {[
+                        { code: "en", label: "English", sub: "Default" },
+                        { code: "hi", label: "हिन्दी", sub: "Hindi" },
+                        { code: "mr", label: "मराठी", sub: "Marathi" },
+                      ].map((opt) => {
+                        const isActive = lang === opt.code;
+                        return (
+                          <button
+                            key={opt.code}
+                            type="button"
+                            onClick={() => {
+                              onLanguageChange(opt.code as any);
+                              setIsLangOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition ${
+                              isActive
+                                ? "bg-purple-50 text-purple-900 font-bold"
+                                : "text-slate-700 hover:bg-slate-100 font-medium"
+                            }`}
+                          >
+                            <div className="flex flex-col text-left">
+                              <span>{opt.label}</span>
+                              <span className="text-[10px] text-slate-400">{opt.sub}</span>
+                            </div>
+                            {isActive && <Check className="h-4 w-4 text-purple-700" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
+            {/* Single Unified Sign In Button without Citizen/Officer distinction */}
             <button
-              onClick={onConsumerPortal}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-govgreen bg-white hover:bg-emerald-50 border-2 border-emerald-400/60 transition-all shadow-xs"
-            >
-              <Users className="h-4 w-4 text-govgreen" />
-              Citizen Portal
-            </button>
-            <button
+              type="button"
               onClick={onOfficerLogin}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-saffron-500 to-orange-600 hover:from-saffron-600 hover:to-orange-700 text-white border border-saffron-400/50 shadow-sm transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-700 via-purple-800 to-indigo-800 hover:from-purple-800 hover:to-indigo-900 text-white shadow-md transition-all active:scale-95"
             >
               <Lock className="h-3.5 w-3.5 text-white" />
-              Officer Sign In
+              <span>{lang === "hi" ? "साइन इन" : lang === "mr" ? "साइन इन करा" : "Sign In"}</span>
             </button>
           </div>
         </div>
@@ -132,7 +153,7 @@ export function LandingPage({
         <div className="lg:col-span-7 space-y-7">
           <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-brand-900 text-xs font-bold shadow-xs">
             <Sparkles className="h-4 w-4 text-saffron-600 animate-pulse" />
-            <span>Ministry of Consumer Affairs · Legal Metrology Division</span>
+            <span>National Legal Metrology Directorate · Packaged Commodities</span>
           </div>
 
           <div className="space-y-4">
@@ -307,7 +328,7 @@ export function LandingPage({
       {/* Footer on Crisp White */}
       <footer className="border-t border-slate-200 bg-slate-50/60 py-6 text-center text-xs text-slate-600">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="font-medium">© 2026 LexMetra · Department of Consumer Affairs, Government of India</p>
+          <p className="font-medium">© 2026 LexMetra · Legal Metrology Division, Government of India</p>
           <div className="flex items-center gap-4 font-semibold text-brand-900">
             <span>LM Act 2009</span>
             <span className="text-saffron-500">•</span>

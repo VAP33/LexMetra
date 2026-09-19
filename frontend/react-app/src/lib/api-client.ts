@@ -45,7 +45,7 @@ export class ApiError extends Error {
 
 export interface AuthedUser {
   username: string;
-  role: "customer" | "inspector" | "reviewer" | "senior_inspector" | "authority" | "admin";
+  role: "customer" | "consumer" | "inspector" | "reviewer" | "senior_inspector" | "authority" | "admin";
 }
 
 export function getStoredToken(): string | null {
@@ -925,12 +925,17 @@ export async function reprocessSocialPipeline(): Promise<any> {
   });
 }
 
-export async function synthesizeSpeech(text: string, language: string = "en"): Promise<string | null> {
+export async function synthesizeSpeech(
+  text: string,
+  language: string = "en",
+  speaker: string = "shubh",
+  pace: number = 1.15,
+): Promise<string | null> {
   try {
     const resp = await fetch(`${API_BASE}/assistant/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, language }),
+      body: JSON.stringify({ text, language, speaker, pace }),
     });
     if (resp.ok) {
       const data = await resp.json();

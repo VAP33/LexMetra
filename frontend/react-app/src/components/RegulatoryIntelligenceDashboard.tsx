@@ -89,7 +89,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
         version_id: "LM-2026.01",
         status: "ACTIVE",
         effective_date: "2026-01-01",
-        gazette_ref: "G.S.R. 784(E) · Ministry of Consumer Affairs",
+        gazette_ref: "G.S.R. 784(E) · Legal Metrology Directorate",
         title: "Legal Metrology (Packaged Commodities) Rules, 2011 (As Amended Jan 2026)",
         description: "Baseline statutory framework governing retail declarations, unit sale pricing, and minimum display standards across India.",
         rule_count: 14,
@@ -123,6 +123,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
       const proposal: Proposal = await res.json();
       setActiveProposal(proposal);
       setSuccessMsg(`Extracted amendments from "${file.name}". Review the 3 proposed changes below.`);
+      setSuccessMsg(`Extracted amendments from "${file.name}". Review the proposed changes below.`);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to upload amendment document.");
     } finally {
@@ -134,7 +135,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
     // Generate simulated file for fast demo verification
     const blob = new Blob(
       [
-        "MINISTRY OF CONSUMER AFFAIRS, FOOD AND PUBLIC DISTRIBUTION\n" +
+        "LEGAL METROLOGY DIVISION, GOVERNMENT OF INDIA\n" +
         "NOTIFICATION\n" +
         "New Delhi, the 12th September, 2026\n" +
         "G.S.R. 892(E).—In exercise of the powers conferred by section 52 of the Legal Metrology Act, 2009 (1 of 2010), the Central Government hereby makes the following rules further to amend the Legal Metrology (Packaged Commodities) Rules, 2011...\n" +
@@ -144,7 +145,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
       ],
       { type: "application/pdf" }
     );
-    const file = new File([blob], "Gazette_Notification_GSR_892_E_2026.pdf", { type: "application/pdf" });
+    const file = new File([blob], "Gazette_Notification_GSR_892E_2026.pdf", { type: "application/pdf" });
     handleFileUpload(file);
   }
 
@@ -347,7 +348,7 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
               </span>
             </div>
             <p className="mt-1.5 text-xs text-neutral-500 leading-relaxed">
-              Upload an official e-Gazette PDF notification issued by the Department of Consumer Affairs.
+              Upload an official e-Gazette PDF notification issued by the Legal Metrology Directorate.
               The engine automatically performs legal diff extraction and isolates new, amended, or repealed statutory rules.
             </p>
           </div>

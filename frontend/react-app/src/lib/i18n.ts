@@ -167,7 +167,7 @@ export const translations: Record<Language, Translations> = {
   },
   hi: {
     portalTitle: "लेक्समेट्रा (LEXMETRA)",
-    portalSubtitle: "विधिक मापविज्ञान अनुपालन पोर्टल • उपभोक्ता मामले विभाग, भारत सरकार",
+    portalSubtitle: "विधिक मापविज्ञान अनुपालन पोर्टल • विधिक मापविज्ञान प्रभाग, भारत सरकार",
     dashboard: "डैशबोर्ड",
     history: "निरीक्षण इतिहास",
     register: "अनुपालन रजिस्टर",
@@ -246,7 +246,7 @@ export const translations: Record<Language, Translations> = {
   },
   mr: {
     portalTitle: "लेक्समेट्रा (LEXMETRA)",
-    portalSubtitle: "वैधानिक मापनशास्त्र अनुपालन पोर्टल • ग्राहक व्यवहार मंत्रालय, भारत सरकार",
+    portalSubtitle: "वैधानिक मापनशास्त्र अनुपालन पोर्टल • कायदेशीर मापनशास्त्र विभाग, भारत सरकार",
     dashboard: "डॅशबोर्ड",
     history: "तपासणी इतिहास",
     register: "अनुपालन नोंदवही",

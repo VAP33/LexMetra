@@ -66,6 +66,12 @@ def resize_and_compress_image(img_bgr: np.ndarray, max_dim: int = 768, quality: 
     return base64.b64encode(buffer).decode('utf-8')
 
 
+def is_groq_available(api_key: Optional[str] = None) -> bool:
+    """Return True if a valid Groq API key is present."""
+    key = (api_key or os.getenv("GROQ_API_KEY") or "").strip()
+    return bool(key and key.startswith("gsk_"))
+
+
 async def inspect_package_with_groq(
     images: List[Tuple[str, np.ndarray]], 
     custom_prompt: Optional[str] = None,
@@ -80,9 +86,11 @@ async def inspect_package_with_groq(
     - [GROQ] RESPONSE RECEIVED: Xs
     - [GROQ] RESULT RETURNED
     """
+    if not is_groq_available(api_key):
+        logger.info("GROQ_API_KEY not configured or invalid. Skipping Groq inspection.")
+        return {"product_name": None, "product_id": None, "declarations": []}
+
     key = (api_key or os.getenv("GROQ_API_KEY") or "").strip()
-    if not key or not key.startswith("gsk_"):
-        raise ValueError("Valid GROQ_API_KEY (gsk_...) is required for Groq multimodal inspection.")
 
     num_images = min(3, len(images))
     print(f"\n[GROQ] REQUEST START", flush=True)

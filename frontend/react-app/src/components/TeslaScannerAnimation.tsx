@@ -1,24 +1,81 @@
 import { useEffect, useState, useRef } from "react";
-import { Check, ShieldCheck } from "lucide-react";
+import { Check, ShieldCheck, Sparkles, FileSearch, Layers, Cpu, Eye, Camera } from "lucide-react";
+import { type Language } from "@/lib/i18n";
 
 interface TeslaScannerAnimationProps {
   currentStage?: string;
   stageIndex?: number;
   productName?: string;
+  lang?: Language;
 }
 
 const STAGES = [
-  { id: "intake", label: "Package Intake & Face Normalization" },
-  { id: "boundary", label: "Boundary Locked (+6.0% Safe Margin)" },
-  { id: "perspective", label: "Perspective Rectified (3×3 Homography)" },
-  { id: "enhancement", label: "Illumination Balanced & Text Preserved" },
-  { id: "perception", label: "Multimodal Perception Ready" },
+  {
+    id: "intake",
+    icon: Camera,
+    en: "Multi-Angle Image Capture & Alignment",
+    hi: "मल्टी-एंगल इमेज कैप्चर व संरेखण",
+    mr: "मल्टी-अँगल प्रतिमा कॅप्चर व संरेखन",
+    subEn: "Ingesting package surface captures with high resolution clarity",
+    subHi: "उच्च रिज़ॉल्यूशन स्पष्टता के साथ पैकेज सतहों का समकालिक अधिग्रहण",
+    subMr: "उच्च रिझोल्यूशन स्पष्टतेसह पॅकेज प्रतिमा संपादन",
+  },
+  {
+    id: "boundary",
+    icon: Layers,
+    en: "OpenCV Boundary Locking & Rectification",
+    hi: "ओपनसीवी बाउंड्री लॉकिंग व सुधार",
+    mr: "ओपनसीव्ही बाउंड्री लॉकिंग व दृष्टीकोन सुधारणा",
+    subEn: "Perspective homography matrix rectification on all faces",
+    subHi: "सभी सतहों पर होमोग्राफी मैट्रिक्स सुधार",
+    subMr: "सर्व पृष्ठभागांवर होमोग्राफी मॅट्रिक्स सुधारणा",
+  },
+  {
+    id: "ocr",
+    icon: FileSearch,
+    en: "Neural OCR & Text Localization",
+    hi: "उच्च-घनता OCR व पाठ्य निष्कर्षण",
+    mr: "उच्च-घनता OCR व मजकूर निष्कर्ष",
+    subEn: "Extracting MRP, Net Weight, MFD, Expiry, FSSAI & Manufacturer",
+    subHi: "MRP, शुद्ध वजन, निर्माण तिथि, समाप्ति, FSSAI व निर्माता का निष्कर्षण",
+    subMr: "MRP, निव्वळ वजन, उत्पादन तारीख, एक्सपायरी, FSSAI व उत्पादक शोध",
+  },
+  {
+    id: "rules",
+    icon: Cpu,
+    en: "Statutory Rule-Engine Verification",
+    hi: "विधिक नियम इंजन सत्यापन (LMPC 2011)",
+    mr: "वैधानिक नियम पडताळणी (LMPC 2011)",
+    subEn: "Cross-checking Rule 6(1) declarations and Rule 6(11) Unit Sale Price",
+    subHi: "नियम 6(1) घोषणाएं एवं नियम 6(11) इकाई विक्रय मूल्य की जांच",
+    subMr: "नियम 6(1) अनिवार्य घोषणा व नियम 6(11) युनिट विक्री किंमत तपासणी",
+  },
+  {
+    id: "vlm",
+    icon: Eye,
+    en: "VLM Visual Grounding & Audit Verification",
+    hi: "VLM विजुअल ग्राउंडिंग व अंतिम ऑडिट",
+    mr: "VLM व्हिज्युअल ग्राउंडिंग व पुरावा मॅपिंग",
+    subEn: "Verifying bounding polygon evidence and tamper-proof compliance logging",
+    subHi: "बाउंडिंग पॉलीगॉन साक्ष्य सत्यापन एवं डिजिटल ऑडिट लॉगिंग",
+    subMr: "बाउंडिंग पॉलीगॉन पुरावा पडताळणी आणि डिजिटल नोंद",
+  },
+];
+
+const DETECTED_TAGS = [
+  { label: "MRP", val: "₹185.00 (Incl. Taxes)" },
+  { label: "Net Qty", val: "250 g Standard" },
+  { label: "MFD / EXP", val: "05/2026 • Valid" },
+  { label: "USP", val: "₹0.74 / g" },
+  { label: "FSSAI", val: "14-Digit Lic Verified" },
+  { label: "Consumer Care", val: "1800-11-1915" },
 ];
 
 export function TeslaScannerAnimation({
   currentStage: _currentStage,
   stageIndex = 0,
   productName = "Packaged Commodity",
+  lang = "en",
 }: TeslaScannerAnimationProps) {
   const [activeStage, setActiveStage] = useState(stageIndex);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -29,7 +86,7 @@ export function TeslaScannerAnimation({
     }
   }, [stageIndex]);
 
-  // Tesla-style minimalist 3D geometric package visualization on HTML5 Canvas
+  // Enhanced 3D Geometric Package Visualizer with dynamic phase transitions
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -40,56 +97,79 @@ export function TeslaScannerAnimation({
     let time = 0;
 
     const render = () => {
-      time += 0.02;
+      time += 0.024;
       const width = canvas.width;
       const height = canvas.height;
       ctx.clearRect(0, 0, width, height);
 
       const cx = width / 2;
-      const cy = height / 2 + 10;
+      // Box is pulled lower for balanced spatial composition
+      const cy = height / 2 + 32;
 
-      // Subtle slow yaw oscillation (Tesla vehicle visualizer style)
-      const angle = Math.sin(time * 0.7) * 0.15;
+      // Smooth yaw & pitch rotation
+      const angle = Math.sin(time * 0.8) * 0.16;
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
 
       // Package dimensions
-      const boxW = 85;
-      const boxD = 70;
-      const boxH = 130;
+      const boxW = 88;
+      const boxD = 72;
+      const boxH = 120;
 
-      // Isometric projection matrix helper
+      // Isometric projection matrix
       const project = (x: number, y: number, z: number) => {
-        // Rotate around Y axis
         const rx = x * cosA - z * sinA;
         const rz = x * sinA + z * cosA;
-        // Isometric incline
-        const isoX = cx + rx * 0.95 - rz * 0.85;
-        const isoY = cy - y + (rx * 0.45 + rz * 0.5);
+        const isoX = cx + rx * 0.96 - rz * 0.84;
+        const isoY = cy - y + (rx * 0.44 + rz * 0.48);
         return { x: isoX, y: isoY };
       };
 
-      // Visible vertices of the package
-      const p1 = project(boxW / 2, 0, -boxD / 2);  // Bottom-Back-Right
-      const p2 = project(boxW / 2, 0, boxD / 2);   // Bottom-Front-Right
-      const p3 = project(-boxW / 2, 0, boxD / 2);  // Bottom-Front-Left
+      // Vertices
+      const p1 = project(boxW / 2, 0, -boxD / 2);
+      const p2 = project(boxW / 2, 0, boxD / 2);
+      const p3 = project(-boxW / 2, 0, boxD / 2);
 
-      const p4 = project(-boxW / 2, boxH, -boxD / 2); // Top-Back-Left
-      const p5 = project(boxW / 2, boxH, -boxD / 2);  // Top-Back-Right
-      const p6 = project(boxW / 2, boxH, boxD / 2);   // Top-Front-Right
-      const p7 = project(-boxW / 2, boxH, boxD / 2);  // Top-Front-Left
+      const p4 = project(-boxW / 2, boxH, -boxD / 2);
+      const p5 = project(boxW / 2, boxH, -boxD / 2);
+      const p6 = project(boxW / 2, boxH, boxD / 2);
+      const p7 = project(-boxW / 2, boxH, boxD / 2);
 
-      // 1. Soft ground shadow
+      // 1. Holographic Floor Grid Rings & Radial Waves
+      ctx.save();
+      const wavePhase = (time * 1.5) % 1;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 64, 115 * (0.8 + wavePhase * 0.25), 36 * (0.8 + wavePhase * 0.25), 0, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(124, 58, 237, ${0.35 * (1 - wavePhase)})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 64, 110, 36, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.2)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 64, 75, 24, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(124, 58, 237, 0.25)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.stroke();
+      ctx.restore();
+
+      // 2. Soft Ambient Shadow
       ctx.save();
       ctx.beginPath();
-      ctx.ellipse(cx, cy + 70, 95, 30, 0, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.05)";
-      ctx.filter = "blur(10px)";
+      ctx.ellipse(cx, cy + 64, 90, 28, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(15, 23, 42, 0.09)";
+      ctx.filter = "blur(12px)";
       ctx.fill();
       ctx.restore();
 
-      // 2. Render solid surfaces with soft minimal shading
-      // Front-Right Face (p2, p1, p5, p6)
+      // 3. Faces rendering
+      // Front-Right Face
       ctx.beginPath();
       ctx.moveTo(p2.x, p2.y);
       ctx.lineTo(p1.x, p1.y);
@@ -97,12 +177,12 @@ export function TeslaScannerAnimation({
       ctx.lineTo(p6.x, p6.y);
       ctx.closePath();
       const gradFR = ctx.createLinearGradient(p6.x, p6.y, p1.x, p1.y);
-      gradFR.addColorStop(0, "rgba(241, 245, 249, 0.92)");
-      gradFR.addColorStop(1, "rgba(226, 232, 240, 0.88)");
+      gradFR.addColorStop(0, "rgba(241, 245, 249, 0.96)");
+      gradFR.addColorStop(1, "rgba(226, 232, 240, 0.92)");
       ctx.fillStyle = gradFR;
       ctx.fill();
 
-      // Front-Left Face (p3, p2, p6, p7)
+      // Front-Left Face (Main PDP)
       ctx.beginPath();
       ctx.moveTo(p3.x, p3.y);
       ctx.lineTo(p2.x, p2.y);
@@ -110,12 +190,12 @@ export function TeslaScannerAnimation({
       ctx.lineTo(p7.x, p7.y);
       ctx.closePath();
       const gradFL = ctx.createLinearGradient(p7.x, p7.y, p2.x, p2.y);
-      gradFL.addColorStop(0, "rgba(248, 250, 252, 0.98)");
-      gradFL.addColorStop(1, "rgba(238, 242, 246, 0.94)");
+      gradFL.addColorStop(0, "rgba(255, 255, 255, 0.99)");
+      gradFL.addColorStop(1, "rgba(243, 244, 246, 0.96)");
       ctx.fillStyle = gradFL;
       ctx.fill();
 
-      // Top Face (p7, p6, p5, p4)
+      // Top Face
       ctx.beginPath();
       ctx.moveTo(p7.x, p7.y);
       ctx.lineTo(p6.x, p6.y);
@@ -125,9 +205,9 @@ export function TeslaScannerAnimation({
       ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
       ctx.fill();
 
-      // 3. Subtle thin wireframe edges (Tesla visualizer aesthetic: clean 1px lines)
-      ctx.lineWidth = 1.2;
-      ctx.strokeStyle = "rgba(100, 116, 139, 0.35)";
+      // 4. Edges
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = "rgba(71, 85, 105, 0.45)";
       const edges = [
         [p3, p2], [p2, p1], [p2, p6],
         [p3, p7], [p1, p5], [p7, p6],
@@ -140,30 +220,82 @@ export function TeslaScannerAnimation({
         ctx.stroke();
       });
 
-      // 4. Subtle structural declaration lines (clean gray indicators on front face)
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.4)";
-      for (let hFrac = 0.25; hFrac <= 0.75; hFrac += 0.15) {
-        const lineY = boxH * hFrac;
-        const lineP1 = project(-boxW / 2 + 10, lineY, boxD / 2);
-        const lineP2 = project(boxW / 2 - 10, lineY, boxD / 2);
+      // 5. PHASE-SPECIFIC VISUAL OVERLAYS:
+      if (activeStage === 0) {
+        // Phase 1: Camera Flash & Crosshairs
+        const flashIntensity = Math.abs(Math.sin(time * 4));
+        ctx.save();
+        ctx.fillStyle = `rgba(255, 255, 255, ${flashIntensity * 0.25})`;
+        ctx.fillRect(0, 0, width, height);
+
+        // Reticle target at center
+        const centerPt = project(0, boxH / 2, boxD / 2);
+        ctx.strokeStyle = "#3B82F6";
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
-        ctx.moveTo(lineP1.x, lineP1.y);
-        ctx.lineTo(lineP2.x, lineP2.y);
+        ctx.arc(centerPt.x, centerPt.y, 24, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(centerPt.x - 30, centerPt.y);
+        ctx.lineTo(centerPt.x + 30, centerPt.y);
+        ctx.moveTo(centerPt.x, centerPt.y - 30);
+        ctx.lineTo(centerPt.x, centerPt.y + 30);
+        ctx.stroke();
+        ctx.restore();
+      } else if (activeStage === 1) {
+        // Phase 2: OpenCV Homography Wireframe Mesh
+        ctx.save();
+        ctx.strokeStyle = "rgba(16, 185, 129, 0.6)";
+        ctx.lineWidth = 1;
+        for (let step = 1; step <= 3; step++) {
+          const yLevel = (boxH / 4) * step;
+          const left = project(-boxW / 2, yLevel, boxD / 2);
+          const right = project(boxW / 2, yLevel, boxD / 2);
+          ctx.beginPath();
+          ctx.moveTo(left.x, left.y);
+          ctx.lineTo(right.x, right.y);
+          ctx.stroke();
+        }
+        // Coordinate points
+        [p7, p6, p3, p2].forEach((pt) => {
+          ctx.fillStyle = "#10B981";
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.restore();
       }
 
-      // 5. Thin scanning plane sweeping vertically across the package
-      // Sine wave sweep between 0 and boxH
-      const scanPhase = (Math.sin(time * 2.2) + 1) / 2; // 0..1
-      const scanY = boxH * scanPhase;
+      // 6. Corner Target Brackets (AR Computer Vision effect)
+      const bracketCorners = [p7, p6, p3, p2];
+      bracketCorners.forEach((pt, i) => {
+        ctx.save();
+        ctx.strokeStyle = activeStage >= 3 ? "#10B981" : "#7C3AED";
+        ctx.lineWidth = 2.5;
+        const offset = (i % 2 === 0 ? -1 : 1) * 7;
+        const vertOffset = (i < 2 ? -1 : 1) * 7;
+        ctx.beginPath();
+        ctx.moveTo(pt.x + offset, pt.y);
+        ctx.lineTo(pt.x, pt.y);
+        ctx.lineTo(pt.x, pt.y + vertOffset);
+        ctx.stroke();
+        ctx.restore();
+      });
 
-      const sp0 = project(-boxW * 0.65, scanY, -boxD * 0.65);
-      const sp1 = project(boxW * 0.65, scanY, -boxD * 0.65);
-      const sp2 = project(boxW * 0.65, scanY, boxD * 0.65);
-      const sp3 = project(-boxW * 0.65, scanY, boxD * 0.65);
+      // 7. Laser Scan Plane Sweeping (Synchronized with activeStage)
+      // activeStage runs 0..4 over 3 seconds each.
+      // Progress across 5 stages is 0.0 to 1.0; within each stage, we sweep smoothly.
+      const basePhase = activeStage / 4.0;
+      // Slight smooth oscillatory sweep confined around current stage height
+      const sweepOffset = Math.sin(time * 1.5) * 0.08;
+      const stageScanPhase = Math.max(0, Math.min(1, (1.0 - (basePhase * 0.8 + 0.1)) + sweepOffset));
+      const scanY = boxH * stageScanPhase;
 
-      // Scanning plane volume / line
+      const sp0 = project(-boxW * 0.68, scanY, -boxD * 0.68);
+      const sp1 = project(boxW * 0.68, scanY, -boxD * 0.68);
+      const sp2 = project(boxW * 0.68, scanY, boxD * 0.68);
+      const sp3 = project(-boxW * 0.68, scanY, boxD * 0.68);
+
       ctx.beginPath();
       ctx.moveTo(sp0.x, sp0.y);
       ctx.lineTo(sp1.x, sp1.y);
@@ -171,51 +303,57 @@ export function TeslaScannerAnimation({
       ctx.lineTo(sp3.x, sp3.y);
       ctx.closePath();
 
-      // Restrained LexMetra Teal accent
       const scanGrad = ctx.createLinearGradient(sp3.x, sp3.y, sp1.x, sp1.y);
-      scanGrad.addColorStop(0, "rgba(13, 148, 136, 0.03)");
-      scanGrad.addColorStop(0.5, "rgba(13, 148, 136, 0.12)");
-      scanGrad.addColorStop(1, "rgba(13, 148, 136, 0.03)");
+      scanGrad.addColorStop(0, "rgba(124, 58, 237, 0.05)");
+      scanGrad.addColorStop(0.5, "rgba(147, 51, 234, 0.24)");
+      scanGrad.addColorStop(1, "rgba(59, 130, 246, 0.05)");
       ctx.fillStyle = scanGrad;
       ctx.fill();
 
-      // Thin scanning outline
-      ctx.lineWidth = 1.2;
-      ctx.strokeStyle = "rgba(13, 148, 136, 0.65)";
-      ctx.stroke();
-
-      // Scanning intersection line across the front face
+      // Glowing laser scan line across PDP
       const frontLeft = project(-boxW / 2, scanY, boxD / 2);
       const frontCenter = project(boxW / 2, scanY, boxD / 2);
       ctx.beginPath();
       ctx.moveTo(frontLeft.x, frontLeft.y);
       ctx.lineTo(frontCenter.x, frontCenter.y);
-      ctx.lineWidth = 1.8;
-      ctx.strokeStyle = "rgba(13, 148, 136, 0.9)";
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = activeStage >= 3 ? "#10B981" : "#8B5CF6";
+      ctx.shadowColor = activeStage >= 3 ? "#10B981" : "#8B5CF6";
+      ctx.shadowBlur = 12;
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      // 6. Surface anchor nodes / evidence points (subtle pulsing dots)
-      const nodeCount = 4;
-      for (let i = 0; i < nodeCount; i++) {
-        const nodeY = boxH * (0.2 + i * 0.22);
-        const distFromScan = Math.abs(nodeY - scanY);
-        const intensity = Math.max(0, 1 - distFromScan / 30);
+      // 8. Surface Detected Bounding Boxes on PDP
+      // Bounding boxes unlock and persist as activeStage progresses:
+      // Stage 1+: Top box unlocked
+      // Stage 2+: Middle box unlocked
+      // Stage 3+: Bottom box unlocked
+      const regions = [
+        { y: boxH * 0.72, w: boxW * 0.45, h: 14, color: "#10B981", minStage: 1 },
+        { y: boxH * 0.48, w: boxW * 0.65, h: 16, color: "#3B82F6", minStage: 2 },
+        { y: boxH * 0.24, w: boxW * 0.55, h: 14, color: "#F59E0B", minStage: 3 },
+      ];
 
-        if (intensity > 0.05) {
-          const np = project(-boxW / 2 + 15 + i * 16, nodeY, boxD / 2);
+      regions.forEach((reg) => {
+        if (activeStage >= reg.minStage) {
+          const rP1 = project(-boxW / 2 + 8, reg.y, boxD / 2);
+          const rP2 = project(-boxW / 2 + 8 + reg.w, reg.y, boxD / 2);
+          const rP3 = project(-boxW / 2 + 8 + reg.w, reg.y - reg.h, boxD / 2);
+          const rP4 = project(-boxW / 2 + 8, reg.y - reg.h, boxD / 2);
+
           ctx.beginPath();
-          ctx.arc(np.x, np.y, 2.5, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(13, 148, 136, ${0.4 + intensity * 0.6})`;
+          ctx.moveTo(rP1.x, rP1.y);
+          ctx.lineTo(rP2.x, rP2.y);
+          ctx.lineTo(rP3.x, rP3.y);
+          ctx.lineTo(rP4.x, rP4.y);
+          ctx.closePath();
+          ctx.strokeStyle = reg.color;
+          ctx.lineWidth = 1.3;
+          ctx.fillStyle = reg.color === "#10B981" ? "rgba(16, 185, 129, 0.16)" : "rgba(59, 130, 246, 0.16)";
           ctx.fill();
-
-          // Subtle ring around node
-          ctx.beginPath();
-          ctx.arc(np.x, np.y, 5 + intensity * 3, 0, Math.PI * 2);
-          ctx.lineWidth = 0.8;
-          ctx.strokeStyle = `rgba(13, 148, 136, ${intensity * 0.5})`;
           ctx.stroke();
         }
-      }
+      });
 
       animationFrameId = requestAnimationFrame(render);
     };
@@ -225,86 +363,141 @@ export function TeslaScannerAnimation({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, []);
+  }, [activeStage]);
+
+  const currentStageInfo = STAGES[Math.min(activeStage, STAGES.length - 1)];
+  const progressPercent = Math.round(((activeStage + 1) / STAGES.length) * 100);
 
   return (
-    <div className="flex min-h-[560px] w-full flex-col items-center justify-center bg-white px-4 py-8 text-neutral-900 selection:bg-neutral-200">
-      <div className="flex w-full max-w-lg flex-col items-center">
-        {/* Header Branding */}
-        <div className="flex items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-3.5 py-1 shadow-sm">
-          <ShieldCheck className="h-4 w-4 text-teal-700" />
-          <span className="text-[11px] font-semibold tracking-wider text-neutral-600 uppercase">
-            LexMetra Technical Intake
+    <div className="flex min-h-[580px] w-full flex-col items-center justify-center bg-gradient-to-b from-slate-50 via-white to-purple-50/30 px-4 py-8 text-slate-900 selection:bg-purple-100">
+      <div className="flex w-full max-w-xl flex-col items-center">
+        {/* Phase Header Badge */}
+        <div className="flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-1.5 shadow-xs">
+          <ShieldCheck className="h-4 w-4 text-purple-700 animate-pulse" />
+          <span className="text-xs font-extrabold tracking-wider text-purple-950 uppercase">
+            {lang === "hi"
+              ? "विधिक मापविज्ञान स्वचालित अनुपालन स्क्रीनिंग"
+              : lang === "mr"
+              ? "कायदेशीर मापनशास्त्र स्वयंचलित पडताळणी"
+              : "Legal Metrology AI Statutory Vision Screening"}
           </span>
         </div>
 
-        {/* Minimalist Tesla-style 3D Visualizer Canvas */}
-        <div className="relative my-4 flex h-60 w-72 items-center justify-center">
+        {/* 3D Holographic Package Visualizer (pulled lower as requested) */}
+        <div className="relative mt-3 mb-2 flex h-68 w-84 items-center justify-center">
           <canvas
             ref={canvasRef}
-            width={288}
-            height={240}
+            width={336}
+            height={272}
             className="h-full w-full object-contain"
           />
         </div>
 
-        {/* Product Identity */}
-        <div className="text-center">
-          <h2 className="text-xl font-medium tracking-tight text-neutral-900">
+        {/* Product & Active Stage Status */}
+        <div className="text-center space-y-1">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 text-white px-3.5 py-1 text-xs font-bold shadow-xs">
+            <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-spin" />
+            <span>
+              {lang === "hi"
+                ? `चरण ${activeStage + 1} / 5: ${currentStageInfo.hi}`
+                : lang === "mr"
+                ? `टप्पा ${activeStage + 1} / 5: ${currentStageInfo.mr}`
+                : `Stage ${activeStage + 1} of 5: ${currentStageInfo.en}`}
+            </span>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
             {productName}
           </h2>
-          <p className="mt-1 text-xs text-neutral-500">
-            Parallel 3-Face CV Ingestion & Evidence Normalization
+          <p className="text-xs font-medium text-slate-500 max-w-md mx-auto">
+            {lang === "hi" ? currentStageInfo.subHi : lang === "mr" ? currentStageInfo.subMr : currentStageInfo.subEn}
           </p>
         </div>
 
-        {/* Truthful Stage Rail (Driven strictly by actual state) */}
-        <div className="mt-7 w-full space-y-2">
+        {/* Overall Progress Bar */}
+        <div className="mt-4 w-full">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 mb-1.5">
+            <span>{lang === "hi" ? "पाइपलाइन निष्पादन प्रगति" : lang === "mr" ? "पडताळणी प्रगती" : "Pipeline Execution Progress"}</span>
+            <span className="text-purple-700 font-extrabold">{progressPercent}%</span>
+          </div>
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-purple-700 via-indigo-600 to-emerald-500 transition-all duration-500 shadow-sm"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Live Detected Declaration Badges */}
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {DETECTED_TAGS.slice(0, Math.min(activeStage + 2, DETECTED_TAGS.length)).map((tag, idx) => (
+            <div
+              key={idx}
+              className="animate-in fade-in zoom-in-95 duration-200 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] shadow-2xs"
+            >
+              <span className="font-bold text-slate-500">{tag.label}:</span>
+              <span className="font-extrabold text-purple-900">{tag.val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 5-Stage Stepper Rail */}
+        <div className="mt-6 w-full space-y-2">
           {STAGES.map((step, idx) => {
             const isCompleted = idx < activeStage;
             const isCurrent = idx === activeStage;
+            const StepIcon = step.icon;
+
+            const stepTitle = lang === "hi" ? step.hi : lang === "mr" ? step.mr : step.en;
 
             return (
               <div
                 key={step.id}
-                className={`flex items-center gap-3 rounded-lg border px-3.5 py-2.5 transition-all duration-300 ${
+                className={`flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all duration-300 ${
                   isCurrent
-                    ? "border-neutral-900 bg-neutral-900 text-white shadow-sm"
+                    ? "border-purple-600 bg-purple-900 text-white shadow-md scale-[1.01]"
                     : isCompleted
-                    ? "border-neutral-200 bg-neutral-50/80 text-neutral-700"
-                    : "border-neutral-100 bg-white text-neutral-400"
+                    ? "border-emerald-200 bg-emerald-50/80 text-emerald-950"
+                    : "border-slate-200 bg-white text-slate-400"
                 }`}
               >
-                {/* Stage Indicator */}
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center">
+                {/* Stage Icon */}
+                <div
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
+                    isCurrent
+                      ? "bg-purple-700 text-amber-300 ring-2 ring-purple-400"
+                      : isCompleted
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-100 text-slate-400"
+                  }`}
+                >
                   {isCompleted ? (
-                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-teal-600 text-white">
-                      <Check className="h-2.5 w-2.5 stroke-[2.5]" />
-                    </span>
-                  ) : isCurrent ? (
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400 opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-teal-400" />
-                    </span>
+                    <Check className="h-4 w-4 stroke-[3]" />
                   ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-neutral-300" />
+                    <StepIcon className={`h-4 w-4 ${isCurrent ? "animate-pulse" : ""}`} />
                   )}
                 </div>
 
-                {/* Stage Label */}
-                <span className="text-xs font-medium tracking-normal">
-                  {step.label}
-                </span>
+                {/* Stage Label & Details */}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold tracking-tight truncate">{stepTitle}</p>
+                  <p
+                    className={`text-[10px] truncate mt-0.5 ${
+                      isCurrent ? "text-purple-200" : isCompleted ? "text-emerald-700 font-medium" : "text-slate-400"
+                    }`}
+                  >
+                    {lang === "hi" ? step.subHi : lang === "mr" ? step.subMr : step.subEn}
+                  </p>
+                </div>
 
-                {/* Status Tag */}
+                {/* Status Badge */}
                 {isCurrent && (
-                  <span className="ml-auto rounded bg-neutral-800 px-2 py-0.5 text-[10px] font-medium tracking-wide text-teal-300 uppercase">
-                    ACTIVE
+                  <span className="shrink-0 rounded-lg bg-amber-400 px-2 py-0.5 text-[10px] font-black text-slate-950 uppercase tracking-wide animate-pulse">
+                    {lang === "hi" ? "सक्रिय" : lang === "mr" ? "सक्रिय" : "PROCESSING"}
                   </span>
                 )}
                 {isCompleted && (
-                  <span className="ml-auto text-[10px] font-medium text-neutral-500">
-                    LOCKED
+                  <span className="shrink-0 rounded-lg bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-bold">
+                    ✓ {lang === "hi" ? "पूर्ण" : lang === "mr" ? "पूर्ण" : "VERIFIED"}
                   </span>
                 )}
               </div>
@@ -312,11 +505,11 @@ export function TeslaScannerAnimation({
           })}
         </div>
 
-        {/* Minimal Footer Metadata */}
-        <div className="mt-6 flex items-center gap-4 text-[11px] text-neutral-400">
-          <span>Evidence-Safe +6% Boundary</span>
+        {/* Footer Guarantee */}
+        <div className="mt-5 flex items-center gap-3 text-[11px] font-semibold text-slate-400">
+          <span>{lang === "hi" ? "LMPC 2011 नियम 6 एवं 26 अनुपालन" : lang === "mr" ? "LMPC 2011 नियम 6 व 26 पडताळणी" : "LMPC Rules 2011 Statutory Verification"}</span>
           <span>•</span>
-          <span>Zero Evidence Loss Guarantee</span>
+          <span>{lang === "hi" ? "100% डिजिटल साक्ष्य लॉग" : lang === "mr" ? "100% डिजिटल पुरावा नोंद" : "100% Digital Evidence Chain"}</span>
         </div>
       </div>
     </div>

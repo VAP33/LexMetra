@@ -114,6 +114,7 @@ function getNavItems(lang: Language, role?: string): Array<{ label: string; view
     allItems = [
       { label: "अवलोकन", view: "landing", icon: Sparkles },
       { label: "डैशबोर्ड", view: "home", icon: LayoutDashboard },
+      { label: "पैकेज स्कैन करें", view: "scan", icon: Camera },
       { label: "निरीक्षण सूची", view: "history", icon: HistoryIcon },
       { label: "वैधानिक रजिस्टर", view: "register", icon: ClipboardCheck },
       { label: "समीक्षा कतार", view: "reviewQueue", icon: ShieldAlert },
@@ -127,6 +128,7 @@ function getNavItems(lang: Language, role?: string): Array<{ label: string; view
     allItems = [
       { label: "आढावा", view: "landing", icon: Sparkles },
       { label: "डॅशबोर्ड", view: "home", icon: LayoutDashboard },
+      { label: "पॅकेज स्कॅन करा", view: "scan", icon: Camera },
       { label: "तपासणी सूची", view: "history", icon: HistoryIcon },
       { label: "वैधानिक नोंदवही", view: "register", icon: ClipboardCheck },
       { label: "पुनरावलोकन रांग", view: "reviewQueue", icon: ShieldAlert },
@@ -140,6 +142,7 @@ function getNavItems(lang: Language, role?: string): Array<{ label: string; view
     allItems = [
       { label: "Overview", view: "landing", icon: Sparkles },
       { label: "Dashboard", view: "home", icon: LayoutDashboard },
+      { label: "Scan Package", view: "scan", icon: Camera },
       { label: "Inspections", view: "history", icon: HistoryIcon },
       { label: "Register", view: "register", icon: ClipboardCheck },
       { label: "Review Queue", view: "reviewQueue", icon: ShieldAlert },
@@ -153,15 +156,25 @@ function getNavItems(lang: Language, role?: string): Array<{ label: string; view
 
   const r = (role || "").toLowerCase();
   if (r === "customer" || r === "consumer") {
-    return allItems.filter((i) => i.view === "landing" || i.view === "customer" || i.view === "profile");
+    return allItems.filter((i) => i.view === "customer" || i.view === "scan" || i.view === "profile");
   }
   if (r === "authority") {
     return allItems.filter(
       (i) =>
-        i.view === "landing" ||
-        i.view === "authority" ||
         i.view === "seniorRegional" ||
-        i.view === "history" ||
+        i.view === "scan" ||
+        i.view === "authority" ||
+        i.view === "register" ||
+        i.view === "regulatory" ||
+        i.view === "profile"
+    );
+  }
+  if (r === "admin") {
+    return allItems.filter(
+      (i) =>
+        i.view === "seniorRegional" ||
+        i.view === "scan" ||
+        i.view === "authority" ||
         i.view === "register" ||
         i.view === "regulatory" ||
         i.view === "profile"
@@ -170,16 +183,15 @@ function getNavItems(lang: Language, role?: string): Array<{ label: string; view
   if (r === "inspector" || r === "reviewer" || r === "senior_inspector") {
     return allItems.filter(
       (i) =>
-        i.view === "landing" ||
         i.view === "home" ||
+        i.view === "scan" ||
         i.view === "history" ||
         i.view === "register" ||
         i.view === "reviewQueue" ||
-        i.view === "regulatory" ||
         i.view === "profile"
     );
   }
-  return allItems;
+  return allItems.filter((i) => i.view !== "landing");
 }
 
 const statusStyles: Record<
@@ -278,7 +290,9 @@ function InspectionRow({ inspection, onOpen, lang }: { inspection: Inspection; o
       <ProductThumb inspection={inspection} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-foreground">{inspection.product}</p>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{inspection.dateLabel} · {inspection.summary}</p>
+        <p className="mt-1 truncate text-xs text-muted-foreground">
+          {inspection.productId ? `#${inspection.productId} · ` : ""}{inspection.dateLabel}
+        </p>
       </div>
       <div className="flex flex-col items-end gap-1">
         <StatusBadge status={inspection.status} compact lang={lang} />
@@ -388,6 +402,9 @@ function Header({
   online,
   lang = "en",
   onLanguageChange,
+  user,
+  onLogout,
+  onNavigate,
 }: {
   title: string;
   eyebrow?: string;
@@ -395,9 +412,31 @@ function Header({
   online?: boolean;
   lang?: Language;
   onLanguageChange?: (l: Language) => void;
+  user?: AuthedUser | null;
+  onLogout?: () => void;
+  onNavigate?: (view: View) => void;
 }) {
   const [fontScale, setFontScale] = useState<"sm" | "md" | "lg">("md");
   const [isHighContrast, setIsHighContrast] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLangOpen, setIsLangOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+      if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) {
+        setIsLangOpen(false);
+      }
+    }
+    if (isMenuOpen || isLangOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isMenuOpen, isLangOpen]);
 
   const changeFontScale = (scale: "sm" | "md" | "lg") => {
     setFontScale(scale);
@@ -419,10 +458,10 @@ function Header({
 
   const defaultEyebrow =
     lang === "hi"
-      ? "भारत सरकार · उपभोक्ता मामले विभाग"
+      ? "भारत सरकार · विधिक मापविज्ञान प्रभाग"
       : lang === "mr"
-      ? "भारत सरकार · ग्राहक व्यवहार विभाग"
-      : "GOVT OF INDIA · DEPARTMENT OF CONSUMER AFFAIRS";
+      ? "भारत सरकार · कायदेशीर मापनशास्त्र विभाग"
+      : "GOVT OF INDIA · LEGAL METROLOGY DIVISION";
 
   return (
     <header className="sticky top-0 z-30 border-b border-brand-900/60 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white shadow-md">
@@ -450,9 +489,6 @@ function Header({
               </div>
               <h1 className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
                 <span>{title}</span>
-                <span className="hidden lg:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-govgreen border border-emerald-200">
-                  LMPC 2011 Verified
-                </span>
               </h1>
             </div>
           </div>
@@ -496,56 +532,155 @@ function Header({
             </button>
           </div>
 
-          {/* Global Header Language Switcher - Responsive Pill */}
+          {/* Global Header Language Switcher - Globe Icon Dropdown */}
           {onLanguageChange && (
-            <div className="inline-flex items-center gap-0.5 rounded-2xl border border-slate-200/90 bg-white/95 p-0.5 sm:p-1 text-xs font-semibold shadow-xs">
+            <div className="relative" ref={langMenuRef}>
               <button
                 type="button"
-                onClick={() => onLanguageChange("en")}
-                className={`rounded-xl px-2 sm:px-3 py-0.5 sm:py-1 transition-all text-[10px] sm:text-xs ${
-                  lang === "en"
-                    ? "bg-[#7C3AED] text-white font-bold shadow-xs"
-                    : "text-slate-800 hover:text-slate-950 font-semibold"
-                }`}
+                aria-label="Select Language"
+                onClick={() => setIsLangOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-2.5 sm:px-3 py-1.5 text-xs font-bold text-white shadow-xs backdrop-blur-xs transition hover:bg-white/20 active:scale-95"
               >
-                EN
+                <Globe className="h-4 w-4 text-saffron-300" />
+                <span className="text-xs uppercase tracking-wide">
+                  {lang === "hi" ? "हिन्दी" : lang === "mr" ? "मराठी" : "EN"}
+                </span>
+                <ChevronDown className={`h-3 w-3 text-brand-200 transition-transform ${isLangOpen ? "rotate-180" : ""}`} />
               </button>
-              <button
-                type="button"
-                onClick={() => onLanguageChange("hi")}
-                className={`rounded-xl px-2 sm:px-3 py-0.5 sm:py-1 transition-all text-[10px] sm:text-xs ${
-                  lang === "hi"
-                    ? "bg-[#7C3AED] text-white font-bold shadow-xs"
-                    : "text-slate-800 hover:text-slate-950 font-semibold"
-                }`}
-              >
-                हिन्दी
-              </button>
-              <button
-                type="button"
-                onClick={() => onLanguageChange("mr")}
-                className={`rounded-xl px-2 sm:px-3 py-0.5 sm:py-1 transition-all text-[10px] sm:text-xs ${
-                  lang === "mr"
-                    ? "bg-[#7C3AED] text-white font-bold shadow-xs"
-                    : "text-slate-800 hover:text-slate-950 font-semibold"
-                }`}
-              >
-                मराठी
-              </button>
+
+              {isLangOpen && (
+                <div className="absolute right-0 mt-2 w-44 rounded-2xl border border-slate-200 bg-white p-1.5 text-slate-800 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="px-2.5 py-1.5 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {lang === "hi" ? "भाषा चुनें" : lang === "mr" ? "भाषा निवडा" : "Select Language"}
+                  </div>
+                  <div className="py-1 space-y-0.5">
+                    {[
+                      { code: "en", label: "English", sub: "Default" },
+                      { code: "hi", label: "हिन्दी", sub: "Hindi" },
+                      { code: "mr", label: "मराठी", sub: "Marathi" },
+                    ].map((opt) => {
+                      const isActive = lang === opt.code;
+                      return (
+                        <button
+                          key={opt.code}
+                          type="button"
+                          onClick={() => {
+                            onLanguageChange(opt.code as Language);
+                            setIsLangOpen(false);
+                          }}
+                          className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition ${
+                            isActive
+                              ? "bg-purple-50 text-purple-900 font-bold"
+                              : "text-slate-700 hover:bg-slate-100 font-medium"
+                          }`}
+                        >
+                          <div className="flex flex-col text-left">
+                            <span>{opt.label}</span>
+                            <span className="text-[10px] text-slate-400">{opt.sub}</span>
+                          </div>
+                          {isActive && <Check className="h-4 w-4 text-purple-700" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {online === false ? (
+          {online === false && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/20 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold text-red-300 border border-destructive/30">
               <WifiOff className="h-3 w-3" />Offline
             </span>
-          ) : (
-            <span className="hidden md:inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold text-emerald-300 border border-emerald-400/30">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />Central Live
-            </span>
           )}
-          <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20 shadow-sm hover:bg-white/20 transition-colors">
-            <UserRound className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-saffron-300" />
+
+          {/* User Profile Burger Menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              aria-label="User Profile & Menu"
+              onClick={() => setIsMenuOpen((prev) => !prev)}
+              className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-white/10 text-white border border-white/20 shadow-sm hover:bg-white/20 active:scale-95 transition-all"
+            >
+              <UserRound className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-saffron-300" />
+            </button>
+
+            {isMenuOpen && (
+              <div className="absolute right-0 mt-2.5 w-60 rounded-2xl border border-slate-200 bg-white p-2 text-slate-800 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* User Info Header */}
+                <div className="px-3 py-2.5 border-b border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    {lang === "hi" ? "लॉगिन उपयोगकर्ता" : lang === "mr" ? "लॉगिन वापरकर्ता" : "Signed in as"}
+                  </p>
+                  <p className="text-sm font-bold text-slate-900 truncate">{user?.username || "Authorized Officer"}</p>
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    <span className="capitalize">{user?.role || "Inspector"}</span>
+                  </div>
+                </div>
+
+                {/* Menu Items */}
+                <div className="py-1 space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onNavigate?.("profile");
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-black transition-colors"
+                  >
+                    <UserRound className="h-4 w-4 text-brand" />
+                    {lang === "hi" ? "अधिकारी प्रोफ़ाइल" : lang === "mr" ? "अधिकारी प्रोफाइल" : "Officer Profile"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onNavigate?.("history");
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-black transition-colors"
+                  >
+                    <HistoryIcon className="h-4 w-4 text-slate-500" />
+                    {lang === "hi" ? "निरीक्षण इतिहास" : lang === "mr" ? "तपासणी इतिहास" : "Inspection History"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onNavigate?.("register");
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-black transition-colors"
+                  >
+                    <ClipboardCheck className="h-4 w-4 text-emerald-600" />
+                    {lang === "hi" ? "वैधानिक रजिस्टर" : lang === "mr" ? "वैधानिक नोंदवही" : "Statutory Register"}
+                  </button>
+                </div>
+
+                {/* Sign Out / Action */}
+                <div className="pt-1 mt-1 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      clearSession();
+                      if (onLogout) {
+                        onLogout();
+                      } else if (onNavigate) {
+                        onNavigate("login");
+                      } else {
+                        window.location.reload();
+                      }
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+                  >
+                    <LogOut className="h-4 w-4 text-red-600" />
+                    {lang === "hi" ? "साइन आउट" : lang === "mr" ? "साइन आउट करा" : "Sign Out"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -553,7 +688,7 @@ function Header({
   );
 }
 
-const AppHeader = Header;
+export const AppHeader = Header;
 
 function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNavigate: (view: View) => void; lang?: Language; role?: string }) {
   const currentNavItems = getNavItems(lang, role);
@@ -566,9 +701,9 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
         <div className="text-center">
           <div className="flex items-center justify-center gap-1.5">
             <p className="text-sm font-black tracking-widest text-brand-900">LEXMETRA</p>
-            <span className="rounded bg-saffron-soft border border-saffron/40 px-1.5 py-0.5 text-[9px] font-extrabold text-saffron-700">DCA AI</span>
+            <span className="rounded bg-saffron-soft border border-saffron/40 px-1.5 py-0.5 text-[9px] font-extrabold text-saffron-700">LM AI</span>
           </div>
-          <p className="text-[10px] font-bold uppercase tracking-[.06em] text-govgreen mt-0.5">Dept of Consumer Affairs</p>
+          <p className="text-[10px] font-bold uppercase tracking-[.06em] text-govgreen mt-0.5">Legal Metrology Directorate</p>
         </div>
       </div>
 
@@ -602,7 +737,7 @@ function DesktopRail({ view, onNavigate, lang = "en", role }: { view: View; onNa
           <span>Statutory Authority Unit</span>
         </div>
         <p className="mt-1.5 leading-relaxed text-slate-600 text-[11px]">
-          Legal Metrology (Packaged Commodities) Rules, 2011 · Ministry of Consumer Affairs
+          Legal Metrology (Packaged Commodities) Rules, 2011 · Government of India
         </p>
         <div className="mt-2.5 flex items-center gap-1.5 text-[10px] font-bold text-saffron-700">
           <span className="h-1.5 w-1.5 rounded-full bg-govgreen" />
@@ -729,7 +864,7 @@ const dashboardTranslations: Record<
   }
 > = {
   en: {
-    govDca: "Government of India · DCA",
+    govDca: "Government of India · Legal Metrology",
     enforcementUnit: "Enforcement Unit: Zone 4 Surveillance",
     fieldOperations: "Legal Metrology Field Operations",
     fieldSub: "Statutory verification under Legal Metrology (Packaged Commodities) Rules, 2011 & FSSAI Standards",
@@ -780,7 +915,7 @@ const dashboardTranslations: Record<
     citizenDesc: "Public scan & report",
   },
   hi: {
-    govDca: "भारत सरकार · उपभोक्ता मामले विभाग",
+    govDca: "भारत सरकार · विधिक मापविज्ञान प्रभाग",
     enforcementUnit: "प्रवर्तन इकाई: जोन 4 निगरानी",
     fieldOperations: "विधिक मापविज्ञान क्षेत्रीय संचालन",
     fieldSub: "विधिक मापविज्ञान (पैक की गई वस्तुएं) नियम, 2011 एवं FSSAI मानकों के तहत वैधानिक सत्यापन",
@@ -831,7 +966,7 @@ const dashboardTranslations: Record<
     citizenDesc: "सार्वजनिक स्कैन व रिपोर्ट",
   },
   mr: {
-    govDca: "भारत सरकार · ग्राहक व्यवहार विभाग",
+    govDca: "भारत सरकार · कायदेशीर मापनशास्त्र विभाग",
     enforcementUnit: "अंमलबजावणी कक्ष: विभाग 4 देखरेख",
     fieldOperations: "कायदेशीर मापनशास्त्र क्षेत्रीय कामकाज",
     fieldSub: "कायदेशीर मापनशास्त्र (पॅकबंद वस्तू) नियम, 2011 आणि FSSAI मानकांनुसार वैधानिक पडताळणी",
@@ -893,6 +1028,7 @@ function HomeView({
   onOpen,
   lang = "en",
   onSetLang,
+  user,
 }: {
   inspections: Inspection[];
   loading: boolean;
@@ -903,6 +1039,7 @@ function HomeView({
   onOpen: (inspection: Inspection) => void;
   lang?: Language;
   onSetLang?: (l: Language) => void;
+  user?: AuthedUser | null;
 }) {
   const t = getTranslation(lang);
   const dt = dashboardTranslations[lang] || dashboardTranslations.en;
@@ -957,7 +1094,15 @@ function HomeView({
 
   return (
     <>
-      <AppHeader title={t.dashboard} online={!error} lang={lang} onLanguageChange={onSetLang} />
+      <AppHeader
+        title={t.dashboard}
+        online={!error}
+        lang={lang}
+        onLanguageChange={onSetLang}
+        user={user}
+        onLogout={onLogout}
+        onNavigate={onNavigate}
+      />
       <main className="mx-auto max-w-7xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
         {/* Government Officer Operational Header */}
         <section className="flex flex-col justify-between gap-4 rounded-2xl border border-border/80 bg-card p-6 shadow-sm sm:flex-row sm:items-center">
@@ -1103,10 +1248,9 @@ function HomeView({
                       <div className="min-w-0 flex-1 pr-3">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm text-foreground truncate">{item.product}</span>
-                          <span className="font-mono text-[10px] text-muted-foreground">#{item.id}</span>
                         </div>
                         <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                          {item.manufacturer || dt.manufacturerNotDetected} · {item.summary || dt.pendingOfficerReview}
+                          {item.productId ? `#${item.productId} · ` : `#${item.id} · `}{item.dateLabel}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1246,36 +1390,6 @@ function HomeView({
                 </div>
               </div>
             </section>
-
-            {/* Senior Officer & Citizen Reporting Links */}
-            <section className="rounded-2xl border border-brand/20 bg-muted/30 p-4 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-bold uppercase tracking-wider text-muted-foreground text-[10px]">
-                  {dt.specializedPortals}
-                </span>
-                <span className="text-[10px] text-brand font-semibold">{dt.dualMode}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => onNavigate("seniorRegional")}
-                  className="rounded-xl border border-border/80 bg-card p-2.5 text-left hover:border-brand transition group"
-                >
-                  <Globe className="h-4 w-4 text-brand mb-1 group-hover:scale-110 transition-transform" />
-                  <p className="font-semibold text-foreground">{dt.seniorOfficer}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{dt.seniorOfficerDesc}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("customer")}
-                  className="rounded-xl border border-border/80 bg-card p-2.5 text-left hover:border-brand transition group"
-                >
-                  <ScanLine className="h-4 w-4 text-brand mb-1 group-hover:scale-110 transition-transform" />
-                  <p className="font-semibold text-foreground">{dt.citizenConsumer}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{dt.citizenDesc}</p>
-                </button>
-              </div>
-            </section>
           </div>
         </div>
       </main>
@@ -1287,12 +1401,36 @@ function HomeView({
 // History / Register / Review queue list views
 // ---------------------------------------------------------------------------
 
-function FilterBar({ search, setSearch, filter, setFilter }: { search: string; setSearch: (value: string) => void; filter: "ALL" | InspectionStatus; setFilter: (value: "ALL" | InspectionStatus) => void }) {
+function FilterBar({
+  search,
+  setSearch,
+  filter,
+  setFilter,
+  lang = "en",
+}: {
+  search: string;
+  setSearch: (value: string) => void;
+  filter: "ALL" | InspectionStatus;
+  setFilter: (value: "ALL" | InspectionStatus) => void;
+  lang?: Language;
+}) {
+  const allLabel = lang === "hi" ? "सभी" : lang === "mr" ? "सर्व" : "All";
   return (
     <div className="space-y-3">
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products or inspection IDs" className="h-11 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15" />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={
+            lang === "hi"
+              ? "उत्पाद या निरीक्षण आईडी खोजें..."
+              : lang === "mr"
+              ? "उत्पादन किंवा तपासणी आयडी शोधा..."
+              : "Search products or inspection IDs"
+          }
+          className="h-11 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
+        />
       </div>
       <div className="flex items-center gap-2 overflow-x-auto pb-1 hide-scrollbar">
         <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1307,7 +1445,7 @@ function FilterBar({ search, setSearch, filter, setFilter }: { search: string; s
                 : "bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 hover:text-black"
             }`}
           >
-            {item === "ALL" ? "All" : statusLabel(item)}
+            {item === "ALL" ? allLabel : statusLabel(item, lang)}
           </button>
         ))}
       </div>
@@ -1323,6 +1461,10 @@ function ListView({
   onRetry,
   onOpen,
   onNavigate,
+  lang = "en",
+  onLanguageChange,
+  user,
+  onLogout,
 }: {
   kind: "history" | "register";
   inspections: Inspection[];
@@ -1331,6 +1473,10 @@ function ListView({
   onRetry: () => void;
   onOpen: (inspection: Inspection) => void;
   onNavigate: (view: View) => void;
+  lang?: Language;
+  onLanguageChange?: (l: Language) => void;
+  user?: AuthedUser | null;
+  onLogout?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"ALL" | InspectionStatus>("ALL");
@@ -1344,30 +1490,128 @@ function ListView({
       ),
     [filter, inspections, kind, search],
   );
-  const title = kind === "history" ? "Inspection history" : "Compliance register";
-  const subtitle = kind === "history" ? "Every package inspection, in one place." : "Products you have explicitly verified or reviewed.";
+
+  const title =
+    kind === "history"
+      ? lang === "hi"
+        ? "निरीक्षण इतिहास"
+        : lang === "mr"
+        ? "तपासणी इतिहास"
+        : "Inspection history"
+      : lang === "hi"
+      ? "वैधानिक रजिस्टर"
+      : lang === "mr"
+      ? "वैधानिक नोंदवही"
+      : "Compliance register";
+
+  const subtitle =
+    kind === "history"
+      ? lang === "hi"
+        ? "प्रत्येक पॅकेज निरीक्षण एकाच ठिकाणी."
+        : lang === "mr"
+        ? "प्रत्येक पॅकेज तपासणी एकाच ठिकाणी."
+        : "Every package inspection, in one place."
+      : lang === "hi"
+      ? "आपके द्वारा सत्यापित या समीक्षा किए गए उत्पाद।"
+      : lang === "mr"
+      ? "आपण तपासलेली व जतन केलेली उत्पादने."
+      : "Products you have explicitly verified or reviewed.";
+
+  const eyebrowText =
+    kind === "history"
+      ? lang === "hi"
+        ? "ऑडिट ट्रेल"
+        : lang === "mr"
+        ? "तपासणी नोंदी"
+        : "Audit trail"
+      : lang === "hi"
+      ? "वैधानिक अभिलेख"
+      : lang === "mr"
+      ? "कायदेशीर दस्तऐवज"
+      : "Statutory records";
+
   return (
     <>
-      <AppHeader title={title} online={!error} />
+      <AppHeader
+        title={title}
+        online={!error}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+        user={user}
+        onLogout={onLogout}
+        onNavigate={onNavigate}
+      />
       <main className="mx-auto max-w-6xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <p className="text-sm font-semibold text-brand">{kind === "history" ? "Audit trail" : "Statutory records"}</p>
+            <p className="text-sm font-semibold text-brand">{eyebrowText}</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-[-.05em]">{title}</h2>
             <p className="mt-2 text-sm text-muted-foreground">{subtitle}</p>
           </div>
-          <div className="rounded-xl bg-muted px-4 py-3 text-sm"><span className="text-muted-foreground">Showing </span><strong>{filtered.length}</strong><span className="text-muted-foreground"> records</span></div>
+          <div className="rounded-xl bg-muted px-4 py-3 text-sm">
+            <span className="text-muted-foreground">
+              {lang === "hi" ? "दिखाए जा रहे " : lang === "mr" ? "दाखवत आहे " : "Showing "}
+            </span>
+            <strong>{filtered.length}</strong>
+            <span className="text-muted-foreground">
+              {lang === "hi" ? " रिकॉर्ड" : lang === "mr" ? " नोंदी" : " records"}
+            </span>
+          </div>
         </div>
         {error && <ErrorBanner message={error} onRetry={onRetry} />}
-        <FilterBar search={search} setSearch={setSearch} filter={filter} setFilter={setFilter} />
+        <FilterBar search={search} setSearch={setSearch} filter={filter} setFilter={setFilter} lang={lang} />
         {loading ? (
-          <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
+          <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />
+            ))}
+          </div>
         ) : filtered.length ? (
-          <div className="rounded-2xl border border-border/70 bg-card px-4">{filtered.map((inspection) => <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} />)}</div>
+          <div className="rounded-2xl border border-border/70 bg-card px-4">
+            {filtered.map((inspection) => (
+              <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} />
+            ))}
+          </div>
         ) : (
           <EmptyState
-            title={search || filter !== "ALL" ? "No matching records" : kind === "history" ? "No inspections yet" : "Your register is empty"}
-            description={search || filter !== "ALL" ? "Try a different search or filter." : kind === "history" ? "Scan your first product to start building your inspection history." : "Products you verify and save will appear here."}
+            title={
+              search || filter !== "ALL"
+                ? lang === "hi"
+                  ? "कोई मेल खाता रिकॉर्ड नहीं"
+                  : lang === "mr"
+                  ? "कोणतीही जुळणारी नोंद नाही"
+                  : "No matching records"
+                : kind === "history"
+                ? lang === "hi"
+                  ? "अभी तक कोई निरीक्षण नहीं"
+                  : lang === "mr"
+                  ? "अद्याप कोणतीही तपासणी नाही"
+                  : "No inspections yet"
+                : lang === "hi"
+                ? "आपका रजिस्टर खाली है"
+                : lang === "mr"
+                ? "आपली नोंदवही रिकामी आहे"
+                : "Your register is empty"
+            }
+            description={
+              search || filter !== "ALL"
+                ? lang === "hi"
+                  ? "कृपया भिन्न खोज या फ़िल्टर आज़माएं।"
+                  : lang === "mr"
+                  ? "कृपया वेगळा शोध किंवा फिल्टर वापरून पहा."
+                  : "Try a different search or filter."
+                : kind === "history"
+                ? lang === "hi"
+                  ? "पहला उत्पाद स्कैन करें और निरीक्षण इतिहास बनाना शुरू करें।"
+                  : lang === "mr"
+                  ? "आपली तपासणी नोंद सुरू करण्यासाठी पहिले उत्पादन स्कॅन करा."
+                  : "Scan your first product to start building your inspection history."
+                : lang === "hi"
+                ? "आपके द्वारा सत्यापित और सहेजे गए उत्पाद यहाँ दिखाई देंगे।"
+                : lang === "mr"
+                ? "आपण सत्यापित आणि जतन केलेली उत्पादने येथे दिसतील."
+                : "Products you verify and save will appear here."
+            }
             onAction={() => onNavigate("scan")}
           />
         )}
@@ -1383,6 +1627,10 @@ function ReviewQueueView({
   onRetry,
   onOpen,
   onNavigate,
+  lang = "en",
+  onLanguageChange,
+  user,
+  onLogout,
 }: {
   inspections: Inspection[];
   loading: boolean;
@@ -1390,27 +1638,65 @@ function ReviewQueueView({
   onRetry: () => void;
   onOpen: (inspection: Inspection) => void;
   onNavigate: (view: View) => void;
+  lang?: Language;
+  onLanguageChange?: (l: Language) => void;
+  user?: AuthedUser | null;
+  onLogout?: () => void;
 }) {
   const pending = inspections.filter((item) => item.reviewRequired && !item.reviewed);
+  const title = lang === "hi" ? "समीक्षा कतार" : lang === "mr" ? "पुनरावलोकन रांग" : "Review queue";
+  const subtitle =
+    lang === "hi"
+      ? "कम विश्वसनीयता वाले निष्कर्ष, स्टीकर/छेड़छाड़ संदेह और अन्य एआई संकेत जिन्हें अंतिम निर्णय से पहले मानवीय समीक्षा की आवश्यकता है।"
+      : lang === "mr"
+      ? "कमी विश्वासार्हता असलेले निष्कर्ष, लेबल फेरफार संशय आणि मानवी पडताळणी आवश्यक असलेले AI संकेत."
+      : "Low-confidence extractions, sticker/alteration suspicions, and other AI signals that need a person to look before anything is finalized. Nothing here has been auto-decided.";
+
   return (
     <>
-      <AppHeader title="Review queue" online={!error} />
+      <AppHeader
+        title={title}
+        online={!error}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+        user={user}
+        onLogout={onLogout}
+        onNavigate={onNavigate}
+      />
       <main className="mx-auto max-w-6xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
         <div>
-          <p className="text-sm font-semibold text-brand">Human-in-the-loop</p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-[-.05em]">Review queue</h2>
-          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            Low-confidence extractions, sticker/alteration suspicions, and other AI signals that need a person to look
-            before anything is finalized. Nothing here has been auto-decided.
+          <p className="text-sm font-semibold text-brand">
+            {lang === "hi" ? "मानव-समीक्षा नियंत्रण" : lang === "mr" ? "मानवी पडताळणी नियंत्रण" : "Human-in-the-loop"}
           </p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-[-.05em]">{title}</h2>
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">{subtitle}</p>
         </div>
         {error && <ErrorBanner message={error} onRetry={onRetry} />}
         {loading ? (
-          <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">{[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
+          <div className="space-y-3 rounded-2xl border border-border/70 bg-card p-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />
+            ))}
+          </div>
         ) : pending.length ? (
-          <div className="rounded-2xl border border-border/70 bg-card px-4">{pending.map((inspection) => <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} />)}</div>
+          <div className="rounded-2xl border border-border/70 bg-card px-4">
+            {pending.map((inspection) => (
+              <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} />
+            ))}
+          </div>
         ) : (
-          <EmptyState title="Queue is clear" description="Nothing is waiting on human review right now." onAction={() => onNavigate("scan")} actionLabel="Start a scan" />
+          <EmptyState
+            title={lang === "hi" ? "कतार खाली है" : lang === "mr" ? "रांग पूर्णपणे रिकामी आहे" : "Queue is clear"}
+            description={
+              lang === "hi"
+                ? "इस समय मानवीय समीक्षा के लिए कुछ भी लंबित नहीं है।"
+                : lang === "mr"
+                ? "सध्या मानवी पुनरावलोकनासाठी कोणतीही बाब प्रलंबित नाही."
+                : "Nothing is waiting on human review right now."
+            }
+            onAction={() => onNavigate("scan")}
+            actionLabel={lang === "hi" ? "स्कैन शुरू करें" : lang === "mr" ? "स्कॅन सुरू करा" : "Start a scan"}
+          />
         )}
       </main>
     </>
@@ -2088,34 +2374,81 @@ function ProcessingRunner({
   onError: (message: string) => void;
 }) {
   const [stageIdx, setStageIdx] = useState(0);
-  const ranRef = useRef(false);
+
+  const resultRef = useRef<Inspection | null>(null);
+  const errorRef = useRef<any>(null);
+  const isFinishedRef = useRef(false);
+  const isStartedRef = useRef(false);
+  const isCompletedRef = useRef(false);
+  const currentStageRef = useRef(0);
+
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onRunRef = useRef(onRun);
+  onRunRef.current = onRun;
 
   useEffect(() => {
-    if (ranRef.current) return;
-    ranRef.current = true;
+    function attemptFinish() {
+      if (isCompletedRef.current) return;
+      // Only finish when we have reached the last box (stage 4) AND backend results are ready
+      if (currentStageRef.current >= 4 && isFinishedRef.current) {
+        isCompletedRef.current = true;
+        if (errorRef.current) {
+          console.error("[Inspection Flow Error]", errorRef.current);
+          onErrorRef.current(
+            errorRef.current instanceof ApiError
+              ? errorRef.current.message
+              : errorRef.current instanceof Error
+              ? errorRef.current.message
+              : "Inspection failed. Please check network and backend."
+          );
+        } else if (resultRef.current) {
+          // Immediately load inspection results page!
+          onDoneRef.current(resultRef.current);
+        }
+      }
+    }
 
-    // Advance truthful stages as progress unfolds
-    const interval = window.setInterval(() => {
-      setStageIdx((value) => Math.min(value + 1, 4));
-    }, 600);
+    // 1. Start scan once
+    if (!isStartedRef.current) {
+      isStartedRef.current = true;
+      onRunRef.current()
+        .then((res) => {
+          resultRef.current = res;
+          isFinishedRef.current = true;
+          attemptFinish();
+        })
+        .catch((err) => {
+          console.error("[Scan Error]", err);
+          errorRef.current = err;
+          isFinishedRef.current = true;
+          attemptFinish();
+        });
+    }
 
-    const minDisplay = new Promise((resolve) => window.setTimeout(resolve, 1400));
+    // 2. Stage timer: each box stays purple for approx 3 seconds (3000ms)
+    // 0 (3s) -> 1 (3s) -> 2 (3s) -> 3 (3s) -> 4 (stops on last box until results load)
+    const stageTimer = window.setInterval(() => {
+      if (currentStageRef.current < 4) {
+        currentStageRef.current += 1;
+        setStageIdx(currentStageRef.current);
+        if (currentStageRef.current === 4) {
+          // Reached the last box! If results are already loaded, finish immediately!
+          attemptFinish();
+        }
+      } else {
+        // Stopped on the last box, waiting for results
+        attemptFinish();
+      }
+    }, 3000);
 
-    Promise.all([onRun(), minDisplay])
-      .then(([inspection]) => {
-        window.clearInterval(interval);
-        setStageIdx(4);
-        window.setTimeout(() => onDone(inspection), 300);
-      })
-      .catch((err: unknown) => {
-        window.clearInterval(interval);
-        setStageIdx(4);
-        console.error("[Inspection Flow Error]", err);
-        onError(err instanceof ApiError ? err.message : (err instanceof Error ? err.message : "Inspection failed. Please check network and backend."));
-      });
+    attemptFinish();
 
-    return () => window.clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      window.clearInterval(stageTimer);
+    };
   }, []);
 
   return (
@@ -3043,11 +3376,7 @@ function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: 
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">Inspection:</span> {inspection.id}
             <span className="h-3 w-px bg-border" />
-            <span className="font-semibold text-foreground">Category:</span> {inspection.category}
-            <span className="h-3 w-px bg-border" />
-            <span className="rounded-full bg-brand-soft px-2.5 py-0.5 font-bold text-brand text-[10px]">
-              3-FACE AUTHORITATIVE EVIDENCE
-            </span>
+            <span className="font-semibold text-foreground">Category:</span> {inspection.category?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Packaged Commodity"}
           </div>
         </div>
 
@@ -3578,7 +3907,7 @@ function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: ()
                 Legal Metrology Compliance Inspection Report
               </h1>
               <p className="text-xs sm:text-sm font-medium text-slate-600">
-                Packaged Commodities Rules, 2011 • Department of Consumer Affairs, Government of India
+                Packaged Commodities Rules, 2011 • Legal Metrology Division, Government of India
               </p>
             </div>
 
@@ -3908,88 +4237,56 @@ function LoginView({
       <form onSubmit={handleSubmit} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl">
         <div className="h-1.5 w-full tricolor-stripe mb-5 rounded-full" />
         <div className="flex flex-col items-center text-center pb-4 border-b border-slate-100 mb-4">
-          <img
-            src="/dca-logo.png"
-            alt="Department of Consumer Affairs"
-            className="h-14 w-auto object-contain mx-auto mb-2"
-          />
-          <h1 className="text-xl font-bold tracking-tight text-brand-950">LexMetra Officer Portal</h1>
-          <p className="text-[10px] font-bold uppercase tracking-[.15em] text-saffron-600">Legal Metrology Division · Govt of India</p>
+          <LexMetraLogo className="h-10 sm:h-12 w-auto max-w-[220px] mx-auto mb-1" />
         </div>
-        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground text-center">
           Select your statutory role or enter credentials to access Legal Metrology dashboards and inspection tools.
         </p>
 
-        {/* 1-Click Role Direct Sign-in - Screenshot 1 2x2 Grid */}
+        {/* 1-Click Role Direct Sign-in - 3 Roles: Consumer, Field Inspector, Senior Inspector */}
         <div className="mt-5 space-y-3">
           <p className="text-xs font-black uppercase tracking-wider text-slate-700">INSTANT ROLE ACCESS (DEMO):</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {/* Field Inspector */}
-            <button
-              type="button"
-              id="quick-inspector-login"
-              disabled={submitting}
-              onClick={() => handleQuickLogin("inspector", "password123", "home")}
-              className="flex items-center gap-3 p-3 rounded-2xl border border-purple-200/90 bg-purple-50/30 hover:bg-purple-50/80 text-left transition-all group shadow-2xs"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#6B21A8] text-white shadow-xs">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-slate-900 group-hover:text-purple-900">Field Inspector</p>
-                <p className="text-[11px] text-slate-500 truncate">inspector / password123</p>
-              </div>
-            </button>
-
-            {/* Statutory Authority */}
-            <button
-              type="button"
-              id="quick-authority-login"
-              disabled={submitting}
-              onClick={() => handleQuickLogin("authority", "password123", "authority")}
-              className="flex items-center gap-3 p-3 rounded-2xl border border-purple-200/90 bg-purple-50/30 hover:bg-purple-50/80 text-left transition-all group shadow-2xs"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7C3AED] text-white shadow-xs">
-                <ClipboardCheck className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-slate-900 group-hover:text-purple-900">Statutory Authority</p>
-                <p className="text-[11px] text-slate-500 truncate">authority / password123</p>
-              </div>
-            </button>
-
-            {/* Senior Admin */}
-            <button
-              type="button"
-              id="quick-inspector-login"
-              disabled={submitting}
-              onClick={() => handleQuickLogin("admin", "password123", "seniorRegional")}
-              className="flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 text-left transition-all group shadow-2xs"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-800 shadow-xs">
-                <Globe className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-slate-900 group-hover:text-brand-900">Senior Admin</p>
-                <p className="text-[11px] text-slate-500 truncate">admin / password123</p>
-              </div>
-            </button>
-
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {/* Citizen Consumer */}
             <button
               type="button"
               id="quick-customer-login"
               disabled={submitting}
               onClick={() => handleQuickLogin("customer", "password123", "customer")}
-              className="flex items-center gap-3 p-3 rounded-2xl border border-cyan-200/90 bg-cyan-50/30 hover:bg-cyan-50/80 text-left transition-all group shadow-2xs"
+              className="flex flex-col items-center text-center p-3 rounded-2xl border border-cyan-200/90 bg-cyan-50/30 hover:bg-cyan-50/80 transition-all group shadow-2xs"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0891B2] text-white shadow-xs">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0891B2] text-white shadow-xs mb-2">
                 <Users className="h-5 w-5" />
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-slate-900 group-hover:text-cyan-900">Citizen Consumer</p>
-                <p className="text-[11px] text-slate-500 truncate">customer / password123</p>
+              <p className="text-xs font-bold text-slate-900 group-hover:text-cyan-900">Consumer</p>
+            </button>
+
+            {/* Field Inspector */}
+            <button
+              type="button"
+              id="quick-inspector-login"
+              disabled={submitting}
+              onClick={() => handleQuickLogin("inspector", "password123", "home")}
+              className="flex flex-col items-center text-center p-3 rounded-2xl border border-purple-200/90 bg-purple-50/30 hover:bg-purple-50/80 transition-all group shadow-2xs"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#6B21A8] text-white shadow-xs mb-2">
+                <ShieldCheck className="h-5 w-5" />
               </div>
+              <p className="text-xs font-bold text-slate-900 group-hover:text-purple-900">Field Inspector</p>
+            </button>
+
+            {/* Senior Inspector */}
+            <button
+              type="button"
+              id="quick-admin-login"
+              disabled={submitting}
+              onClick={() => handleQuickLogin("admin", "password123", "seniorRegional")}
+              className="flex flex-col items-center text-center p-3 rounded-2xl border border-blue-200/90 bg-blue-50/30 hover:bg-blue-50/80 transition-all group shadow-2xs"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-900 text-white shadow-xs mb-2">
+                <Globe className="h-5 w-5" />
+              </div>
+              <p className="text-xs font-bold text-slate-900 group-hover:text-brand-900">Senior Inspector</p>
             </button>
           </div>
 
@@ -4058,8 +4355,34 @@ function LoginView({
 // Profile — real backend health
 // ---------------------------------------------------------------------------
 
-function ProfileView({ user, onLogout }: { user: AuthedUser | null; onLogout: () => void }) {
+function ProfileView({
+  user,
+  onLogout,
+  onNavigate,
+  lang = "en",
+  onSetLang,
+}: {
+  user: AuthedUser | null;
+  onLogout: () => void;
+  onNavigate?: (view: View) => void;
+  lang?: Language;
+  onSetLang?: (newLang: Language) => void;
+}) {
   const [health, setHealth] = useState<"checking" | "ok" | "down">("checking");
+  const [activeModal, setActiveModal] = useState<"notifications" | "language" | "help" | null>(null);
+
+  // Notifications State
+  const [notifReminders, setNotifReminders] = useState(true);
+  const [notifPriorityAlerts, setNotifPriorityAlerts] = useState(true);
+  const [notifSound, setNotifSound] = useState(true);
+  const [notifFrequency, setNotifFrequency] = useState("instant");
+  const [notifSavedMsg, setNotifSavedMsg] = useState(false);
+
+  // Help & Feedback State
+  const [feedbackCategory, setFeedbackCategory] = useState("guidance");
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     checkHealth().then((result) => { if (!cancelled) setHealth(result ? "ok" : "down"); });
@@ -4072,9 +4395,37 @@ function ProfileView({ user, onLogout }: { user: AuthedUser | null; onLogout: ()
     [ShieldCheck, "Evidence storage", "Original images retained server-side per inspection", "ok"],
   ];
 
+  const languageLabel = lang === "hi" ? "हिंदी (Hindi)" : lang === "mr" ? "मराठी (Marathi)" : "English (India)";
+
+  const handleSaveNotifications = () => {
+    setNotifSavedMsg(true);
+    setTimeout(() => {
+      setNotifSavedMsg(false);
+      setActiveModal(null);
+    }, 1200);
+  };
+
+  const handleSubmitFeedback = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackText.trim()) return;
+    setFeedbackSubmitted(true);
+    setTimeout(() => {
+      setFeedbackSubmitted(false);
+      setFeedbackText("");
+      setActiveModal(null);
+    }, 1500);
+  };
+
   return (
     <>
-      <AppHeader title="Inspector profile" />
+      <AppHeader
+        title={lang === "hi" ? "उपयोगकर्ता प्रोफ़ाइल" : lang === "mr" ? "वापरकर्ता प्रोफाइल" : "User Profile & Settings"}
+        user={user}
+        onLogout={onLogout}
+        onNavigate={onNavigate}
+        lang={lang}
+        onLanguageChange={onSetLang}
+      />
       <main className="mx-auto max-w-3xl space-y-5 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
         <section className="flex items-center gap-4 rounded-2xl border border-border/70 bg-card p-5 sm:p-7">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground"><UserRound className="h-7 w-7" /></div>
@@ -4084,6 +4435,36 @@ function ProfileView({ user, onLogout }: { user: AuthedUser | null; onLogout: ()
             <p className="mt-1 text-sm text-muted-foreground">Legal Metrology unit</p>
           </div>
           <BadgeCheck className="ml-auto h-5 w-5 text-success" />
+        </section>
+
+        {/* Quick Action: Start Product Scan */}
+        <section className="rounded-2xl border-2 border-purple-200 bg-gradient-to-r from-purple-50/80 via-white to-indigo-50/60 p-5 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 text-purple-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                <Sparkles className="h-3 w-3 text-purple-700" />
+                <span>{lang === "hi" ? "त्वरित स्कैन" : lang === "mr" ? "जलद स्कॅन" : "Instant Scanner"}</span>
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                {lang === "hi" ? "नया पैकेज सत्यापित करें" : lang === "mr" ? "नवीन पॅकेज पडताळणी" : "Scan & Verify Packaged Commodity"}
+              </h3>
+              <p className="text-xs text-slate-600 font-medium">
+                {lang === "hi"
+                  ? "MRP, शुद्ध मात्रा, समाप्ति तिथि और FSSAI अनिवार्य घोषणाओं की जांच के लिए तुरंत फोटो लें।"
+                  : lang === "mr"
+                  ? "MRP, निव्वळ वजन, एक्सपायरी आणि FSSAI वैधानिक बाबी तपासण्यासाठी त्वरित फोटो घ्या."
+                  : "Capture package photos to verify mandatory declarations, unit pricing, and consumer protections."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate?.("scan")}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold px-5 text-xs shadow-md transition-all active:scale-95 shrink-0"
+            >
+              <Camera className="h-4 w-4 text-saffron-300" />
+              <span>{lang === "hi" ? "स्कैन शुरू करें" : lang === "mr" ? "स्कॅन सुरू करा" : "Start Scan"}</span>
+            </button>
+          </div>
         </section>
         <section className="rounded-2xl border border-border/70 bg-card">
           <div className="border-b border-border p-5">
@@ -4105,16 +4486,273 @@ function ProfileView({ user, onLogout }: { user: AuthedUser | null; onLogout: ()
             <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Preferences</p>
             <h3 className="mt-2 text-xl font-semibold">Settings</h3>
           </div>
-          {([[Bell, "Notifications", "Inspection reminders"], [Settings2, "Language", "English (India)"], [CircleHelp, "Help & feedback", "Product guidance"]] as Array<[LucideIcon, string, string]>).map(([Icon, label, value]) => (
-            <button type="button" key={label} className="flex w-full items-center gap-3 border-b border-border p-5 text-left last:border-0 hover:bg-muted/50">
-              <Icon className="h-5 w-5 text-muted-foreground" />
-              <div className="flex-1"><p className="text-sm font-semibold">{label}</p><p className="mt-1 text-xs text-muted-foreground">{value}</p></div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </button>
-          ))}
+          
+          <button
+            type="button"
+            onClick={() => setActiveModal("notifications")}
+            className="flex w-full items-center gap-3 border-b border-border p-5 text-left hover:bg-muted/50 transition"
+          >
+            <Bell className="h-5 w-5 text-brand" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Notifications</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {notifReminders && notifPriorityAlerts ? "Reminders & priority alerts active" : "Configured preferences"}
+              </p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveModal("language")}
+            className="flex w-full items-center gap-3 border-b border-border p-5 text-left hover:bg-muted/50 transition"
+          >
+            <Settings2 className="h-5 w-5 text-brand" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Language</p>
+              <p className="mt-1 text-xs text-muted-foreground">{languageLabel}</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveModal("help")}
+            className="flex w-full items-center gap-3 p-5 text-left hover:bg-muted/50 transition"
+          >
+            <CircleHelp className="h-5 w-5 text-brand" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Help & feedback</p>
+              <p className="mt-1 text-xs text-muted-foreground">Product guidance & support desk</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
         </section>
         <Button variant="secondary" className="w-full" onClick={onLogout}><LogOut className="h-4 w-4" />Sign out</Button>
       </main>
+
+      {/* Notifications Modal */}
+      {activeModal === "notifications" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-border/80 bg-card p-6 shadow-xl space-y-5">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Bell className="h-5 w-5 text-brand" />
+                <h3 className="font-bold text-foreground text-base">Notification Preferences</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <p className="font-semibold text-foreground">Inspection Reminders</p>
+                  <p className="text-xs text-muted-foreground">Alerts when pending queue items exceed SLA</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={notifReminders}
+                  onChange={(e) => setNotifReminders(e.target.checked)}
+                  className="h-4 w-4 rounded accent-brand"
+                />
+              </label>
+
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <p className="font-semibold text-foreground">Priority Violation Alerts</p>
+                  <p className="text-xs text-muted-foreground">Push notification on critical Rule 6 non-compliance</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={notifPriorityAlerts}
+                  onChange={(e) => setNotifPriorityAlerts(e.target.checked)}
+                  className="h-4 w-4 rounded accent-brand"
+                />
+              </label>
+
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <p className="font-semibold text-foreground">Sound & Haptic Signals</p>
+                  <p className="text-xs text-muted-foreground">Play audible beep on barcode & QR validation</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={notifSound}
+                  onChange={(e) => setNotifSound(e.target.checked)}
+                  className="h-4 w-4 rounded accent-brand"
+                />
+              </label>
+
+              <div>
+                <p className="font-semibold text-foreground text-xs uppercase tracking-wider text-muted-foreground mb-1">
+                  Digest Frequency
+                </p>
+                <select
+                  value={notifFrequency}
+                  onChange={(e) => setNotifFrequency(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold focus:border-brand focus:outline-hidden"
+                >
+                  <option value="instant">Instantaneous (Real-time)</option>
+                  <option value="hourly">Hourly Summary</option>
+                  <option value="daily">Daily End-of-Shift Digest</option>
+                </select>
+              </div>
+            </div>
+
+            {notifSavedMsg && (
+              <div className="rounded-lg bg-success-soft p-2.5 text-center text-xs font-bold text-success">
+                ✓ Preferences updated successfully!
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="secondary" className="flex-1" onClick={() => setActiveModal(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" className="flex-1" onClick={handleSaveNotifications}>
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Language Modal */}
+      {activeModal === "language" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-sm rounded-2xl border border-border/80 bg-card p-6 shadow-xl space-y-5">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Settings2 className="h-5 w-5 text-brand" />
+                <h3 className="font-bold text-foreground text-base">Select Portal Language</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Choose your preferred language for the interface, legal declarations checklist, and AI assistance voice.
+            </p>
+
+            <div className="space-y-2">
+              {[
+                { code: "en", name: "English", sub: "Official statutory language" },
+                { code: "hi", name: "हिंदी (Hindi)", sub: "राजभाषा / राष्ट्रीय उपभोक्ता सेवा" },
+                { code: "mr", name: "मराठी (Marathi)", sub: "महाराष्ट्र राज्य विधी मापनशास्त्र" },
+              ].map((item) => (
+                <button
+                  type="button"
+                  key={item.code}
+                  onClick={() => {
+                    if (onSetLang) onSetLang(item.code as Language);
+                    localStorage.setItem("lexmetra_lang", item.code);
+                    setActiveModal(null);
+                  }}
+                  className={`w-full flex items-center justify-between rounded-xl p-3.5 text-left border transition ${
+                    lang === item.code
+                      ? "border-brand bg-brand/10 font-bold"
+                      : "border-border/70 hover:bg-muted/50"
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{item.name}</p>
+                    <p className="text-[11px] text-muted-foreground">{item.sub}</p>
+                  </div>
+                  {lang === item.code && <span className="text-xs font-bold text-brand">✓ Selected</span>}
+                </button>
+              ))}
+            </div>
+
+            <Button variant="secondary" className="w-full" onClick={() => setActiveModal(null)}>
+              Close
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Help & Feedback Modal */}
+      {activeModal === "help" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-border/80 bg-card p-6 shadow-xl space-y-5">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <CircleHelp className="h-5 w-5 text-brand" />
+                <h3 className="font-bold text-foreground text-base">Help & Support Desk</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-xl border border-border/70 bg-muted/30 p-3 text-xs space-y-1">
+                <p className="font-bold text-foreground">Inspector Statutory Quick Links</p>
+                <p className="text-muted-foreground">• Legal Metrology (Packaged Commodities) Rules, 2011</p>
+                <p className="text-muted-foreground">• G.S.R. 594(E) QR Provision & Rule 26 Exemptions</p>
+                <p className="text-muted-foreground">• National Consumer Helpline: <strong>1915</strong></p>
+              </div>
+
+              <form onSubmit={handleSubmitFeedback} className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-foreground">Topic</label>
+                  <select
+                    value={feedbackCategory}
+                    onChange={(e) => setFeedbackCategory(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold focus:border-brand focus:outline-hidden"
+                  >
+                    <option value="guidance">Product Guidance & Rule Clarification</option>
+                    <option value="ocr_issue">OCR / Detection Accuracy Issue</option>
+                    <option value="feature_request">Feature Request / System Improvement</option>
+                    <option value="other">General Technical Feedback</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-foreground">Your Message or Issue</label>
+                  <textarea
+                    rows={3}
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder="Describe the issue encountered during inspection or your feedback..."
+                    className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-xs focus:border-brand focus:outline-hidden"
+                    required
+                  />
+                </div>
+
+                {feedbackSubmitted && (
+                  <div className="rounded-lg bg-success-soft p-2.5 text-center text-xs font-bold text-success">
+                    ✓ Feedback received! Docket ID #{Math.floor(100000 + Math.random() * 900000)} generated.
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <Button variant="secondary" className="flex-1" type="button" onClick={() => setActiveModal(null)}>
+                    Close
+                  </Button>
+                  <Button variant="primary" className="flex-1" type="submit">
+                    Submit Feedback
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -4125,14 +4763,22 @@ function ProfileView({ user, onLogout }: { user: AuthedUser | null; onLogout: ()
 
 export function InspectionApp() {
   const [user, setUser] = useState<AuthedUser | null>(() => (getStoredToken() ? getStoredUser() : null));
-  const [view, setView] = useState<View>(() => (getStoredToken() ? "home" : "landing"));
+  const [view, setView] = useState<View>(() => {
+    const token = getStoredToken();
+    if (!token) return "landing";
+    const u = getStoredUser();
+    if (u?.role === "customer" || u?.role === "consumer") return "customer";
+    if (u?.role === "authority") return "authority";
+    if (u?.role === "admin" || u?.role === "senior_inspector") return "seniorRegional";
+    return "home";
+  });
   const [lang, setLang] = useState<Language>(() => {
     const saved = localStorage.getItem("lexmetra_lang");
     if (saved === "en" || saved === "hi" || saved === "mr") return saved as Language;
     return "en";
   });
   const [inspections, setInspections] = useState<Inspection[]>([]);
-  const [listLoading, setListLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | undefined>(undefined);
   const [selected, setSelected] = useState<Inspection | undefined>(undefined);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
@@ -4169,7 +4815,14 @@ export function InspectionApp() {
     }
   }
 
-  useEffect(() => { if (user) refreshInspections(); }, [user]);
+  useEffect(() => {
+    if (user) {
+      refreshInspections();
+    } else {
+      setListLoading(false);
+      setListError(undefined);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!toast) return;
@@ -4179,16 +4832,24 @@ export function InspectionApp() {
 
   function go(nextView: View) {
     let targetView = nextView;
-    // RBAC Route Guarding: Protect unauthorized routes based on session role
+    // Strict RBAC Route Isolation: Allow scanning and product review for consumers while keeping workbench isolated
     if (user?.role === "customer" || user?.role === "consumer") {
-      const allowedViews = ["customer", "landing", "profile", "login"];
+      const allowedViews = [
+        "customer",
+        "landing",
+        "profile",
+        "login",
+        "scan",
+        "preprocessing",
+        "scanDetails",
+        "processing",
+        "result",
+        "detail",
+        "evidence",
+        "report",
+      ];
       if (!allowedViews.includes(targetView)) {
         targetView = "customer";
-      }
-    } else if (user?.role === "authority") {
-      const forbiddenViews = ["scan", "preprocessing", "scanDetails", "processing"];
-      if (forbiddenViews.includes(targetView)) {
-        targetView = "authority";
       }
     }
 
@@ -4211,9 +4872,16 @@ export function InspectionApp() {
 
   function onCaptured(images: string[]) {
     setPendingImages(images);
-    setCanonicalImages([]);
+    setCanonicalImages(images);
     setPreprocessingError(undefined);
-    setView("preprocessing");
+    submitDetails({
+      productId: "",
+      saleType: "retail",
+      productCategory: "food_general",
+      isExportOnly: false,
+      retailBundleCount: 1,
+      isImported: false,
+    }, images);
   }
 
   function handlePreprocessingDone(canonUrls: string[]) {
@@ -4265,8 +4933,8 @@ export function InspectionApp() {
 
   function submitDetails(details: ScanDetails, overrideImages?: string[]) {
     setProcessingError(undefined);
-    setView("processing");
     pendingRunRef.current = () => runScanSession(details, overrideImages);
+    setView("processing");
   }
 
   function handleProcessingDone(inspection: Inspection) {
@@ -4303,7 +4971,19 @@ export function InspectionApp() {
     clearSession();
     setUser(null);
     setInspections([]);
-    setView("landing");
+    setView("login");
+  }
+
+  if (view === "login" && !user) {
+    return (
+      <LoginView
+        onLoggedIn={(u, target) => {
+          setUser(u);
+          go(target || (u.role === "admin" ? "seniorRegional" : "home"));
+        }}
+        onConsumerPortal={() => go("customer")}
+      />
+    );
   }
 
   if (view === "landing" && !user) {
@@ -4314,19 +4994,6 @@ export function InspectionApp() {
         onConsumerPortal={() => go("customer")}
         lang={lang}
         onLanguageChange={handleSetLang}
-      />
-    );
-  }
-
-  if (view === "login" && !user) {
-    return (
-      <LoginView
-        onLoggedIn={(u, target) => {
-          setUser(u);
-          go(target || (u.role === "admin" ? "seniorRegional" : "home"));
-        }}
-        onBack={() => go("landing")}
-        onConsumerPortal={() => go("customer")}
       />
     );
   }
@@ -4343,13 +5010,48 @@ export function InspectionApp() {
     ) : view === "home" ? (
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onLogout={handleLogout} onNavigate={go} onOpen={handleOpen} lang={lang} onSetLang={handleSetLang} />
     ) : view === "history" ? (
-      <ListView kind="history" inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onOpen={handleOpen} onNavigate={go} />
+      <ListView
+        kind="history"
+        inspections={inspections}
+        loading={listLoading}
+        error={listError}
+        onRetry={refreshInspections}
+        onOpen={handleOpen}
+        onNavigate={go}
+        lang={lang}
+        onLanguageChange={handleSetLang}
+        user={user}
+        onLogout={handleLogout}
+      />
     ) : view === "register" ? (
-      <ListView kind="register" inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onOpen={handleOpen} onNavigate={go} />
+      <ListView
+        kind="register"
+        inspections={inspections}
+        loading={listLoading}
+        error={listError}
+        onRetry={refreshInspections}
+        onOpen={handleOpen}
+        onNavigate={go}
+        lang={lang}
+        onLanguageChange={handleSetLang}
+        user={user}
+        onLogout={handleLogout}
+      />
     ) : view === "reviewQueue" ? (
-      <ReviewQueueView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onOpen={handleOpen} onNavigate={go} />
+      <ReviewQueueView
+        inspections={inspections}
+        loading={listLoading}
+        error={listError}
+        onRetry={refreshInspections}
+        onOpen={handleOpen}
+        onNavigate={go}
+        lang={lang}
+        onLanguageChange={handleSetLang}
+        user={user}
+        onLogout={handleLogout}
+      />
     ) : view === "profile" ? (
-      <ProfileView user={user} onLogout={handleLogout} />
+      <ProfileView user={user} onLogout={handleLogout} onNavigate={go} lang={lang} onSetLang={handleSetLang} />
     ) : view === "scan" ? (
       <ScanView onCaptured={onCaptured} onBack={() => go(user ? "home" : "landing")} lang={lang} />
     ) : view === "preprocessing" ? (
@@ -4380,18 +5082,43 @@ export function InspectionApp() {
     ) : selected && view === "report" ? (
       <ReportView inspection={selected} onBack={() => go("result")} />
     ) : view === "regulatory" ? (
-      <RegulatoryIntelligenceDashboard onBack={() => go(user ? "home" : "landing")} />
+      <div className="space-y-4">
+        <AppHeader
+          title={lang === "hi" ? "विधिक नियम एवं राजपत्र आसूचना" : lang === "mr" ? "वैधानिक नियम व राजपत्र गुप्तचर" : "Regulatory Rules & Intelligence"}
+          online={!listError}
+          lang={lang}
+          onLanguageChange={handleSetLang}
+          user={user}
+          onLogout={handleLogout}
+          onNavigate={go}
+        />
+        <RegulatoryIntelligenceDashboard onBack={() => go(user ? (user.role === "admin" ? "seniorRegional" : "home") : "landing")} />
+      </div>
     ) : view === "authority" ? (
-      <AuthorityDashboardView onBack={() => go(user ? "home" : "landing")} />
+      <div className="space-y-4">
+        <AppHeader
+          title={lang === "hi" ? "विधिक मापविज्ञान प्राधिकारी डॉकेट" : lang === "mr" ? "कायदेशीर मापनशास्त्र प्राधिकरण डॉकेट" : "Authority Action Dockets & Enforcement"}
+          online={!listError}
+          lang={lang}
+          onLanguageChange={handleSetLang}
+          user={user}
+          onLogout={handleLogout}
+          onNavigate={go}
+        />
+        <AuthorityDashboardView onBack={() => go(user ? (user.role === "admin" ? "seniorRegional" : "home") : "landing")} />
+      </div>
     ) : view === "customer" ? (
       <CustomerDashboard
-        onBack={() => go(user ? "home" : "landing")}
+        onBack={() => go("landing")}
         onOpenInspection={handleOpen}
         onStartScan={() => go("scan")}
         onOfficerLogin={() => go("login")}
         inspections={inspections}
         lang={lang}
         onLanguageChange={handleSetLang}
+        user={user}
+        onLogout={handleLogout}
+        onNavigate={go}
       />
     ) : view === "seniorRegional" ? (
       <SeniorRegionalDashboard
@@ -4400,19 +5127,24 @@ export function InspectionApp() {
           const item = inspections.find((x) => x.id === id);
           if (item) handleOpen(item);
         }}
+        inspections={inspections}
+        lang={lang}
+        onLanguageChange={handleSetLang}
+        user={user}
+        onLogout={handleLogout}
+        onNavigate={go}
       />
     ) : (
-      <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onNavigate={go} onOpen={handleOpen} lang={lang} onSetLang={handleSetLang} />
+      <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onLogout={handleLogout} onNavigate={go} onOpen={handleOpen} lang={lang} onSetLang={handleSetLang} user={user} />
     );
 
-  const inFocusedFlow = ["landing", "scan", "preprocessing", "scanDetails", "processing", "customer"].includes(view);
+  const isLanding = view === "landing";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {!inFocusedFlow && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role} />}
-      {!inFocusedFlow && <div className="md:pl-64">{content}</div>}
-      {inFocusedFlow && content}
-      {!inFocusedFlow && <BottomNav view={view} onNavigate={go} lang={lang} />}
+      {!isLanding && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role} />}
+      {!isLanding ? <div className="md:pl-64">{content}</div> : content}
+      {!isLanding && <BottomNav view={view} onNavigate={go} lang={lang} />}
       <MultilingualAssistantWidget currentInspection={selected || inspections[0]} lang={lang} onLanguageChange={handleSetLang} />
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-xl md:bottom-8">
