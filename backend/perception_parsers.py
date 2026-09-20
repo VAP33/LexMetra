@@ -892,8 +892,46 @@ def perception_to_classified_fields(
             classified["batch_code"] = dict(entry)
         elif backend_name == "manufacturer_name":
             classified["manufacturer_name_address"] = dict(entry)
+        elif backend_name == "marketer_name" and "manufacturer_name_address" not in classified:
+            classified["manufacturer_name_address"] = dict(entry)
         elif backend_name in ("expiry_date", "best_before_use_by"):
             classified["expiry_date"] = entry
             classified["best_before_use_by"] = dict(entry)
+
+    # Ensure manufacturer_name_address captures the complete entity name AND postal address
+    addr_entry = classified.get("address")
+    mfg_entry = classified.get("manufacturer_name_address") or classified.get("manufacturer_name")
+    if mfg_entry:
+        mfg_val = str(mfg_entry.get("value") or "").strip()
+        if addr_entry and addr_entry.get("value"):
+            addr_val = str(addr_entry.get("value") or "").strip()
+            if addr_val and addr_val.lower() not in mfg_val.lower():
+                combined_val = f"{mfg_val}, {addr_val}"
+                merged_entry = dict(mfg_entry)
+                merged_entry["value"] = combined_val
+                merged_entry["raw_text"] = combined_val
+                b1 = mfg_entry.get("bbox")
+                b2 = addr_entry.get("bbox")
+                if b1 and b2 and len(b1) == 4 and len(b2) == 4:
+                    ux = min(b1[0], b2[0])
+                    uy = min(b1[1], b2[1])
+                    uw = max(b1[0] + b1[2], b2[0] + b2[2]) - ux
+                    uh = max(b1[1] + b1[3], b2[1] + b2[3]) - uy
+                    merged_entry["bbox"] = [ux, uy, uw, uh]
+                    merged_entry["bbox_canonical"] = [ux, uy, uw, uh]
+                classified["manufacturer_name_address"] = merged_entry
+                classified["manufacturer_name"] = dict(merged_entry)
+        else:
+            classified["manufacturer_name_address"] = dict(mfg_entry)
+    elif addr_entry:
+        mkt_entry = classified.get("marketer_name")
+        if mkt_entry:
+            mkt_val = str(mkt_entry.get("value") or "").strip()
+            addr_val = str(addr_entry.get("value") or "").strip()
+            combined_val = f"{mkt_val}, {addr_val}" if addr_val.lower() not in mkt_val.lower() else mkt_val
+            merged_entry = dict(mkt_entry)
+            merged_entry["value"] = combined_val
+            merged_entry["raw_text"] = combined_val
+            classified["manufacturer_name_address"] = merged_entry
 
     return classified

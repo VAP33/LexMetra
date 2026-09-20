@@ -3,6 +3,7 @@ import os
 import json
 import logging
 from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, status, Response, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
@@ -13,6 +14,8 @@ import auth
 from inspection_helpers import ReviewRequest
 from report import build_inspection_report_pdf
 import package_integrity
+import rule_engine
+import fssai_verification
 
 logger = logging.getLogger('routes_inspections')
 router = APIRouter(tags=['inspections'])
@@ -92,6 +95,22 @@ class AssistantTtsInput(BaseModel):
     pace: float = 1.15
 
 
+def _is_stale_package_integrity(pi_record: Optional[Dict[str, Any]]) -> bool:
+    if not pi_record or not isinstance(pi_record, dict):
+        return True
+    fc = pi_record.get("field_comparisons") or []
+    if not fc:
+        return True
+    for c in fc:
+        # Legacy dummy reference bbox
+        if c.get("reference_bbox") == [230, 815, 530, 70]:
+            return True
+        # Missing inspection crop despite bbox being present
+        if c.get("inspection_bbox") and not c.get("inspection_crop_base64"):
+            return True
+    return False
+
+
 @router.get("/inspections/{inspection_id}")
 def get_inspection(
     inspection_id: str,
@@ -101,35 +120,63 @@ def get_inspection(
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
 
-    # Enrich with FSSAI & Package Integrity if not present
-    if "package_integrity" not in detail:
-        persisted_integrity = db.get_latest_package_integrity_comparison(inspection_id)
-        if persisted_integrity:
-            detail["package_integrity"] = persisted_integrity
-        else:
-            insp_data = detail.get("inspection") or detail
-            p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id")
-            p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name")
-            img_path = detail.get("image_path") or detail.get("image")
-            try:
-                integrity_res = package_integrity.evaluate_package_integrity(
-                    img_path,
-                    product_id=p_id,
-                    product_name=p_name,
-                    allow_demo_fixtures=True,
-                    inspection_declarations=insp_data.get("declarations") or [],
+    # Enrich with FSSAI & Package Integrity if not present or if stale
+    current_pi = detail.get("package_integrity") or db.get_latest_package_integrity_comparison(inspection_id)
+    if current_pi and not _is_stale_package_integrity(current_pi):
+        detail["package_integrity"] = current_pi
+    else:
+        insp_data = detail.get("inspection") or detail
+        declarations = detail.get("declarations") or insp_data.get("declarations") or []
+        p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id") or detail.get("product_id")
+        p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or detail.get("product_name")
+        for d in declarations:
+            if isinstance(d, dict):
+                fld = (d.get("field") or "").lower().strip()
+                v = d.get("value")
+                if v:
+                    if not p_name and fld in ("common_name", "product_name"):
+                        p_name = v
+                    if (not p_id or str(p_id).startswith("SCAN-") or str(p_id).startswith("scan-")) and fld in ("barcode", "gtin", "product_id"):
+                        p_id = v
+        img_path = detail.get("image_path") or detail.get("image")
+        all_insp_paths = []
+        if img_path:
+            all_insp_paths.append(str(img_path))
+        for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
+            if isinstance(s, dict):
+                sp = (
+                    s.get("original_image_path")
+                    or s.get("canonical_image_path")
+                    or s.get("image_url")
+                    or s.get("image_path")
+                    or s.get("image_id")
                 )
-                rep_dict = integrity_res.to_dict()
-                rep_dict["inspection_id"] = inspection_id
-                detail["package_integrity"] = rep_dict
-                # PERSISTENCE: Always save every computed comparison, even UNABLE_TO_VERIFY.
-                # This ensures page reload restores the exact same comparison_id without re-running OCR.
-                try:
-                    db.save_package_integrity_comparison(rep_dict)
-                except Exception:
-                    pass
+                if sp and str(sp) not in all_insp_paths:
+                    all_insp_paths.append(str(sp))
+        for c in (detail.get("captures") or insp_data.get("captures") or []):
+            if isinstance(c, dict):
+                cp = c.get("image_id")
+                if cp and str(cp) not in all_insp_paths:
+                    all_insp_paths.append(str(cp))
+        try:
+            integrity_res = package_integrity.evaluate_package_integrity(
+                img_path,
+                inspected_image_paths=all_insp_paths,
+                product_id=p_id,
+                product_name=p_name,
+                allow_demo_fixtures=True,
+                inspection_declarations=declarations,
+            )
+            rep_dict = integrity_res.to_dict()
+            rep_dict["inspection_id"] = inspection_id
+            detail["package_integrity"] = rep_dict
+            try:
+                db.save_package_integrity_comparison(rep_dict)
+                db.save_inspection_detail(inspection_id, detail)
             except Exception:
                 pass
+        except Exception as pie:
+            logger.debug("Failed to evaluate package integrity in get_inspection: %s", pie)
 
     if "fssai" not in detail:
         insp_data = detail.get("inspection") or detail
@@ -169,20 +216,24 @@ def get_inspection(
 @router.get("/inspections/{inspection_id}/integrity")
 def get_inspection_integrity(
     inspection_id: str,
+    force_refresh: bool = False,
     current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
-    # Rule: Restore the exact comparison without silently recomputing every time the page loads
     persisted = db.get_latest_package_integrity_comparison(inspection_id)
-    if persisted:
+    if persisted and not force_refresh and not _is_stale_package_integrity(persisted):
         return persisted
 
     detail = db.get_inspection_detail(inspection_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
 
-    if detail.get("package_integrity"):
+    if detail.get("package_integrity") and not force_refresh and not _is_stale_package_integrity(detail.get("package_integrity")):
         rec = detail["package_integrity"]
         rec["inspection_id"] = inspection_id
+        if not rec.get("status"):
+            rec["status"] = rec.get("comparison_status")
+        if not rec.get("comparison_status"):
+            rec["comparison_status"] = rec.get("status")
         try:
             db.save_package_integrity_comparison(rec)
         except Exception:
@@ -190,10 +241,19 @@ def get_inspection_integrity(
         return rec
 
     insp_data = detail.get("inspection") or detail
-    p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id")
-    p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name")
+    declarations = detail.get("declarations") or insp_data.get("declarations") or []
+    p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id") or detail.get("product_id")
+    p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or detail.get("product_name")
+    for d in declarations:
+        if isinstance(d, dict):
+            fld = (d.get("field") or "").lower().strip()
+            v = d.get("value")
+            if v:
+                if not p_name and fld in ("common_name", "product_name"):
+                    p_name = v
+                if (not p_id or str(p_id).startswith("SCAN-") or str(p_id).startswith("scan-")) and fld in ("barcode", "gtin", "product_id"):
+                    p_id = v
     img_path = detail.get("image_path") or detail.get("image")
-    declarations = insp_data.get("declarations") or []
 
     all_insp_paths = []
     if img_path:
@@ -225,8 +285,10 @@ def get_inspection_integrity(
     )
     report_dict = res.to_dict()
     report_dict["inspection_id"] = inspection_id
-    # PERSISTENCE: Always save every computed comparison, even UNABLE_TO_VERIFY.
-    # This ensures page reload restores the exact same comparison_id/statuses/values.
+    if not report_dict.get("status"):
+        report_dict["status"] = report_dict.get("comparison_status")
+    if not report_dict.get("comparison_status"):
+        report_dict["comparison_status"] = report_dict.get("status")
     try:
         db.save_package_integrity_comparison(report_dict)
     except Exception:
@@ -239,12 +301,79 @@ def get_inspection_integrity(
     return report_dict
 
 
+class SavePackageIntegrityRequest(BaseModel):
+    package_integrity: Optional[Dict[str, Any]] = None
+
+
 @router.get("/integrity/{inspection_id}")
 def get_integrity_direct(
     inspection_id: str,
     current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     return get_inspection_integrity(inspection_id, current_user=current_user)
+
+
+@router.post("/inspections/{inspection_id}/integrity/save")
+@router.post("/integrity/{inspection_id}/save")
+def save_inspection_integrity(
+    inspection_id: str,
+    payload: Optional[SavePackageIntegrityRequest] = None,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    """
+    Explicitly persist and lock Package Integrity verification for this inspection.
+    Ensures comparison results and crops are permanently saved and included in reports.
+    """
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    rep_dict = (payload.package_integrity if payload else None) or detail.get("package_integrity")
+    if not rep_dict:
+        insp_data = detail.get("inspection") or detail
+        declarations = detail.get("declarations") or insp_data.get("declarations") or []
+        p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id") or detail.get("product_id")
+        p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or detail.get("product_name")
+        img_path = detail.get("image_path") or detail.get("image")
+        all_insp_paths = []
+        if img_path:
+            all_insp_paths.append(str(img_path))
+        for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
+            if isinstance(s, dict):
+                sp = s.get("original_image_path") or s.get("canonical_image_path") or s.get("image_url") or s.get("image_path") or s.get("image_id")
+                if sp and str(sp) not in all_insp_paths:
+                    all_insp_paths.append(str(sp))
+        res = package_integrity.evaluate_package_integrity(
+            img_path,
+            inspected_image_paths=all_insp_paths,
+            product_id=p_id,
+            product_name=p_name,
+            inspection_declarations=declarations,
+            allow_demo_fixtures=True,
+        )
+        rep_dict = res.to_dict()
+
+    rep_dict["inspection_id"] = inspection_id
+    rep_dict["is_saved"] = True
+    rep_dict["saved_at"] = datetime.now(timezone.utc).isoformat()
+    if not rep_dict.get("status"):
+        rep_dict["status"] = rep_dict.get("comparison_status")
+    if not rep_dict.get("comparison_status"):
+        rep_dict["comparison_status"] = rep_dict.get("status")
+    detail["package_integrity"] = rep_dict
+    detail["package_integrity_json"] = rep_dict
+    detail["package_integrity_status"] = rep_dict.get("status") or "UNVERIFIED"
+
+    try:
+        db.save_package_integrity_comparison(rep_dict)
+    except Exception as e:
+        logger.warning("Could not save package integrity comparison: %s", e)
+    try:
+        db.save_inspection_detail(inspection_id, detail)
+    except Exception as e:
+        logger.warning("Could not save inspection detail: %s", e)
+
+    return {"status": "success", "package_integrity": rep_dict}
 
 
 @router.get("/inspections/{inspection_id}/integrity/history")

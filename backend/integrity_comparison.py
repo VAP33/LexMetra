@@ -160,14 +160,65 @@ def compare_canonical_fields(
         # Use pre-made crop if available, otherwise generate on-the-fly with polygon and padding
         insp_crop_premade = (matched_insp.get("evidence_crop_base64") if isinstance(matched_insp, dict) else None) or None
         insp_crop: Optional[str] = insp_crop_premade
-        if not insp_crop and insp_image_bgr is not None and insp_bbox:
-            insp_crop = _make_evidence_crop(insp_image_bgr, insp_bbox, polygon=insp_polygon)
+        if not insp_crop and insp_bbox:
+            target_insp_bgr = None
+            if insp_imgs:
+                if insp_surf:
+                    sid_lower = str(insp_surf).lower().strip()
+                    import re
+                    m = re.search(r'\d+', sid_lower)
+                    if m:
+                        s_idx = int(m.group(0)) - 1
+                        if 0 <= s_idx < len(insp_imgs):
+                            target_insp_bgr = insp_imgs[s_idx][1]
+                    elif "back" in sid_lower and len(insp_imgs) > 1:
+                        target_insp_bgr = insp_imgs[1][1]
+                    elif "front" in sid_lower and len(insp_imgs) > 0:
+                        target_insp_bgr = insp_imgs[0][1]
+                if target_insp_bgr is None and insp_img_id:
+                    clean_id = Path(str(insp_img_id)).stem.lower()
+                    for p_obj, arr in insp_imgs:
+                        if clean_id in p_obj.stem.lower() or p_obj.stem.lower() in clean_id or str(insp_img_id).lower() in p_obj.name.lower():
+                            target_insp_bgr = arr
+                            break
+                if target_insp_bgr is None and len(insp_imgs) > 1:
+                    target_insp_bgr = insp_imgs[1][1] if ref_key not in ("product_name", "brand_name") else insp_imgs[0][1]
+            if target_insp_bgr is None:
+                target_insp_bgr = insp_image_bgr
+            if target_insp_bgr is not None:
+                insp_crop = _make_evidence_crop(target_insp_bgr, insp_bbox, polygon=insp_polygon)
+
         ocr_conf = insp_c
         quality = assess_region_quality(insp_image_bgr, insp_bbox) if (insp_image_bgr is not None and insp_bbox) else {"sharpness": 1.0, "is_degraded": False, "quality_note": "Normal quality"}
 
         ref_crop = (ref_crops or {}).get(ref_key)
-        if not ref_crop and ref_image_bgr is not None and ref_bbox:
-            ref_crop = _make_evidence_crop(ref_image_bgr, ref_bbox, polygon=ref_polygon)
+        if not ref_crop and ref_bbox:
+            target_ref_bgr = None
+            if ref_imgs:
+                if ref_surf:
+                    sid_lower = str(ref_surf).lower().strip()
+                    import re
+                    m = re.search(r'\d+', sid_lower)
+                    if m:
+                        s_idx = int(m.group(0)) - 1
+                        if 0 <= s_idx < len(ref_imgs):
+                            target_ref_bgr = ref_imgs[s_idx][1]
+                    elif "back" in sid_lower and len(ref_imgs) > 1:
+                        target_ref_bgr = ref_imgs[1][1]
+                    elif "front" in sid_lower and len(ref_imgs) > 0:
+                        target_ref_bgr = ref_imgs[0][1]
+                if target_ref_bgr is None and ref_img_id:
+                    clean_id = Path(str(ref_img_id)).stem.lower()
+                    for p_obj, arr in ref_imgs:
+                        if clean_id in p_obj.stem.lower() or p_obj.stem.lower() in clean_id or str(ref_img_id).lower() in p_obj.name.lower():
+                            target_ref_bgr = arr
+                            break
+                if target_ref_bgr is None and len(ref_imgs) > 1:
+                    target_ref_bgr = ref_imgs[1][1] if ref_key not in ("product_name", "brand_name") else ref_imgs[0][1]
+            if target_ref_bgr is None:
+                target_ref_bgr = ref_image_bgr
+            if target_ref_bgr is not None:
+                ref_crop = _make_evidence_crop(target_ref_bgr, ref_bbox, polygon=ref_polygon)
 
         raw_sim, norm_sim, sim_reason = compute_ocr_similarity(ref_str, insp_str)
 

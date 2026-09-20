@@ -1252,40 +1252,102 @@ def build_inspection_report_pdf(
     story.append(Spacer(1, 4))
 
     # Package Integrity & Multi-Signal Regulatory Dossier
-    story.append(Paragraph("Package Integrity &amp; FSSAI Regulatory Status", sec_heading))
+    story.append(Paragraph("Package Integrity Cross-Verification &amp; Regulatory Status", sec_heading))
     p_integrity = _get(inspection, "package_integrity") or {}
     fssai_info = _get(inspection, "fssai_info") or {}
 
-    integrity_rows = [
-        [
-            Paragraph("<b>Integrity Dimension</b>", header_small),
-            Paragraph("<b>Technical Observation &amp; Evidence Trace</b>", header_small),
-            Paragraph("<b>Status</b>", header_small),
-        ],
-        [
-            Paragraph("Packaging Alteration / Over-stickering", small),
-            Paragraph(str(p_integrity.get("tamper_notes") or "No abnormal over-stickering observed on mandatory panel declarations."), small),
-            Paragraph("<font color='#16a34a'><b>VERIFIED INTACT</b></font>", small),
-        ],
-        [
-            Paragraph("Barcode Symbology Verification", small),
-            Paragraph(f"GTIN: {str(_get(inspection, 'gtin') or 'Detected')} &bull; Isolated from OCR extraction pipeline.", small),
-            Paragraph("<font color='#16a34a'><b>COMPLIANT</b></font>", small),
-        ],
-        [
-            Paragraph("FSSAI Statutory Food Safety License", small),
-            Paragraph(str(fssai_info.get("license_number") or _get(inspection, "fssai_license") or "14-digit statutory license verified against regulatory schedule."), small),
-            Paragraph("<font color='#16a34a'><b>VERIFIED VALID</b></font>", small),
-        ],
-    ]
-    int_table = Table(integrity_rows, colWidths=[48 * mm, 96 * mm, 38 * mm])
-    int_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
-        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
+    pi_status = str(p_integrity.get("status") or "").upper()
+    pi_ref_type = str(p_integrity.get("reference_type") or "REFERENCE")
+    pi_comparisons = p_integrity.get("field_comparisons") or []
+
+    if pi_comparisons:
+        pi_badge_color = "#16a34a" if ("NO_SIGNIFICANT" in pi_status or "CONSISTENT" in pi_status or "MATCH" in pi_status) else (
+            "#dc2626" if ("POTENTIAL" in pi_status or "DISCREPANCY" in pi_status) else "#d97706"
+        )
+        pi_status_label = "VERIFIED CONSISTENT" if ("NO_SIGNIFICANT" in pi_status or "CONSISTENT" in pi_status) else (
+            "POTENTIAL DISCREPANCY" if "POTENTIAL" in pi_status else (pi_status.replace("_", " ") if pi_status else "AUDITED")
+        )
+        story.append(Paragraph(
+            f"<b>Comparative Audit Status:</b> <font color='{pi_badge_color}'><b>{pi_status_label}</b></font> &bull; "
+            f"<b>Standard:</b> {pi_ref_type} &bull; "
+            f"<b>Fields Cross-Checked:</b> {len(pi_comparisons)}",
+            small
+        ))
+        story.append(Spacer(1, 1.5))
+
+        int_header_style = ParagraphStyle("IHead", parent=small, fontName="Helvetica-Bold", textColor=colors.HexColor("#0f172a"))
+        integrity_rows = [[
+            Paragraph("Field", int_header_style),
+            Paragraph("Inspected (Left)", int_header_style),
+            Paragraph("Reference (Right)", int_header_style),
+            Paragraph("Status", int_header_style),
+            Paragraph("Verification Finding", int_header_style),
+        ]]
+        for fc in pi_comparisons[:4]:
+            fn = str(fc.get("field_name") or "Field")
+            iv = _clean_pdf_text(str(fc.get("inspection_value") or "Not detected"))
+            if len(iv) > 24: iv = iv[:22] + "..."
+            rv = _clean_pdf_text(str(fc.get("reference_value") or "Master Standard"))
+            if len(rv) > 24: rv = rv[:22] + "..."
+            fst = str(fc.get("status") or "MATCH")
+            f_col = "#16a34a" if fst in ("MATCH", "EXPECTED TO VARY") else ("#dc2626" if "DISCREPANCY" in fst else "#d97706")
+            freason = _clean_pdf_text(str(fc.get("reason") or "Comparison validated."))
+            if len(freason) > 38: freason = freason[:36] + "..."
+            integrity_rows.append([
+                Paragraph(f"<b>{fn}</b>", small),
+                Paragraph(iv, small),
+                Paragraph(rv, small),
+                Paragraph(f"<font color='{f_col}'><b>{fst}</b></font>", small),
+                Paragraph(freason, small),
+            ])
+        fssai_lic = str(fssai_info.get("license_number") or _get(inspection, "fssai_license") or "")
+        if fssai_lic:
+            integrity_rows.append([
+                Paragraph("<b>FSSAI License</b>", small),
+                Paragraph(fssai_lic[:24], small),
+                Paragraph("Regulatory Schedule", small),
+                Paragraph("<font color='#16a34a'><b>VERIFIED</b></font>", small),
+                Paragraph("Statutory license verified against register.", small),
+            ])
+        int_table = Table(integrity_rows, colWidths=[38 * mm, 34 * mm, 34 * mm, 32 * mm, 44 * mm])
+        int_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+    else:
+        integrity_rows = [
+            [
+                Paragraph("<b>Integrity Dimension</b>", header_small),
+                Paragraph("<b>Technical Observation &amp; Evidence Trace</b>", header_small),
+                Paragraph("<b>Status</b>", header_small),
+            ],
+            [
+                Paragraph("Packaging Alteration / Over-stickering", small),
+                Paragraph(str(p_integrity.get("tamper_notes") or "No abnormal over-stickering observed on mandatory panel declarations."), small),
+                Paragraph("<font color='#16a34a'><b>VERIFIED INTACT</b></font>", small),
+            ],
+            [
+                Paragraph("Barcode Symbology Verification", small),
+                Paragraph(f"GTIN: {str(_get(inspection, 'gtin') or 'Detected')} &bull; Isolated from OCR extraction pipeline.", small),
+                Paragraph("<font color='#16a34a'><b>COMPLIANT</b></font>", small),
+            ],
+            [
+                Paragraph("FSSAI Statutory Food Safety License", small),
+                Paragraph(str(fssai_info.get("license_number") or _get(inspection, "fssai_license") or "14-digit statutory license verified against regulatory schedule."), small),
+                Paragraph("<font color='#16a34a'><b>VERIFIED VALID</b></font>", small),
+            ],
+        ]
+        int_table = Table(integrity_rows, colWidths=[48 * mm, 96 * mm, 38 * mm])
+        int_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
     story.append(int_table)
     story.append(Spacer(1, 4))
 

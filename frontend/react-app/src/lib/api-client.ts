@@ -901,6 +901,20 @@ export async function getPackageIntegrity(inspectionId: string): Promise<Integri
   return request<IntegrityReportData>(`/integrity/${encodeURIComponent(inspectionId)}`);
 }
 
+export async function savePackageIntegrity(
+  inspectionId: string,
+  data?: IntegrityReportData
+): Promise<{ status: string; package_integrity: IntegrityReportData }> {
+  return request<{ status: string; package_integrity: IntegrityReportData }>(
+    `/inspections/${encodeURIComponent(inspectionId)}/integrity/save`,
+    {
+      method: "POST",
+      body: JSON.stringify({ package_integrity: data }),
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+}
+
 export async function getPackageIntegrityHistory(
   inspectionId: string
 ): Promise<{ history: ComparisonHistoryItem[]; count: number }> {

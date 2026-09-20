@@ -360,5 +360,8 @@ def groq_result_to_classified_fields(groq_data: Dict[str, Any]) -> Dict[str, Dic
                     pass
 
         classified[canon_key] = f_data
+        if canon_key in ("manufacturer_name", "marketer_name", "packer_name"):
+            if "manufacturer_name_address" not in classified or canon_key == "manufacturer_name":
+                classified["manufacturer_name_address"] = dict(f_data)
 
     return classified

@@ -45,7 +45,90 @@ import {
   ConsumerReportModal,
 } from "./usp-components";
 
-export function DeclarationRow({
+export function renderFormattedValue(field: string, val?: string | null) {
+  if (!val || val === "—" || val === "Not detected" || val === "Not applicable") {
+    return <span className="text-sm text-muted-foreground italic">{val || "—"}</span>;
+  }
+
+  const fLower = field.toLowerCase();
+
+  // Manufacturer / Marketer / Packer: format company name in bold, and postal address cleanly
+  if (fLower.includes("manufacturer") || fLower.includes("marketer") || fLower.includes("packer")) {
+    const match = val.match(/^([^,]+?(?:Private Limited|Pvt\.?\s*Ltd\.?|Limited|Ltd\.?|LLP|Inc\.?|Corp\.?|Company))\s*,\s*(.+)$/i) ||
+                  val.match(/^([^,]{3,45}?),\s*(.+)$/);
+    if (match) {
+      const [, company, address] = match;
+      return (
+        <div className="text-xs leading-relaxed max-w-[640px]">
+          <span className="font-bold text-foreground text-sm block sm:inline">{company}</span>
+          <span className="text-muted-foreground block sm:inline sm:before:content-[',_'] font-normal">{address}</span>
+        </div>
+      );
+    }
+    return <span className="text-xs leading-relaxed text-foreground font-medium max-w-[640px] block">{val}</span>;
+  }
+
+  // Consumer Care Details: display email and phone as crisp tags
+  if (fLower.includes("consumer care")) {
+    const parts = val.split(/,\s*/);
+    if (parts.length > 1) {
+      return (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs py-0.5">
+          {parts.map((p, i) => {
+            const isEmail = p.includes("@");
+            const isPhone = /\d{5,}/.test(p);
+            return (
+              <span
+                key={i}
+                className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${
+                  isEmail
+                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                    : isPhone
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono"
+                    : "bg-muted text-foreground font-medium"
+                }`}
+              >
+                {p}
+              </span>
+            );
+          })}
+        </div>
+      );
+    }
+  }
+
+  // Expiry / Best Before / Mfg dates: primary batch date in mono bold, ISO date in clean tag
+  if (fLower.includes("date") || fLower.includes("expiry") || fLower.includes("mfg")) {
+    const dateMatch = val.match(/^([^\(]+?)(?:\s*\(([^\)]+)\))?$/);
+    if (dateMatch) {
+      const [, primaryDate, isoDate] = dateMatch;
+      return (
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-bold text-foreground text-sm">{primaryDate.trim()}</span>
+          {isoDate && (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground border border-border/60">
+              {isoDate}
+            </span>
+          )}
+        </div>
+      );
+    }
+  }
+
+  // MRP / Net Quantity / Unit Sale Price
+  if (fLower.includes("mrp") || fLower.includes("price") || fLower.includes("quantity") || fLower.includes("weight")) {
+    return <span className="font-mono font-bold text-foreground text-sm">{val}</span>;
+  }
+
+  // Product Name / Brand
+  if (fLower.includes("product name") || fLower.includes("brand")) {
+    return <span className="font-bold text-foreground text-sm tracking-tight">{val}</span>;
+  }
+
+  return <span className="text-sm text-foreground font-medium">{val}</span>;
+}
+
+function DeclarationRow({
   declaration,
   inspectionId,
   onFactUpdated,
@@ -95,14 +178,14 @@ export function DeclarationRow({
 
   return (
     <div className="border-b border-border/70 py-2.5 sm:py-3 last:border-0">
-      <div className="grid w-full grid-cols-[1fr_auto] items-center gap-4 text-left sm:grid-cols-[1.1fr_1fr_auto]">
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-left">
+      <div className="grid w-full grid-cols-[1fr_auto] items-start gap-4 text-left sm:grid-cols-[200px_1fr_auto] sm:items-center">
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-left shrink-0 sm:w-[200px]">
           <p className="text-sm font-semibold">{declaration.field}</p>
-          <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">{declaration.value || "Not detected"}</p>
+          <div className="mt-1 text-xs text-muted-foreground sm:hidden">{renderFormattedValue(declaration.field, declaration.value)}</div>
         </button>
-        <div className="hidden sm:flex items-center gap-2">
+        <div className="hidden sm:flex items-center gap-2 min-w-0 flex-1">
           {!isEditing ? (
-            <p className="truncate text-sm text-foreground font-medium">{declaration.value || "—"}</p>
+            renderFormattedValue(declaration.field, declaration.value)
           ) : (
             <form onSubmit={handleSaveEdit} className="flex items-center gap-1.5 w-full">
               <input
@@ -129,7 +212,7 @@ export function DeclarationRow({
             </form>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {inspectionId && !isEditing && (
             <button
               type="button"
@@ -311,9 +394,8 @@ export function ResultView({
                 )}
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4 border-t border-current/10 bg-card/50 p-5 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 border-t border-current/10 bg-card/50 p-5 sm:grid-cols-3">
             <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product Name</p><p className="mt-1 text-sm font-semibold">{inspection.product || "Not detected"}</p></div>
-            <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Product ID</p><p className="mt-1 text-sm font-semibold">{inspection.productId || "Not detected"}</p></div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Checked</p>
               <p className="mt-1 text-sm font-semibold">
@@ -623,7 +705,30 @@ export function ResultView({
                 inspectionId={inspection.id}
                 productId={inspection.productId}
                 productName={inspection.product}
+                initialData={inspection.packageIntegrity}
+                onSave={(savedReport) => {
+                  if (onInspectionUpdated) {
+                    onInspectionUpdated({
+                      ...inspection,
+                      packageIntegrity: savedReport,
+                      integrityStatus: savedReport.status,
+                    });
+                  }
+                }}
               />
+
+              <div className="flex items-center justify-between border-t border-border/60 pt-3">
+                <p className="text-xs text-muted-foreground">
+                  Saved package integrity audits are retained and included in the certified inspection report.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowIntegrityModal(false)}
+                  className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-muted"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}

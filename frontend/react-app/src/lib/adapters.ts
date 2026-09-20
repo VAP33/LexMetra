@@ -50,7 +50,9 @@ function bboxFromEvidence(
 }
 
 function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declaration[] {
-  return canonicals.map((c) => {
+  return canonicals
+    .filter((c) => c.field !== "product_id" && c.canonical_name?.toLowerCase() !== "product id")
+    .map((c) => {
     // Read the DECLARED Pydantic fields. `extracted_value`, `label_present`,
     // `canonical_field`, `statutory_rule`, `rule_description` and `provenance`
     // are @property accessors on the backend model and are absent from the JSON
@@ -186,7 +188,7 @@ function factsToDeclarations(facts: RawScanResponse["inspection"]["facts"]): Dec
   const decls: Declaration[] = [];
 
   for (const f of facts) {
-    if (isAuxiliaryField(f.field)) continue;
+    if (isAuxiliaryField(f.field) || f.field === "product_id" || f.field.toLowerCase() === "product id") continue;
     if (seenFields.has(f.field)) continue;
     seenFields.add(f.field);
 
@@ -285,7 +287,7 @@ export function computeScore(declarations: Declaration[]): number {
 
 function evidenceFromFacts(facts: RawScanResponse["inspection"]["facts"]): EvidenceRegion[] {
   return facts
-    .filter((f) => !isAuxiliaryField(f.field) && f.bbox)
+    .filter((f) => !isAuxiliaryField(f.field) && f.field !== "product_id" && f.field.toLowerCase() !== "product id" && f.bbox)
     .map((f) => ({
       label: humanizeField(f.field),
       value: f.extracted_value || "",
@@ -301,6 +303,7 @@ function evidenceFromDeclarationsOrFacts(
   if (declarations && declarations.length > 0) {
     const regions: EvidenceRegion[] = [];
     for (const d of declarations) {
+      if (d.field === "product_id" || d.canonical_name?.toLowerCase() === "product id") continue;
       const bbox = bboxFromEvidence(d.evidence?.canonical_bbox) || bboxFromEvidence(d.evidence?.bbox);
       const polygon = (d.evidence?.canonical_polygon || d.evidence?.polygon) as [number, number][] | undefined;
       const locStatus = d.evidence?.localization_status;
@@ -626,14 +629,32 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
     row.product_category
   );
 
+  const rowBarcodeDecl = declarations.find(
+    (d) =>
+      d.canonicalField === "barcode" ||
+      d.canonicalField === "gtin" ||
+      d.field.toLowerCase().includes("barcode") ||
+      d.field.toLowerCase().includes("gtin")
+  );
+  const rowBarcodeVal =
+    (row as any).barcode_info?.gtin ||
+    (row as any).barcode_info?.data ||
+    (rowBarcodeDecl?.value && rowBarcodeDecl.value !== "Not detected" && rowBarcodeDecl.value !== "Not captured"
+      ? rowBarcodeDecl.value
+      : null);
+
   const rowProdIdDecl = declarations.find(
     (d) => d.canonicalField === "product_id" || d.field.toLowerCase() === "product id"
   );
-  const rowProductId = cleanProductId(
+  // Product ID is identical to Barcode / GTIN per user requirement
+  const rowProductId = rowBarcodeVal || cleanProductId(
     rowProdIdDecl?.value,
     row.product_id,
     row.inspection_id
   );
+  if (rowProdIdDecl && rowBarcodeVal) {
+    rowProdIdDecl.value = rowBarcodeVal;
+  }
 
   const rowMfgDecl = declarations.find(
     (d) => d.canonicalField === "manufacturer_name_address" || d.field.toLowerCase() === "manufacturer"

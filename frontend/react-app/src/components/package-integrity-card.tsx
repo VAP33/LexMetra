@@ -8,6 +8,7 @@ import {
   History,
   Layers,
   LoaderCircle,
+  Save,
   ShieldAlert,
   Upload,
   X,
@@ -16,11 +17,18 @@ import {
   getPackageIntegrity,
   getPackageIntegrityHistory,
   comparePackageIntegrity,
+  savePackageIntegrity,
   type FieldComparisonData,
   type ComparisonHistoryItem,
   type IntegrityReportData,
   API_BASE,
 } from "@/lib/api-client";
+
+function resolveMediaSrc(src?: string) {
+  if (!src) return undefined;
+  if (src.startsWith("http") || src.startsWith("data:") || src.startsWith("blob:")) return src;
+  return `${API_BASE}${src.startsWith("/") ? "" : "/"}${src}`;
+}
 
 // ===========================================================================
 // USP 1: Package Integrity Verification Component
@@ -47,8 +55,8 @@ function SideEvidencePanel({
   value?: string;
   cropBase64?: string;
   imageUrl?: string;
-  bbox?: number[];
-  polygon?: number[][];
+  bbox?: [number, number, number, number];
+  polygon?: [number, number][];
   confidence?: number;
   surfaceId?: string;
   imageId?: string;
@@ -67,11 +75,7 @@ function SideEvidencePanel({
 
   // Build resolved source
   const rawSrc = cropBase64 || imageUrl;
-  const resolvedSrc = rawSrc
-    ? rawSrc.startsWith("http") || rawSrc.startsWith("data:") || rawSrc.startsWith("blob:")
-      ? rawSrc
-      : `${API_BASE}${rawSrc.startsWith("/") ? "" : "/"}${rawSrc}`
-    : undefined;
+  const resolvedSrc = resolveMediaSrc(rawSrc);
 
   useEffect(() => {
     if (!resolvedSrc || isMissing) return;
@@ -286,11 +290,13 @@ export function PackageIntegrityCard({
   productId: _productId,
   productName: _productName,
   initialData,
+  onSave,
 }: {
   inspectionId: string;
   productId?: string;
   productName?: string;
   initialData?: IntegrityReportData | null;
+  onSave?: (savedReport: IntegrityReportData) => void;
 }) {
   const [data, setData] = useState<IntegrityReportData | null>(initialData || null);
   const [loading, setLoading] = useState(!initialData);
@@ -299,6 +305,9 @@ export function PackageIntegrityCard({
   const [uploadRefType, setUploadRefType] = useState<"TRUSTED" | "DEMO" | "UNVERIFIED">("UNVERIFIED");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [comparing, setComparing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [history, setHistory] = useState<ComparisonHistoryItem[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [activeEvidence, setActiveEvidence] = useState<FieldComparisonData | null>(null);
@@ -338,6 +347,24 @@ export function PackageIntegrityCard({
     loadIntegrity(Boolean(initialData));
   }, [inspectionId]);
 
+  async function handleSaveIntegrity() {
+    if (!data || saving) return;
+    setSaving(true);
+    try {
+      const res = await savePackageIntegrity(inspectionId, data);
+      setIsSaved(true);
+      setSaveSuccessMsg("Package integrity verification saved successfully to inspection record & report.");
+      if (onSave) {
+        onSave(res.package_integrity || data);
+      }
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (err: any) {
+      alert(`Failed to save package integrity: ${err?.message || "Unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleUploadCompare(e: React.FormEvent) {
     e.preventDefault();
     if (selectedFiles.length === 0) return;
@@ -345,6 +372,10 @@ export function PackageIntegrityCard({
     try {
       const res = await comparePackageIntegrity(inspectionId, selectedFiles, uploadRefType);
       setData(res);
+      setIsSaved(true);
+      if (onSave) {
+        onSave(res);
+      }
       setShowUploadModal(false);
       setSelectedFiles([]);
       try {
@@ -579,7 +610,8 @@ export function PackageIntegrityCard({
     (data.field_comparisons?.filter((f) => f.status === "POTENTIAL DISCREPANCY").length ?? 0);
 
   // Overall result verdict
-  const isPotentialAlt = summaryDiscrepancies > 0 || (data.status ? data.status.includes("POTENTIAL") : false);
+  const rawStatus = data.status || (data as any).comparison_status || "";
+  const isPotentialAlt = summaryDiscrepancies > 0 || rawStatus.includes("POTENTIAL");
   const isReviewRequired = !isPotentialAlt && summaryReviews > 0;
   const overallResultText = isPotentialAlt
     ? "POTENTIAL DISCREPANCY DETECTED"
@@ -645,6 +677,37 @@ export function PackageIntegrityCard({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {data && (
+            <button
+              type="button"
+              onClick={handleSaveIntegrity}
+              disabled={saving}
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-1.5 text-xs font-bold transition shadow-xs ${
+                isSaved
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand"
+              }`}
+              title="Save package integrity verification so it is permanently preserved in the inspection docket and report"
+            >
+              {saving ? (
+                <>
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  Saving…
+                </>
+              ) : isSaved ? (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  Saved to Report
+                </>
+              ) : (
+                <>
+                  <Save className="h-3.5 w-3.5" />
+                  Save Integrity Audit
+                </>
+              )}
+            </button>
+          )}
+
           {history.length > 0 && (
             <button
               type="button"
@@ -666,6 +729,13 @@ export function PackageIntegrityCard({
           </button>
         </div>
       </div>
+
+      {saveSuccessMsg && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+          <Check className="h-4 w-4 shrink-0" />
+          <span>{saveSuccessMsg}</span>
+        </div>
+      )}
 
       {/* 2. Last Comparison Metadata Record Banner */}
       <div className="rounded-xl border border-border/70 bg-muted/30 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -743,8 +813,8 @@ export function PackageIntegrityCard({
           <h4 className="text-sm font-bold text-foreground uppercase tracking-wider">
             Canonical Field Comparison ({fieldItems.length})
           </h4>
-          <span className="text-[11px] text-muted-foreground">
-            Reference Standard vs Inspected Package
+          <span className="text-[11px] font-semibold text-muted-foreground">
+            Left: Original / Inspected BBox · Right: Reference Standard BBox
           </span>
         </div>
 
@@ -805,23 +875,80 @@ export function PackageIntegrityCard({
                     </span>
                   </div>
 
-                  {/* Values Comparison: Reference vs Inspected */}
-                  <div className="rounded-lg border border-border/60 bg-muted/40 p-2.5 space-y-1.5 font-mono text-[11px]">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-muted-foreground font-sans font-semibold text-[10px] uppercase">
-                        Reference:
-                      </span>
-                      <span className="font-medium text-foreground truncate max-w-[200px]" title={item.reference_value}>
-                        {item.reference_value || "Not specified"}
-                      </span>
+                  {/* Values & Localised BBox Side-by-Side: STRICTLY LEFT = Inspected, RIGHT = Reference */}
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    {/* LEFT: ORIGINAL / INSPECTED */}
+                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.03] p-2 space-y-1.5 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                          <span>Left: Original BBox</span>
+                          {item.inspection_bbox && (
+                            <span className="font-mono text-[9px] text-muted-foreground">
+                              [{item.inspection_bbox.slice(0, 2).join(",")}]
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-mono font-bold text-foreground text-xs truncate mt-1" title={item.inspection_value}>
+                          {item.inspection_value || "Not detected"}
+                        </p>
+                      </div>
+
+                      {/* Visual Crop / BBox */}
+                      <div
+                        onClick={() => setActiveEvidence(item)}
+                        className="relative h-16 w-full rounded-md bg-slate-950 flex items-center justify-center overflow-hidden border border-border/60 cursor-pointer hover:border-emerald-500/60 transition group"
+                        title="Click to view localized original evidence"
+                      >
+                        {resolveMediaSrc(item.inspection_crop_base64 || item.inspection_crop) ? (
+                          <img
+                            src={resolveMediaSrc(item.inspection_crop_base64 || item.inspection_crop)}
+                            alt="Original BBox Crop"
+                            className="h-full w-full object-contain group-hover:scale-105 transition"
+                          />
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground font-mono">No BBox Crop</span>
+                        )}
+                        <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[8px] font-mono text-emerald-400 opacity-0 group-hover:opacity-100 transition">
+                          Inspect
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-baseline justify-between gap-2 border-t border-border/40 pt-1.5">
-                      <span className="text-muted-foreground font-sans font-semibold text-[10px] uppercase">
-                        Inspection:
-                      </span>
-                      <span className="font-bold text-foreground truncate max-w-[200px]" title={item.inspection_value}>
-                        {item.inspection_value || "Not detected"}
-                      </span>
+
+                    {/* RIGHT: REFERENCE / GOLDEN */}
+                    <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/[0.03] p-2 space-y-1.5 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                          <span>Right: Ref Field BBox</span>
+                          {item.reference_bbox && (
+                            <span className="font-mono text-[9px] text-muted-foreground">
+                              [{item.reference_bbox.slice(0, 2).join(",")}]
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-mono font-medium text-foreground text-xs truncate mt-1" title={item.reference_value}>
+                          {item.reference_value || "Not specified"}
+                        </p>
+                      </div>
+
+                      {/* Visual Crop / BBox */}
+                      <div
+                        onClick={() => setActiveEvidence(item)}
+                        className="relative h-16 w-full rounded-md bg-slate-950 flex items-center justify-center overflow-hidden border border-border/60 cursor-pointer hover:border-indigo-500/60 transition group"
+                        title="Click to view reference standard evidence"
+                      >
+                        {resolveMediaSrc(item.reference_crop_base64 || item.reference_crop) ? (
+                          <img
+                            src={resolveMediaSrc(item.reference_crop_base64 || item.reference_crop)}
+                            alt="Reference BBox Crop"
+                            className="h-full w-full object-contain group-hover:scale-105 transition"
+                          />
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground font-mono">No Ref Crop</span>
+                        )}
+                        <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[8px] font-mono text-indigo-300 opacity-0 group-hover:opacity-100 transition">
+                          Inspect
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -1294,6 +1421,41 @@ export function PackageIntegrityCard({
           </div>
         </div>
       )}
+
+      {/* Bottom Save / Persistence Action Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-border/60">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0"></span>
+          <span>Saving permanently incorporates this verification into the inspection report.</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleSaveIntegrity}
+          disabled={saving || !data}
+          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs ${
+            isSaved
+              ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "bg-brand text-white hover:bg-brand/90"
+          }`}
+        >
+          {saving ? (
+            <>
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              Saving to Record…
+            </>
+          ) : isSaved ? (
+            <>
+              <Check className="h-3.5 w-3.5" />
+              Saved to Inspection &amp; Report
+            </>
+          ) : (
+            <>
+              <Save className="h-3.5 w-3.5" />
+              Save Integrity Audit to Report
+            </>
+          )}
+        </button>
+      </div>
 
       <p className="text-[11px] text-muted-foreground italic leading-4 border-t border-border/40 pt-2">
         {data.disclaimer}

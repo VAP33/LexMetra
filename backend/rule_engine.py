@@ -117,9 +117,21 @@ def _evaluate_declaration_rule(
                 val_str = str(extraction.value or "").strip()
                 import re as _re
                 # Legal Metrology Rule 6(1)(a)/(b)/(c) requires complete entity name and complete address.
-                # Incomplete address fragments (ending abruptly in comma/colon, lacking PIN or state/city, or under 25 chars) must not be overstated.
-                has_pin = bool(_re.search(r"\b\d{6}\b", val_str))
-                has_state_or_city = bool(_re.search(r"\b(?:mumbai|delhi|bangalore|bengaluru|chennai|kolkata|pune|hyderabad|ahmedabad|maharashtra|gujarat|karnataka|tamil\s*nadu|uttar\s*pradesh|haryana|road|street|marg|plot|ind|estate|nagar|dist|district)\b", val_str, _re.I))
+                # A declaration is COMPLETE if it contains a PIN code OR recognisable state/city/address indicator.
+                # State abbreviations (M.P., U.P., T.N., etc.) widely used on Indian FMCG labels are explicitly matched.
+                has_pin = bool(_re.search(r"\b[1-9]\d{5}\b", val_str))
+                has_state_or_city = bool(_re.search(
+                    r"\b(?:"
+                    r"Maharashtra|Tamil\s*Nadu|Karnataka|Gujarat|Delhi|Uttar\s*Pradesh|Haryana|Punjab|"
+                    r"West\s*Bengal|Telangana|Andhra\s*Pradesh|Kerala|Rajasthan|Madhya\s*Pradesh|Bihar|"
+                    r"Odisha|Assam|Goa|Uttarakhand|Himachal\s*Pradesh|Jharkhand|Chhattisgarh|"
+                    r"M\.?P\.?|U\.?P\.?|T\.?N\.?|A\.?P\.?|W\.?B\.?|H\.?P\.?|"
+                    r"Mumbai|Pune|Bangalore|Bengaluru|Chennai|Hyderabad|Kolkata|Ahmedabad|Mandideep|Raisen|"
+                    r"Gurugram|Gurgaon|Noida|Faridabad|Thane|Navi\s*Mumbai|Baddi|Haridwar|SIDCUL|"
+                    r"Plot|Industrial\s*Area|MIDC|GIDC|RIICO|Estate|Sector|Phase|Road|Marg|Street"
+                    r")\b",
+                    val_str, _re.I
+                ))
                 ends_abruptly = val_str.endswith(",") or val_str.endswith(";") or val_str.endswith(":") or val_str.endswith("/")
                 is_partial = (
                     ends_abruptly
@@ -927,9 +939,10 @@ def _build_canonical_declarations(
                 or (fact and fact.evidence and any("Qwen" in (e.evidence_note or "") or "multimodal" in (e.evidence_note or "") for e in fact.evidence))
             )
             source_type = "vlm" if is_vlm else "ocr"
+            default_face = "Face 1" if field_id in ("common_name", "product_name", "brand_name") else "Face 2"
             primary_evidence = DeclarationEvidence(
                 image_id=UNATTRIBUTED_IMAGE_ID,
-                page_or_view="Face 1",
+                page_or_view=default_face,
                 bbox=None,
                 source=source_type,
             )

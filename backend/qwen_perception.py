@@ -89,7 +89,7 @@ CRITICAL RULES:
 6. NET_QUANTITY: Declared TOTAL net quantity or net weight of the packaged commodity (e.g. "NET WEIGHT 150 g", "150 g", "500 ml", "1 kg"). You MUST extract the EXACT printed number from the package label (e.g. if the package says "NET WEIGHT: 150 g" or "150g", extract "150 g"; NEVER hallucinate or output generic 100g). Always include the unit ("g", "kg", "ml", "l").
 7. DATES: Keep MFD, EXPIRY, and USE_BEFORE separate. MFD = manufacture date. EXPIRY = explicit expiry date. USE_BEFORE includes explicit or relative statements such as "use before 24 months from date of manufacture".
 8. BATCH: Keep BATCH/LOT separate from barcode, GTIN, FSSAI, license, registration, or other numbers.
-9. ROLES: Keep MANUFACTURER, MARKETER, PACKER, and IMPORTER separate. Do not merge roles even when the same company performs multiple roles. Assign a role only when supported by visible text.
+9. ROLES & COMPLETE ADDRESS: Keep MANUFACTURER, MARKETER, PACKER, and IMPORTER separate. For each role, extract the ENTIRE declaration including the full entity/company name AND the COMPLETE postal address (premises/plot, industrial area, town/city, district, state, and PIN code) as printed on the package label. Under Legal Metrology Rule 6(1)(a), the declaration is incomplete without the full postal address. Do NOT stop after the company name. If ADDRESS is printed, also populate the ADDRESS field.
 10. CONCISENESS: Keep evidence_text under 40 characters. Extract each field once. Omit repetitive paragraphs.
 11. UNCERTAINTY: If information is unreadable, ambiguous, contradictory, or cannot be confidently localized, set status="REVIEW_REQUIRED" and value=null.
 

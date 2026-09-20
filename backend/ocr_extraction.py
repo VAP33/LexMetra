@@ -351,17 +351,62 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     for reading in readings:
         if not isinstance(reading, dict):
             continue
-        txt = str(reading.get("text", "")).strip()
+        txt = str(reading.get("text", reading.get("label", ""))).strip()
         if not txt:
             continue
-        try:
-            x, y, w, h = (int(reading[k]) for k in ("x", "y", "w", "h"))
-        except (KeyError, TypeError, ValueError):
-            continue
 
-        # A box is evidence.  Reject malformed/off-image geometry rather than
-        # clipping it into an apparently plausible but wrong overlay.
-        if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > rgb_image.width or y + h > rgb_image.height:
+        # Check if box_2d or bbox array is provided [ymin, xmin, ymax, xmax]
+        box = reading.get("box_2d") or reading.get("bbox")
+        if isinstance(box, (list, tuple)) and len(box) == 4:
+            try:
+                ymin, xmin, ymax, xmax = (float(v) for v in box)
+                # Check if normalized 0-1000
+                if max(ymin, xmin, ymax, xmax) <= 1000:
+                    x = int(xmin * rgb_image.width / 1000)
+                    y = int(ymin * rgb_image.height / 1000)
+                    w = int((xmax - xmin) * rgb_image.width / 1000)
+                    h = int((ymax - ymin) * rgb_image.height / 1000)
+                else:
+                    x = int(xmin)
+                    y = int(ymin)
+                    w = int(xmax - xmin)
+                    h = int(ymax - ymin)
+            except (ValueError, TypeError):
+                continue
+        else:
+            try:
+                x = int(reading.get("x", reading.get("left", 0)))
+                y = int(reading.get("y", reading.get("top", 0)))
+                w = int(reading.get("w", reading.get("width", 0)))
+                h = int(reading.get("h", reading.get("height", 0)))
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            # Detect if w/h were actually right/bottom bounds (x2, y2)
+            if x + w > rgb_image.width and x < w <= rgb_image.width:
+                w = w - x
+            if y + h > rgb_image.height and y < h <= rgb_image.height:
+                h = h - y
+
+            # Detect if coordinates are normalized to 0-1000
+            if max(x, y, w, h) <= 1000 and (x + w > rgb_image.width or y + h > rgb_image.height):
+                if rgb_image.width != 1000 or rgb_image.height != 1000:
+                    x = int(x * rgb_image.width / 1000)
+                    y = int(y * rgb_image.height / 1000)
+                    w = int(w * rgb_image.width / 1000)
+                    h = int(h * rgb_image.height / 1000)
+
+        # Clip slightly out-of-bounds coords to image boundaries
+        if x < 0:
+            x = 0
+        if y < 0:
+            y = 0
+        if x + w > rgb_image.width:
+            w = max(1, rgb_image.width - x)
+        if y + h > rgb_image.height:
+            h = max(1, rgb_image.height - y)
+
+        if w <= 0 or h <= 0 or x >= rgb_image.width or y >= rgb_image.height:
             continue
 
         lines.append(

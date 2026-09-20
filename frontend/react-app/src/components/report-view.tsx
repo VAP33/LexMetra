@@ -659,15 +659,22 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
               <SectionTitle n={3} title="Package Integrity Cross-Verification (Reference vs. Inspected)" />
               {integrityData ? (
                 <div className="space-y-3">
-                  <div className={`rounded-xl border-2 p-3 text-center text-sm font-black tracking-widest ${
-                    integrityData.status?.toUpperCase().includes("NO_SIGNIFICANT") || integrityData.status?.toUpperCase().includes("NO SIGNIFICANT")
-                      ? "bg-emerald-50 border-emerald-500 text-emerald-800"
-                      : integrityData.status?.toUpperCase().includes("POTENTIAL")
-                        ? "bg-rose-50 border-rose-500 text-rose-800"
-                        : "bg-amber-50 border-amber-500 text-amber-800"
-                  }`}>
-                    {integrityStatusLabel(integrityData.status)} &nbsp;&bull;&nbsp; Confidence: {Math.round((integrityData.confidence_score || 0) * 100)}%
-                  </div>
+                  {(() => {
+                    const rawSt = (integrityData.status || (integrityData as any).comparison_status || "").toUpperCase();
+                    const isOk = rawSt.includes("NO_SIGNIFICANT") || rawSt.includes("NO SIGNIFICANT") || rawSt.includes("CONSISTENT");
+                    const isPot = rawSt.includes("POTENTIAL");
+                    return (
+                      <div className={`rounded-xl border-2 p-3 text-center text-sm font-black tracking-widest ${
+                        isOk
+                          ? "bg-emerald-50 border-emerald-500 text-emerald-800"
+                          : isPot
+                            ? "bg-rose-50 border-rose-500 text-rose-800"
+                            : "bg-amber-50 border-amber-500 text-amber-800"
+                      }`}>
+                        {integrityStatusLabel(integrityData.status || (integrityData as any).comparison_status)} &nbsp;&bull;&nbsp; Confidence: {Math.round((integrityData.confidence_score || 0) * 100)}%
+                      </div>
+                    );
+                  })()}
 
                   {integrityData.summary_counts && (
                     <div className="grid grid-cols-4 gap-2 text-center text-xs">

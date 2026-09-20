@@ -1367,7 +1367,8 @@ def save_package_integrity_comparison(record: dict) -> str:
 
     # 1. Dual-write to filesystem cache for 100% offline & demo resilience
     if insp_id:
-        insp_dir = INTEGRITY_STORAGE_DIR / str(insp_id)
+        safe_insp_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(insp_id))
+        insp_dir = INTEGRITY_STORAGE_DIR / safe_insp_id
         insp_dir.mkdir(parents=True, exist_ok=True)
         file_path = insp_dir / f"{comp_id}.json"
         try:
@@ -1578,7 +1579,8 @@ def get_latest_package_integrity_comparison(inspection_id: str) -> Optional[dict
         pass
 
     # 2. Try Filesystem fallback
-    insp_dir = INTEGRITY_STORAGE_DIR / str(inspection_id)
+    safe_insp_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(inspection_id))
+    insp_dir = INTEGRITY_STORAGE_DIR / safe_insp_id
     latest_file = insp_dir / "latest.json"
     if latest_file.exists():
         try:
@@ -1624,7 +1626,8 @@ def list_package_integrity_history(inspection_id: str) -> list[dict]:
         pass
 
     # 2. Add any from filesystem not in DB
-    insp_dir = INTEGRITY_STORAGE_DIR / str(inspection_id)
+    safe_insp_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(inspection_id))
+    insp_dir = INTEGRITY_STORAGE_DIR / safe_insp_id
     if insp_dir.exists():
         cand_files = [f for f in insp_dir.glob("*.json") if f.name != "latest.json"]
         for p in sorted(cand_files, key=os.path.getmtime, reverse=True):
