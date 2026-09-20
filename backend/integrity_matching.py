@@ -289,7 +289,9 @@ class IntegrityReport:
 
 
 # Reference images directory containing real multi-face reference packs
-WORKSPACE_REFERENCE_DIR = Path(__file__).resolve().parent.parent / "Reference Images"
+WORKSPACE_REFERENCE_DIR = Path(__file__).resolve().parent.parent / "dataset" / "Reference Images"
+if not WORKSPACE_REFERENCE_DIR.exists():
+    WORKSPACE_REFERENCE_DIR = Path(__file__).resolve().parent.parent / "Reference Images"
 
 # Seed known reference packaging data for deterministic demo
 DEMO_REFERENCE_PACKAGES: Dict[str, Dict[str, Any]] = {
@@ -868,14 +870,19 @@ def corroborate_unit_sale_price(
     return agrees, printed_amt, round(expected_usp, 2), note
 
 
+_OCR_LETTER_TO_DIGIT_TABLE = str.maketrans("OoIiLlSsBb", "0011115588")
+
+
 def _fssai_normalize(s: Any) -> str:
-    """FSSAI is a 14-digit (or 10-digit old) license -- only digits matter."""
-    return _digits_only(s)
+    """FSSAI is a 14-digit (or 10-digit old) license -- only digits matter, mapping common OCR letter substitutions."""
+    cleaned = str(s or "").translate(_OCR_LETTER_TO_DIGIT_TABLE)
+    return _digits_only(cleaned)
 
 
 def _barcode_normalize(s: Any) -> str:
-    """GTIN/EAN/UPC -- only digits matter."""
-    return _digits_only(s)
+    """GTIN/EAN/UPC -- only digits matter, mapping common OCR letter substitutions."""
+    cleaned = str(s or "").translate(_OCR_LETTER_TO_DIGIT_TABLE)
+    return _digits_only(cleaned)
 
 
 def _is_manufacturer_match(ref_str: Any, insp_str: Any) -> Tuple[bool, str]:

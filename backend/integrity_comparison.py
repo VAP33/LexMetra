@@ -292,7 +292,7 @@ def compare_canonical_fields(
                         status = STATUS_REVIEW_REQUIRED
                         is_susp = False
                         finding_cat = FINDING_LEGITIMATE_VARIATION
-                        diff_type = "MRP packaging-version difference"
+                        diff_type = "MRP packaging-version difference (packaging price update)"
                         reason = f"MRP differs between packaging runs (ref Rs.{r_amt:g} vs insp Rs.{i_amt:g}). Direct packaging print, no sticker overlay detected."
                         obs = f"Printed retail price differs from reference catalog but clean direct print. Consistent with a packaging / pricing version revision."
                         sev = "MEDIUM"
@@ -363,7 +363,7 @@ def compare_canonical_fields(
                     status = STATUS_POTENTIAL_DISCREPANCY
                     is_susp = True
                     finding_cat = FINDING_ACTUAL_DIFFERENCE
-                    diff_type = "Impossible chronology (MFD later than Expiry)"
+                    diff_type = "Impossible date chronology (MFD later than Expiry)"
                     reason = f"Manufacturing date ({insp_str}) is later than the declared expiry ({insp_exp_val})."
                     obs = f"Chronology violation: MFD ({insp_str}) > EXP ({insp_exp_val}). This is statistically impossible unless date coding was altered."
                     sev = "HIGH"
@@ -391,7 +391,7 @@ def compare_canonical_fields(
                     status = STATUS_POTENTIAL_DISCREPANCY
                     is_susp = True
                     finding_cat = FINDING_ACTUAL_DIFFERENCE
-                    diff_type = "Impossible chronology (Expiry earlier than MFD)"
+                    diff_type = "Impossible date chronology (Expiry earlier than MFD)"
                     reason = f"Expiry date ({insp_str}) precedes manufacturing date ({insp_mfg_val}). Impossible chronological sequence."
                     obs = f"Chronology violation: EXP ({insp_str}) < MFD ({insp_mfg_val}). Indicates altered date coding."
                     sev = "HIGH"
@@ -418,7 +418,7 @@ def compare_canonical_fields(
                 mfg_match, mfg_rationale = _is_manufacturer_match(ref_str, insp_str)
                 if mfg_match:
                     status = STATUS_MATCH
-                    finding_cat = FINDING_LEGITIMATE_VARIATION if norm_sim >= 0.95 else FINDING_OCR_UNCERTAINTY
+                    finding_cat = FINDING_LEGITIMATE_VARIATION if ref_str == insp_str else FINDING_OCR_UNCERTAINTY
                     diff_type = "Manufacturer entity matches reference"
                     reason = f"Manufacturer declaration ({insp_str}) consistent with reference ({ref_str}). {mfg_rationale}."
                     obs = f"Manufacturer name matches reference specification after OCR token normalization ({mfg_rationale})."
@@ -635,7 +635,7 @@ def compare_canonical_fields(
                 care_match, care_rationale = _semantic_consumer_care_match(ref_str, insp_str)
                 if care_match:
                     status = STATUS_MATCH
-                    finding_cat = FINDING_LEGITIMATE_VARIATION
+                    finding_cat = FINDING_LEGITIMATE_VARIATION if (norm_sim >= 0.95 or ref_str == insp_str) else FINDING_OCR_UNCERTAINTY
                     diff_type = "Consumer care contact semantically consistent"
                     reason = f"Consumer care declaration consistent with reference ({care_rationale})."
                     obs = f"Consumer care semantically verified ({care_rationale}). Raw strings: ref='{ref_str}', insp='{insp_str}'."
@@ -735,7 +735,7 @@ def compare_canonical_fields(
         )
         canonical_items.append(item)
 
-        if status != "MATCH" or finding_cat == FINDING_OCR_UNCERTAINTY:
+        if status not in (STATUS_INSP_NOT_OBS, STATUS_REF_NOT_OBS) and (status != "MATCH" or finding_cat == FINDING_OCR_UNCERTAINTY or is_susp):
             differences.append({
                 "field": ref_key,
                 "field_name": display_name.upper(),

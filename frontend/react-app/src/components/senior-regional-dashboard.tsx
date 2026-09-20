@@ -866,6 +866,106 @@ export function SeniorRegionalDashboard({
                 </div>
               </div>
             </div>
+
+            {/* Additional Analytics: Statutory Clause Infraction Frequency & 30-Day Trendline */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Clause Frequency */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs space-y-4">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Scale className="h-4 w-4 text-indigo-700" />
+                    Statutory Rule Clause Violation Breakdown
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Infractions by specific Legal Metrology (Packaged Commodities) Rules, 2011 clauses
+                  </p>
+                </div>
+
+                <div className="space-y-3 pt-1">
+                  {[
+                    { clause: "Rule 6(11) Unit Sale Price (USP)", count: 28, pct: 36, color: "bg-rose-500" },
+                    { clause: "Rule 6(1)(e) Dual MRP / Over-stickering", count: 19, pct: 24, color: "bg-amber-500" },
+                    { clause: "Rule 7 Font Size / Schedule II Non-compliance", count: 14, pct: 18, color: "bg-purple-600" },
+                    { clause: "Rule 6(1)(d) Date of Mfg / Expiry Obliteration", count: 11, pct: 14, color: "bg-blue-600" },
+                    { clause: "Rule 6(1)(f) Consumer Helpline Missing", count: 6, pct: 8, color: "bg-slate-500" },
+                  ].map((item) => (
+                    <div key={item.clause} className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="font-semibold text-slate-800">{item.clause}</span>
+                        <span className="font-mono text-slate-600 font-bold">{item.count} cases ({item.pct}%)</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div style={{ width: `${item.pct}%` }} className={`h-full ${item.color} rounded-full transition-all duration-500`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 30-Day Trendline */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs space-y-4">
+                <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-emerald-600" />
+                      30-Day Compliance & Verification Trajectory
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Daily verified compliant batches vs statutory non-compliance notices
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    +18.4% Efficiency
+                  </span>
+                </div>
+
+                <div className="pt-2">
+                  <div className="h-40 flex items-end gap-1.5 sm:gap-2 pt-6 pb-2 px-1 border-b border-slate-100">
+                    {[
+                      { day: "W1", pass: 18, fail: 4 },
+                      { day: "W2", pass: 24, fail: 6 },
+                      { day: "W3", pass: 22, fail: 3 },
+                      { day: "W4", pass: 31, fail: 5 },
+                      { day: "W5", pass: 29, fail: 2 },
+                      { day: "W6", pass: 36, fail: 4 },
+                      { day: "W7", pass: 42, fail: 3 },
+                    ].map((col, cIdx) => {
+                      const maxVal = 50;
+                      const passH = Math.round((col.pass / maxVal) * 100);
+                      const failH = Math.round((col.fail / maxVal) * 100);
+                      return (
+                        <div key={cIdx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end group">
+                          <div className="w-full flex items-end justify-center gap-0.5 h-full">
+                            <div
+                              style={{ height: `${passH}%` }}
+                              className="w-full max-w-[14px] bg-emerald-500 rounded-t transition-all group-hover:bg-emerald-600"
+                              title={`Compliant: ${col.pass}`}
+                            />
+                            <div
+                              style={{ height: `${failH}%` }}
+                              className="w-full max-w-[14px] bg-rose-500 rounded-t transition-all group-hover:bg-rose-600"
+                              title={`Violations: ${col.fail}`}
+                            />
+                          </div>
+                          <span className="text-[10px] font-mono text-slate-400">{col.day}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-3">
+                    <div className="flex items-center gap-4">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Compliant Packages
+                      </span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" /> Action Notices
+                      </span>
+                    </div>
+                    <span className="font-semibold text-slate-700">Enforcement Velocity: 2.3 hrs avg</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
