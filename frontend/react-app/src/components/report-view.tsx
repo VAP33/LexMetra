@@ -1,359 +1,676 @@
 import { Header as AppHeader } from "./app-header";
-import { ManufacturerContactSection } from "./usp-components";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
-  Check,
-  Clock,
+  BadgeCheck,
+  Building2,
+  CheckCircle2,
   Download,
-  ExternalLink,
   FileText,
-  LoaderCircle,
+  Loader2,
   Mail,
-  Printer,
-  Share2,
-  ShieldAlert,
+  Phone,
   ShieldCheck,
+  XCircle,
 } from "lucide-react";
-import { type Language, getTranslation } from "@/lib/i18n";
-import { type Declaration, type Inspection } from "@/lib/types";
-import { reportPdfAvailable, reportPdfUrl } from "@/lib/api-client";
-import { type View, Button, StatusBadge, formatDate } from "./ui-primitives";
+import { type Inspection } from "@/lib/types";
+import {
+  reportPdfAvailable,
+  reportPdfUrl,
+  getPackageIntegrity,
+  getDepartmentalCrossVerification,
+  type IntegrityReportData,
+  type DepartmentalRegulatoryDossierData,
+} from "@/lib/api-client";
+import { Button, formatDate } from "./ui-primitives";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function fieldLabel(field: string): string {
+  return field
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function statusColor(status: string): string {
+  const s = (status || "").toUpperCase();
+  if (s === "VERIFIED" || s === "PASS") return "text-emerald-700 font-bold";
+  if (s === "NON_COMPLIANT" || s === "FAIL" || s === "MISSING") return "text-rose-700 font-bold";
+  if (s === "REVIEW" || s === "REVIEW_REQUIRED" || s === "UNCERTAIN") return "text-amber-600 font-bold";
+  if (s === "NOT_APPLICABLE" || s === "EXEMPT") return "text-slate-400 font-semibold";
+  return "text-slate-600";
+}
+
+function statusLabel(status: string): string {
+  const s = (status || "").toUpperCase();
+  if (s === "VERIFIED") return "PASS ✓";
+  if (s === "NON_COMPLIANT" || s === "MISSING") return "FAIL ✗";
+  if (s === "REVIEW" || s === "REVIEW_REQUIRED") return "REVIEW ⚠";
+  if (s === "NOT_APPLICABLE") return "N/A";
+  if (s === "EXEMPT") return "EXEMPT";
+  return status;
+}
+
+function integrityStatusLabel(status: string): string {
+  const s = (status || "").toUpperCase();
+  if (s.includes("NO_SIGNIFICANT") || s.includes("NO SIGNIFICANT")) return "NO SIGNIFICANT DIFFERENCE";
+  if (s.includes("POTENTIAL")) return "POTENTIAL ALTERATION DETECTED";
+  return "UNABLE TO VERIFY";
+}
+
+function deptStatusColor(status: string): string {
+  const s = (status || "").toUpperCase();
+  if (s === "LIVE" || s === "DEMO") return "text-emerald-700 font-bold";
+  if (s === "UNAVAILABLE") return "text-rose-700 font-bold";
+  if (s === "MANUAL") return "text-amber-600 font-bold";
+  return "text-slate-400";
+}
+
+function deptStatusLabel(status: string): string {
+  const s = (status || "").toUpperCase();
+  if (s === "LIVE") return "VERIFIED (Live Portal)";
+  if (s === "DEMO") return "VERIFIED (Demo/Registry)";
+  if (s === "NOT_APPLICABLE") return "Not Applicable";
+  if (s === "MANUAL") return "Manual Review Required";
+  if (s === "UNAVAILABLE") return "Portal Unavailable";
+  return status;
+}
+
+function fieldCompStatusColor(status: string): string {
+  const s = (status || "").toUpperCase();
+  if (s.includes("MATCH") || s.includes("EXPECTED")) return "text-emerald-700 font-bold";
+  if (s.includes("DISCREPANCY")) return "text-rose-700 font-bold";
+  if (s.includes("REVIEW")) return "text-amber-600 font-bold";
+  return "text-slate-500";
+}
+
+function fieldCompStatusLabel(status: string): string {
+  const s = (status || "").toUpperCase();
+  if (s === "MATCH") return "MATCH ✓";
+  if (s.includes("EXPECTED TO VARY")) return "OK (Variable)";
+  if (s.includes("POTENTIAL DISCREPANCY") || s.includes("POTENTIAL_DISCREPANCY")) return "DISCREPANCY ✗";
+  if (s.includes("REVIEW")) return "REVIEW ⚠";
+  if (s.includes("NOT_OBSERVED")) return "Not Observed";
+  return status;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SectionTitle({ n, title }: { n: number; title: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-3 mt-6 first:mt-0">
+      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center">
+        {n}
+      </span>
+      <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">{title}</h2>
+    </div>
+  );
+}
+
+function TableHeader({ cols }: { cols: string[] }) {
+  return (
+    <thead>
+      <tr className="bg-slate-800 text-white text-left">
+        {cols.map((c) => (
+          <th key={c} className="px-3 py-2 text-xs font-bold whitespace-nowrap">
+            {c}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: () => void }) {
-  const [pdfState, setPdfState] = useState<"idle" | "checking" | "available" | "unavailable">("idle");
+  const [pdfState, setPdfState] = useState<"idle" | "checking" | "done">("idle");
+  const [integrityData, setIntegrityData] = useState<IntegrityReportData | null>(null);
+  const [dossier, setDossier] = useState<DepartmentalRegulatoryDossierData | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  async function handleDownload() {
-    setPdfState("checking");
-    const available = await reportPdfAvailable(inspection.id);
-    if (available) {
-      window.open(reportPdfUrl(inspection.id), "_blank");
-      setPdfState("available");
-    } else {
-      window.print();
-      setPdfState("available");
+  useEffect(() => {
+    let cancelled = false;
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [integrity, dept] = await Promise.allSettled([
+          getPackageIntegrity(inspection.id),
+          getDepartmentalCrossVerification(inspection.id),
+        ]);
+        if (cancelled) return;
+        if (integrity.status === "fulfilled") setIntegrityData(integrity.value);
+        if (dept.status === "fulfilled") setDossier(dept.value);
+      } catch {
+        // tolerates partial failures silently
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
+    loadData();
+    return () => { cancelled = true; };
+  }, [inspection.id]);
+
+  async function handleExportPdf() {
+    setPdfState("checking");
+    try {
+      const available = await reportPdfAvailable(inspection.id);
+      if (available) {
+        window.open(reportPdfUrl(inspection.id), "_blank");
+      } else {
+        window.print();
+      }
+    } catch {
+      window.print();
+    }
+    setPdfState("done");
   }
 
   const isCompliant = inspection.status === "COMPLIANT" || inspection.status === "EXEMPT";
   const isViolation = inspection.status === "VIOLATION";
 
-  const verifiedCount = inspection.declarations.filter((d) => d.status === "VERIFIED" || d.status === "EXEMPT").length;
-  const totalCount = inspection.declarations.length || 7;
-  const coveragePct = Math.round((verifiedCount / totalCount) * 100);
+  const allDecls = inspection.declarations || [];
+  const verifiedCount = allDecls.filter((d) => d.status === "VERIFIED").length;
+  const failCount = allDecls.filter((d) => d.status === "NON_COMPLIANT" || d.status === "MISSING").length;
+  const reviewCount = allDecls.filter((d) => d.status === "REVIEW" || (d.status as string) === "REVIEW_REQUIRED").length;
 
-  const mrpDecl = inspection.declarations.find((d) => d.field.toLowerCase().includes("mrp") || d.field.toLowerCase().includes("price"));
-  const nqDecl = inspection.declarations.find((d) => d.field.toLowerCase().includes("net") || d.field.toLowerCase().includes("quantity"));
-  const mfgDecl = inspection.declarations.find((d) => d.field.toLowerCase().includes("mfg") || d.field.toLowerCase().includes("manufacture"));
-  const expDecl = inspection.declarations.find((d) => d.field.toLowerCase().includes("exp") || d.field.toLowerCase().includes("use"));
-  const uspDecl = inspection.declarations.find((d) => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit"));
-  const mfgNameDecl = inspection.declarations.find((d) => d.field.toLowerCase().includes("manufacturer") || d.field.toLowerCase().includes("packer"));
-  const careDecl = inspection.declarations.find((d) => d.field.toLowerCase().includes("care") || d.field.toLowerCase().includes("consumer"));
+  const mfgDecl = allDecls.find((d) => d.field.toLowerCase().includes("manufacturer") || d.field.toLowerCase().includes("packer"));
+  const careDecl = allDecls.find((d) => d.field.toLowerCase().includes("consumer_care") || d.field.toLowerCase().includes("consumer care"));
+  const fssaiDecl = allDecls.find((d) => d.field.toLowerCase().includes("fssai") || d.field.toLowerCase().includes("license"));
+  const barcodeDecl = allDecls.find((d) => d.field.toLowerCase().includes("barcode") || d.field.toLowerCase().includes("gtin"));
+  const addrDecl = allDecls.find((d) => d.field.toLowerCase().includes("address"));
+
+  const consumerCareText = careDecl?.value || "";
+  const emailMatch = consumerCareText.match(/[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}/g);
+  const phoneMatch = consumerCareText.match(/(\+?[\d][\d\s\-()]{6,})/g);
+
+  const surfaces = (inspection.surfaces && inspection.surfaces.length > 0)
+    ? inspection.surfaces.slice(0, 4)
+    : inspection.image
+      ? [{ surfaceId: "s1", imageUrl: inspection.image, faceLabel: "Surface 1", priorityScore: 100, regions: [] as any[], surfaceType: "Front" }]
+      : [];
+
+  const intFields = integrityData?.field_comparisons || [];
+  const deptDepts = dossier?.departments || [];
 
   return (
     <>
-      <AppHeader title="Official Statutory Report" />
-      <main className="mx-auto max-w-4xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
-        <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+      {/* ── Print CSS injected inline ── */}
+      <style>{`
+        @media print {
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .print-hidden { display: none !important; }
+          .print-page-break { page-break-before: always; break-before: page; }
+          .print-avoid-break { page-break-inside: avoid; break-inside: avoid; }
+          @page { margin: 14mm 11mm; size: A4; }
+          .report-shell { box-shadow: none !important; border: none !important; border-radius: 0 !important; }
+        }
+        @media screen {
+          .print-page-break { border-top: 2px dashed #cbd5e1; padding-top: 2rem; margin-top: 2rem; }
+        }
+      `}</style>
+
+      <AppHeader title="Official Statutory Inspection Report" />
+      <main className="mx-auto max-w-5xl px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8">
+
+        {/* Action bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 print-hidden">
           <button
             type="button"
             onClick={onBack}
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900 transition-colors"
           >
-            <ArrowLeft className="h-4 w-4" />Back to result
+            <ArrowLeft className="h-4 w-4" /> Back to result
           </button>
           <div className="flex items-center gap-2">
+            {loading && (
+              <span className="flex items-center gap-1 text-xs text-slate-500">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading data…
+              </span>
+            )}
             <Button variant="secondary" onClick={() => window.print()} className="border-border/70 text-slate-800">
-              <FileText className="h-4 w-4" />Print / Save PDF
+              <FileText className="h-4 w-4" /> Print / Save PDF
             </Button>
-            <Button onClick={handleDownload} disabled={pdfState === "checking"} className="bg-brand hover:bg-brand-900 text-white shadow-md">
+            <Button onClick={handleExportPdf} disabled={pdfState === "checking"} className="bg-brand hover:bg-brand/90 text-white shadow-md">
               <Download className="h-4 w-4" />
               {pdfState === "checking" ? "Generating…" : "Export Official PDF"}
             </Button>
           </div>
         </div>
 
-        {/* Official 2-Page Document Sheet */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden print:border-0 print:shadow-none p-6 sm:p-10 space-y-8 font-sans">
-          {/* ================================================================= */}
-          {/* PAGE 1 CONTENT */}
-          {/* ================================================================= */}
-          <div className="space-y-6">
-            {/* Document Header */}
-            <div className="text-center space-y-1 border-b border-slate-200 pb-4">
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase">
+        {/* ══ Report document shell ══ */}
+        <div className="report-shell bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden font-sans">
+
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          {/* PAGE 1 — Header · Verdict · Metadata · All Declarations        */}
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          <div className="p-6 sm:p-10 space-y-5">
+
+            {/* Document header */}
+            <div className="text-center border-b-2 border-slate-900 pb-4 space-y-1">
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                Government of India &bull; Ministry of Consumer Affairs, Food &amp; Public Distribution
+              </p>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase leading-tight">
                 Legal Metrology Compliance Inspection Report
               </h1>
-              <p className="text-xs sm:text-sm font-medium text-slate-600">
-                Packaged Commodities Rules, 2011 • Legal Metrology Division, Government of India
+              <p className="text-xs text-slate-600 font-medium">
+                Legal Metrology (Packaged Commodities) Rules, 2011 &bull; LexMetra AI Vision Platform v2.4
               </p>
             </div>
 
-            {/* Verdict Banner */}
-            <div
-              className={`rounded-lg p-3 text-center border font-bold text-xs sm:text-sm tracking-wide ${isCompliant
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-600"
-                  : isViolation
-                    ? "bg-rose-50 text-rose-800 border-rose-600"
-                    : "bg-amber-50 text-amber-800 border-amber-600"
-                }`}
-            >
+            {/* Verdict banner */}
+            <div className={`print-avoid-break rounded-xl p-4 text-center border-2 font-black text-sm tracking-widest ${
+              isCompliant ? "bg-emerald-50 text-emerald-800 border-emerald-600"
+              : isViolation ? "bg-rose-50 text-rose-800 border-rose-600"
+              : "bg-amber-50 text-amber-800 border-amber-600"
+            }`}>
               {isCompliant
-                ? "FINAL INSPECTION VERDICT: COMPLIANT — ALL MANDATORY DECLARATIONS VERIFIED"
+                ? "✓  FINAL VERDICT: COMPLIANT — ALL MANDATORY DECLARATIONS VERIFIED"
                 : isViolation
-                  ? "FINAL INSPECTION VERDICT: STATUTORY VIOLATION — NON-COMPLIANCE DETECTED"
-                  : "FINAL INSPECTION VERDICT: REVIEW REQUIRED — MANUAL INSPECTION RECOMMENDED"}
+                  ? "✗  FINAL VERDICT: STATUTORY VIOLATION — NON-COMPLIANCE DETECTED"
+                  : "⚠  FINAL VERDICT: REVIEW REQUIRED — MANUAL INSPECTION RECOMMENDED"}
             </div>
 
-            {/* 2x3 Metadata Table */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-slate-200 rounded-lg overflow-hidden border border-slate-200 text-xs">
-              <div className="bg-slate-50 p-2.5 font-bold text-slate-900">Product / Commodity Name</div>
-              <div className="bg-white p-2.5 font-semibold text-slate-800">{inspection.product}</div>
-              <div className="bg-slate-50 p-2.5 font-bold text-slate-900">Inspection Mode</div>
-              <div className="bg-white p-2.5 text-slate-700">Multi-Surface Fusion ({inspection.surfaces?.length || 3} Surfaces)</div>
-
-              <div className="bg-slate-50 p-2.5 font-bold text-slate-900">Inspection Date / Time</div>
-              <div className="bg-white p-2.5 text-slate-700">{formatDate(inspection.timestamp)}</div>
-              <div className="bg-slate-50 p-2.5 font-bold text-slate-900">Evidence Coverage</div>
-              <div className="bg-white p-2.5 font-semibold text-slate-800">{coveragePct}% of Mandatory Rules</div>
-
-              <div className="bg-slate-50 p-2.5 font-bold text-slate-900">Barcode / EAN</div>
-              <div className="bg-white p-2.5 font-mono text-slate-800">{inspection.productId || "8901764041259"}</div>
-              <div className="bg-slate-50 p-2.5 font-bold text-slate-900">Batch / Lot No.</div>
-              <div className="bg-white p-2.5 text-slate-700">-</div>
+            {/* Metadata grid */}
+            <div className="print-avoid-break grid grid-cols-2 sm:grid-cols-4 gap-px bg-slate-200 rounded-xl overflow-hidden border border-slate-200 text-xs">
+              {[
+                ["Product / Commodity Name", inspection.product],
+                ["Inspection ID", inspection.id],
+                ["Category", inspection.category || "Packaged Commodity"],
+                ["Sale Type", inspection.saleType || "Retail"],
+                ["Inspection Date / Time", formatDate(inspection.timestamp)],
+                ["Evidence Coverage", `${inspection.verifiedScore ?? Math.round((verifiedCount / Math.max(allDecls.length, 1)) * 100)}%`],
+                ["Barcode / GTIN", barcodeDecl?.value || inspection.productId || "Not Detected"],
+                ["FSSAI License No.", fssaiDecl?.value || "Not Detected"],
+              ].map(([label, value]) => (
+                <React.Fragment key={label as string}>
+                  <div className="bg-slate-50 p-2.5 font-bold text-slate-800">{label}</div>
+                  <div className="bg-white p-2.5 text-slate-700 break-all">{value}</div>
+                </React.Fragment>
+              ))}
             </div>
 
-            {/* Section 1: Verified Declarations */}
-            <div className="space-y-2">
-              <h2 className="text-sm font-bold text-slate-900">
-                1. Verified Legal Metrology Declarations (Fused Across Surfaces)
-              </h2>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-900 text-white font-bold">
-                      <th className="p-2.5">Statutory Field</th>
-                      <th className="p-2.5">Extracted Value</th>
-                      <th className="p-2.5">Statutory Rule</th>
-                      <th className="p-2.5 text-center">Verification Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 font-bold text-slate-900">Maximum Retail Price (MRP)</td>
-                      <td className="p-2.5 font-medium text-slate-800">{mrpDecl?.value || "Not Observed"}</td>
-                      <td className="p-2.5 text-slate-600">Rule 6(1)(e)</td>
-                      <td className="p-2.5 text-center">
-                        <span className={`font-bold ${mrpDecl?.status === "VERIFIED" ? "text-emerald-700" : "text-rose-700"}`}>
-                          {mrpDecl?.status === "VERIFIED" ? "PASS" : "FAIL"}
-                        </span>
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 font-bold text-slate-900">Net Quantity</td>
-                      <td className="p-2.5 font-medium text-slate-800">{nqDecl?.value || "150 g"}</td>
-                      <td className="p-2.5 text-slate-600">Rule 6(1)(c)</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 font-bold text-slate-900">Date of Manufacture / Packing</td>
-                      <td className="p-2.5 font-medium text-slate-800">{mfgDecl?.value || "05/2026"}</td>
-                      <td className="p-2.5 text-slate-600">Rule 6(1)(d)</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 font-bold text-slate-900">Expiry / Use By Date</td>
-                      <td className="p-2.5 font-medium text-slate-800">{expDecl?.value || "13/05/26"}</td>
-                      <td className="p-2.5 text-slate-600">Rule 6(1)(d)</td>
-                      <td className="p-2.5 text-center">
-                        <span className={`font-bold ${expDecl?.status === "VERIFIED" ? "text-emerald-700" : "text-blue-700"}`}>
-                          {expDecl?.status === "VERIFIED" ? "PASS" : "INFO"}
-                        </span>
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 font-bold text-slate-900">Unit Sale Price (USP)</td>
-                      <td className="p-2.5 font-medium text-slate-800">{uspDecl?.value || "₹2.80/g"}</td>
-                      <td className="p-2.5 text-slate-600">Rule 6(1)(da)</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 font-bold text-slate-900">Manufacturer / Packer</td>
-                      <td className="p-2.5 font-medium text-slate-800">{mfgNameDecl?.value || inspection.manufacturer}</td>
-                      <td className="p-2.5 text-slate-600">Rule 6(1)(a)</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 font-bold text-slate-900">Consumer Care Contact</td>
-                      <td className="p-2.5 font-medium text-slate-800">{careDecl?.value || "Not Observed"}</td>
-                      <td className="p-2.5 text-slate-600">Rule 6(1)(f)</td>
-                      <td className="p-2.5 text-center">
-                        <span className={`font-bold ${careDecl?.status === "VERIFIED" ? "text-emerald-700" : "text-rose-700"}`}>
-                          {careDecl?.status === "VERIFIED" ? "PASS" : "FAIL"}
-                        </span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Section 2: Statutory Rule Compliance Findings */}
-            <div className="space-y-2">
-              <h2 className="text-sm font-bold text-slate-900">
-                2. Statutory Rule Compliance Findings (LMPC Rules, 2011)
-              </h2>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-900 text-white font-bold">
-                      <th className="p-2.5">Rule Clause</th>
-                      <th className="p-2.5">Target Field</th>
-                      <th className="p-2.5 text-center">Status</th>
-                      <th className="p-2.5">Observed Value</th>
-                      <th className="p-2.5">Statutory Requirement</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 text-slate-700">Rule 6(1)(e)</td>
-                      <td className="p-2.5 font-bold text-slate-900">mrp</td>
-                      <td className="p-2.5 text-center font-bold">
-                        <span className={mrpDecl?.status === "VERIFIED" ? "text-emerald-700" : "text-rose-700"}>
-                          {mrpDecl?.status === "VERIFIED" ? "PASS" : "FAIL"}
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-slate-800">{mrpDecl?.value || "Missing"}</td>
-                      <td className="p-2.5 text-slate-600">
-                        {mrpDecl?.status === "VERIFIED"
-                          ? "Maximum Retail Price (MRP) is declared in statutory format."
-                          : "MRP declaration is missing from package."}
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 text-slate-700">Rule 6(1)(c)</td>
-                      <td className="p-2.5 font-bold text-slate-900">net_quantity</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                      <td className="p-2.5 text-slate-800">{nqDecl?.value || "150 g"}</td>
-                      <td className="p-2.5 text-slate-600">Net quantity is declared in standard metric units.</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 text-slate-700">Rule 6(1)(d)</td>
-                      <td className="p-2.5 font-bold text-slate-900">mfg_date</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                      <td className="p-2.5 text-slate-800">{mfgDecl?.value || "05/2026"}</td>
-                      <td className="p-2.5 text-slate-600">Month and year of manufacture/packing is declared.</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 text-slate-700">Rule 6(1)(a)</td>
-                      <td className="p-2.5 font-bold text-slate-900">manufacturer</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                      <td className="p-2.5 text-slate-800">{mfgNameDecl?.value || inspection.manufacturer}</td>
-                      <td className="p-2.5 text-slate-600">Name and address of manufacturer/packer is declared.</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 text-slate-700">Rule 6(1)(f)</td>
-                      <td className="p-2.5 font-bold text-slate-900">consumer_care</td>
-                      <td className="p-2.5 text-center font-bold">
-                        <span className={careDecl?.status === "VERIFIED" ? "text-emerald-700" : "text-rose-700"}>
-                          {careDecl?.status === "VERIFIED" ? "PASS" : "FAIL"}
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-slate-800">{careDecl?.value || "Missing"}</td>
-                      <td className="p-2.5 text-slate-600">
-                        {careDecl?.status === "VERIFIED"
-                          ? "Consumer care helpline / email is declared."
-                          : "Consumer care contact details are missing."}
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 text-slate-700">Rule 6(1)(da)</td>
-                      <td className="p-2.5 font-bold text-slate-900">unit_price</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">PASS</td>
-                      <td className="p-2.5 text-slate-800">{uspDecl?.value || "₹2.80/g"}</td>
-                      <td className="p-2.5 text-slate-600">Unit sale price (USP) is declared in standard per-unit rate.</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="p-2.5 text-slate-700">Rule 6(1) Alteration</td>
-                      <td className="p-2.5 font-bold text-slate-900">sticker_alteration</td>
-                      <td className="p-2.5 text-center font-bold text-amber-600">REVIEW_REQUIRED</td>
-                      <td className="p-2.5 text-slate-800">{isViolation ? "5 suspect region(s)" : "4 suspect region(s)"}</td>
-                      <td className="p-2.5 text-slate-600">Suspect price/date overlay sticker detected. Check for tampering.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          {/* ================================================================= */}
-          {/* PAGE 2 CONTENT */}
-          {/* ================================================================= */}
-          <div className="pt-8 border-t border-slate-200 space-y-6">
-            <h2 className="text-sm font-bold text-slate-900">
-              3. Photographic Evidence & Annotated Visual Inspection
-            </h2>
-
-            {/* Evidence Surface Gallery */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {((inspection.surfaces && inspection.surfaces.length > 0) ? inspection.surfaces : [{ surfaceId: "s1", imageUrl: inspection.image, faceLabel: "Surface 1", priorityScore: 100, regions: [] }]).slice(0, 4).map((surf, idx) => (
-                <div key={surf.surfaceId || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-2 space-y-2">
-                  <div className="relative rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
-                    {surf.imageUrl ? (
-                      <img
-                        src={surf.imageUrl}
-                        alt={surf.faceLabel || `Surface ${idx + 1}`}
-                        className="w-full h-full object-contain"
-                      />
-                    ) : (
-                      <div className="text-slate-400 text-xs font-mono">Surface {idx + 1} Image</div>
-                    )}
-                    <div
-                      className={`absolute top-0 inset-x-0 py-0.5 px-2 text-[10px] font-bold text-white uppercase text-center ${isViolation ? "bg-rose-700" : "bg-emerald-700"
-                        }`}
-                    >
-                      Legal Metrology Check: {isViolation ? "Violations Detected" : "Compliant"}
-                    </div>
-                  </div>
-                  <p className="text-[11px] font-mono font-medium text-slate-600 truncate">
-                    Surface {idx + 1}: {surf.surfaceId || `capture_${idx + 1}.jpg`} ({isViolation ? "VIOLATION" : "COMPLIANT"})
-                  </p>
+            {/* Score summary */}
+            <div className="print-avoid-break grid grid-cols-3 gap-3 text-center">
+              {[
+                { Icon: CheckCircle2, count: verifiedCount, label: "Verified", bg: "bg-emerald-50 border-emerald-200", fg: "text-emerald-700" },
+                { Icon: XCircle, count: failCount, label: "Non-Compliant", bg: "bg-rose-50 border-rose-200", fg: "text-rose-700" },
+                { Icon: AlertTriangle, count: reviewCount, label: "Review Required", bg: "bg-amber-50 border-amber-200", fg: "text-amber-600" },
+              ].map(({ Icon, count, label, bg, fg }) => (
+                <div key={label} className={`rounded-xl border p-3 ${bg}`}>
+                  <Icon className={`h-5 w-5 mx-auto mb-1 ${fg}`} />
+                  <div className={`text-2xl font-black ${fg}`}>{count}</div>
+                  <div className="text-xs font-semibold text-slate-600">{label}</div>
                 </div>
               ))}
             </div>
 
-            {/* Statutory Disclaimer Box */}
-            <div className="rounded-lg border border-amber-400 bg-amber-50 p-3.5 text-xs leading-relaxed text-amber-900">
-              <strong>STATUTORY DISCLAIMER:</strong> This inspection report is generated by an automated Legal Metrology computer vision screening system. Findings marked VIOLATION or UNCERTAIN should be verified by an authorized Legal Metrology Officer under the Legal Metrology Act, 2009 before formal enforcement action.
+            {/* Section 1: All Declarations */}
+            <div className="print-avoid-break">
+              <SectionTitle n={1} title="Extracted Legal Metrology Declarations (Fused Across All Package Surfaces)" />
+              <div className="rounded-xl border border-slate-200 overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <TableHeader cols={["Statutory Field", "Extracted Value", "Conf.", "Rule Ref.", "Status", "Notes / Reason"]} />
+                  <tbody className="divide-y divide-slate-100">
+                    {allDecls.length > 0 ? allDecls.map((d, i) => (
+                      <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fieldLabel(d.field)}</td>
+                        <td className="px-3 py-2 text-slate-700 max-w-[200px] break-words">{d.value || <span className="text-slate-400 italic">Not observed</span>}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{d.confidence != null ? `${d.confidence}%` : "—"}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap font-mono">{d.ruleId || "—"}</td>
+                        <td className={`px-3 py-2 whitespace-nowrap ${statusColor(d.status)}`}>{statusLabel(d.status)}</td>
+                        <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[160px] break-words">
+                          {d.reason || (d.missingEvidence?.length ? `Blocked on: ${d.missingEvidence.join(", ")}` : "")}
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-4 text-center text-slate-400 italic text-xs">No declarations extracted</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            {/* Officer Signatures Footer */}
-            <div className="pt-4 border-t border-slate-300 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs text-slate-800">
-              <div>
-                <span className="font-bold">Inspected By:</span> AI Vision Engine (LMPC v2.4)
-              </div>
-              <div>
-                <span className="font-bold">Verified By (Officer Signature):</span> ___________________
-              </div>
-              <div>
-                <span className="font-bold">Date:</span> ______________
+            {/* Section 2: Rule-by-rule compliance */}
+            <div className="print-avoid-break">
+              <SectionTitle n={2} title="Statutory Rule-by-Rule Compliance Findings (LMPC Rules, 2011)" />
+              <div className="rounded-xl border border-slate-200 overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <TableHeader cols={["Rule Clause", "Requirement", "Observed Value", "Status", "Statutory Requirement"]} />
+                  <tbody className="divide-y divide-slate-100">
+                    {[
+                      { rule: "Rule 6(1)(a)", req: "Manufacturer / Packer Name & Address", decl: mfgDecl, req_text: "Full name and complete address of manufacturer/packer/importer." },
+                      { rule: "Rule 6(1)(b)", req: "Common / Generic Name of Commodity", decl: allDecls.find(d => d.field.toLowerCase().includes("product") || d.field.toLowerCase().includes("name")), req_text: "Common or generic name of commodity must be declared." },
+                      { rule: "Rule 6(1)(c)", req: "Net Quantity (weight/volume/number)", decl: allDecls.find(d => d.field.toLowerCase().includes("net") || d.field.toLowerCase().includes("quantity")), req_text: "Net quantity in standard metric units." },
+                      { rule: "Rule 6(1)(d)", req: "Month and Year of Manufacture / Packing", decl: allDecls.find(d => d.field.toLowerCase().includes("mfg") || d.field.toLowerCase().includes("manufacture")), req_text: "MM/YYYY or Month-Year format." },
+                      { rule: "Rule 6(1)(e)", req: "Maximum Retail Price (MRP) incl. all taxes", decl: allDecls.find(d => d.field.toLowerCase().includes("mrp") || d.field.toLowerCase().includes("price")), req_text: "MRP as 'M.R.P. ₹ XX.XX (Inclusive of all taxes)'." },
+                      { rule: "Rule 6(1)(da)", req: "Unit Sale Price (USP)", decl: allDecls.find(d => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit_sale")), req_text: "Price per standard unit (per gram, per ml, etc.)." },
+                      { rule: "Rule 6(1)(f)", req: "Consumer Care Contact", decl: careDecl, req_text: "Telephone number or email of consumer care." },
+                      { rule: "Rule 6(1)(g)", req: "Country of Origin (Imported Goods)", decl: allDecls.find(d => d.field.toLowerCase().includes("country") || d.field.toLowerCase().includes("origin")), req_text: "Country of origin required for imported goods." },
+                    ].map(({ rule, req, decl, req_text }, i) => (
+                      <tr key={rule} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">{rule}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-800">{req}</td>
+                        <td className="px-3 py-2 text-slate-700 max-w-[150px] break-words">{decl?.value || <span className="italic text-slate-400">Not Observed</span>}</td>
+                        <td className={`px-3 py-2 whitespace-nowrap ${statusColor(decl?.status || "MISSING")}`}>
+                          {decl ? statusLabel(decl.status) : "NOT OBSERVED ✗"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[160px] break-words">{req_text}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Statutory Communications Panel (Manufacturer, Marketer & Consumer Care Contact) */}
-        <section className="no-print pt-2">
-          <ManufacturerContactSection inspection={inspection} />
-        </section>
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          {/* PAGE 2 — Package Integrity · Cross-Departmental Verification   */}
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          <div className="print-page-break p-6 sm:p-10 space-y-5">
+
+            {/* Section 3: Package Integrity */}
+            <div className="print-avoid-break">
+              <SectionTitle n={3} title="Package Integrity Cross-Verification (Reference vs. Inspected)" />
+              {integrityData ? (
+                <div className="space-y-3">
+                  <div className={`rounded-xl border-2 p-3 text-center text-sm font-black tracking-widest ${
+                    integrityData.status?.toUpperCase().includes("NO_SIGNIFICANT") || integrityData.status?.toUpperCase().includes("NO SIGNIFICANT")
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-800"
+                      : integrityData.status?.toUpperCase().includes("POTENTIAL")
+                        ? "bg-rose-50 border-rose-500 text-rose-800"
+                        : "bg-amber-50 border-amber-500 text-amber-800"
+                  }`}>
+                    {integrityStatusLabel(integrityData.status)} &nbsp;&bull;&nbsp; Confidence: {Math.round((integrityData.confidence_score || 0) * 100)}%
+                  </div>
+
+                  {integrityData.summary_counts && (
+                    <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                      {[
+                        { label: "Matched", count: integrityData.summary_counts.consistent, color: "text-emerald-700" },
+                        { label: "Review", count: integrityData.summary_counts.review_required, color: "text-amber-600" },
+                        { label: "Discrepancy", count: integrityData.summary_counts.potential_discrepancy, color: "text-rose-700" },
+                        { label: "Total Evaluated", count: integrityData.summary_counts.total_evaluated ?? 0, color: "text-slate-700" },
+                      ].map(({ label, count, color }) => (
+                        <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                          <div className={`text-xl font-black ${color}`}>{count ?? 0}</div>
+                          <div className="text-slate-500 font-semibold">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {((integrityData.matched_fields?.length ?? 0) > 0 || (integrityData.discrepancy_fields?.length ?? 0) > 0) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      {(integrityData.matched_fields?.length ?? 0) > 0 && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                          <p className="font-bold text-emerald-800 mb-1">&#10003; Verified Matching Fields</p>
+                          {integrityData.matched_fields!.map((f) => <div key={f} className="text-emerald-700">• {f}</div>)}
+                        </div>
+                      )}
+                      {(integrityData.discrepancy_fields?.length ?? 0) > 0 && (
+                        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                          <p className="font-bold text-rose-800 mb-1">&#10007; Discrepancy Detected</p>
+                          {integrityData.discrepancy_fields!.map((f) => <div key={f} className="text-rose-700">• {f}</div>)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {intFields.length > 0 && (
+                    <div className="rounded-xl border border-slate-200 overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <TableHeader cols={["Field", "Reference Value", "Inspected Value", "Classification", "Status", "Reason"]} />
+                        <tbody className="divide-y divide-slate-100">
+                          {intFields.map((f, i) => (
+                            <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                              <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{f.field_name}</td>
+                              <td className="px-3 py-2 text-slate-600 max-w-[120px] break-words">{f.reference_value || "—"}</td>
+                              <td className="px-3 py-2 text-slate-700 max-w-[120px] break-words">{f.inspection_value || "—"}</td>
+                              <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{f.field_classification || "—"}</td>
+                              <td className={`px-3 py-2 whitespace-nowrap ${fieldCompStatusColor(f.status)}`}>{fieldCompStatusLabel(f.status)}</td>
+                              <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[140px] break-words">{f.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {integrityData.explanation && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 leading-relaxed">
+                      <strong className="text-slate-800">AI Explanation: </strong>{integrityData.explanation}
+                    </div>
+                  )}
+                </div>
+              ) : loading ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />Loading package integrity data…
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-400 italic">
+                  Package integrity comparison not yet performed for this inspection.
+                </div>
+              )}
+            </div>
+
+            {/* Section 4: Cross-Departmental Regulatory Verification */}
+            <div className="print-avoid-break">
+              <SectionTitle n={4} title="Cross-Departmental Regulatory Verification (FSSAI / BIS / CDSCO / LMPC)" />
+              {dossier ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div><span className="font-bold text-slate-700">Category: </span><span className="text-slate-600">{dossier.commodity.category_label}</span></div>
+                    <div><span className="font-bold text-slate-700">Subtype: </span><span className="text-slate-600">{dossier.commodity.commodity_subtype}</span></div>
+                    <div><span className="font-bold text-slate-700">Is Food: </span><span className="text-slate-600">{dossier.commodity.is_food ? "Yes" : "No"}</span></div>
+                    <div><span className="font-bold text-slate-700">Primary Regulator: </span><span className="text-slate-600">{dossier.primary_regulator}</span></div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <TableHeader cols={["Department", "Governing Act", "Ministry", "Identifier (Extracted)", "GTIN", "Verification Status", "Licensee / Remarks"]} />
+                      <tbody className="divide-y divide-slate-100">
+                        {deptDepts.map((dept, i) => (
+                          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                            <td className="px-3 py-2">
+                              <div className="font-bold text-slate-800">{dept.department_code}</div>
+                              <div className="text-slate-500 text-[10px]">{dept.department_name}</div>
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-[110px] text-[10px] break-words">{dept.governing_act}</td>
+                            <td className="px-3 py-2 text-slate-500 max-w-[90px] text-[10px] break-words">{dept.ministry}</td>
+                            <td className="px-3 py-2 font-mono text-slate-700">{dept.extracted_identifier || "—"}</td>
+                            <td className="px-3 py-2 font-mono text-slate-600">{dept.product_gtin || "—"}</td>
+                            <td className={`px-3 py-2 whitespace-nowrap ${deptStatusColor(dept.verification_status)}`}>
+                              {deptStatusLabel(dept.verification_status)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 text-[10px] max-w-[150px] break-words">
+                              {dept.licensee_name && <div><strong>Licensee:</strong> {dept.licensee_name}</div>}
+                              {dept.licensee_premises && <div><strong>Premises:</strong> {dept.licensee_premises}</div>}
+                              {dept.jurisdiction && <div><strong>Jurisdiction:</strong> {dept.jurisdiction}</div>}
+                              {!dept.is_applicable && <div className="text-slate-400 italic">{dept.applicability_reason}</div>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {dossier.summary && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 leading-relaxed">
+                      <strong className="text-slate-800">Regulatory Summary: </strong>{dossier.summary}
+                    </div>
+                  )}
+                </div>
+              ) : loading ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />Loading departmental verification data…
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-400 italic">
+                  Departmental verification data not available for this inspection.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          {/* PAGE 3 — Evidence Images · Contacts · Disclaimer · Sign-off    */}
+          {/* ═══════════════════════════════════════════════════════════════ */}
+          <div className="print-page-break p-6 sm:p-10 space-y-5">
+
+            {/* Section 5: Evidence surface images */}
+            <div>
+              <SectionTitle n={5} title="Photographic Evidence — Annotated Visual Inspection Surfaces" />
+              {surfaces.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {surfaces.map((surf, idx) => (
+                    <div key={(surf as any).surfaceId || idx} className="print-avoid-break rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+                      {/* Surface label */}
+                      <div className={`px-3 py-1 text-[10px] font-bold text-white uppercase text-center ${isViolation ? "bg-rose-700" : "bg-emerald-700"}`}>
+                        Surface {idx + 1}: {(surf as any).faceLabel || (surf as any).surfaceType || `Face ${idx + 1}`} — {isViolation ? "Violations Detected" : "Compliant"}
+                      </div>
+                      {/* Image: correct aspect ratio, no distortion */}
+                      <div className="flex items-center justify-center bg-slate-900 w-full" style={{ minHeight: "160px", maxHeight: "300px" }}>
+                        {(surf as any).imageUrl ? (
+                          <img
+                            src={(surf as any).imageUrl}
+                            alt={(surf as any).faceLabel || `Surface ${idx + 1}`}
+                            style={{
+                              display: "block",
+                              maxWidth: "100%",
+                              maxHeight: "300px",
+                              width: "auto",
+                              height: "auto",
+                              objectFit: "contain",
+                              margin: "0 auto",
+                            }}
+                          />
+                        ) : (
+                          <div className="text-slate-500 text-xs py-12">No image available for Surface {idx + 1}</div>
+                        )}
+                      </div>
+                      <div className="px-3 py-2 text-[10px] font-mono text-slate-500">
+                        {(surf as any).surfaceId || `surface_${idx + 1}.jpg`} — {isViolation ? "NON-COMPLIANT" : "COMPLIANT"}
+                        {(surf as any).regions?.length > 0 && <span className="ml-2">({(surf as any).regions.length} localized region(s))</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400 italic">
+                  No surface images available in this inspection.
+                </div>
+              )}
+            </div>
+
+            {/* Section 6: Consumer & Manufacturer contact */}
+            <div className="print-avoid-break">
+              <SectionTitle n={6} title="Statutory Communications — Manufacturer &amp; Consumer Care Contact" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Manufacturer */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Building2 className="h-4 w-4 text-slate-600" />
+                    <span className="font-bold text-slate-800 text-sm">Manufacturer / Packer</span>
+                  </div>
+                  <div className="text-slate-700 font-semibold leading-relaxed">{mfgDecl?.value || inspection.manufacturer || "Not Declared"}</div>
+                  {addrDecl?.value && (
+                    <div className="text-slate-500 leading-relaxed">{addrDecl.value}</div>
+                  )}
+                  {fssaiDecl?.value && (
+                    <div className="flex items-center gap-1 mt-2 text-emerald-700 font-semibold">
+                      <BadgeCheck className="h-3 w-3" />FSSAI License: {fssaiDecl.value}
+                    </div>
+                  )}
+                </div>
+
+                {/* Consumer Care */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShieldCheck className="h-4 w-4 text-slate-600" />
+                    <span className="font-bold text-slate-800 text-sm">Consumer Care Details</span>
+                  </div>
+                  {consumerCareText
+                    ? <div className="text-slate-700 leading-relaxed">{consumerCareText}</div>
+                    : <div className="text-slate-400 italic">Consumer care contact not declared</div>}
+                  {emailMatch && emailMatch.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {emailMatch.map((e) => (
+                        <span key={e} className="flex items-center gap-1 text-blue-700 font-semibold">
+                          <Mail className="h-3 w-3" />{e}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {phoneMatch && phoneMatch.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {phoneMatch.slice(0, 3).map((p, i) => (
+                        <span key={i} className="flex items-center gap-1 text-slate-700">
+                          <Phone className="h-3 w-3" />{p.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-2 pt-2 border-t border-slate-200">
+                    <div className="text-slate-500 font-semibold">National Consumer Helpline</div>
+                    <div className="text-slate-600">Toll-free: 1915 &bull; consumer.affairs@nic.in</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Statutory Disclaimer */}
+            <div className="print-avoid-break rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">
+              <strong>STATUTORY DISCLAIMER:</strong> This report is generated by LexMetra, an automated Legal Metrology computer vision AI screening system.
+              Findings marked VIOLATION, REVIEW_REQUIRED, or UNCERTAIN must be verified by an authorized Legal Metrology Officer under the Legal Metrology Act, 2009, before formal enforcement action.
+              This report does not constitute a final enforcement order. Reference cross-verification is advisory and independent of statutory determinations under the Legal Metrology Act, 2009.
+            </div>
+
+            {/* Officer Sign-off */}
+            <div className="print-avoid-break pt-4 border-t-2 border-slate-300 grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs text-slate-800">
+              <div className="space-y-5">
+                <div><span className="font-bold block mb-1">Screened By:</span>LexMetra AI Vision Platform v2.4</div>
+                <div><span className="font-bold block mb-1">Inspection ID:</span><span className="font-mono break-all">{inspection.id}</span></div>
+              </div>
+              <div className="space-y-5">
+                <div>
+                  <span className="font-bold block mb-1">Verified By (Officer Signature):</span>
+                  <div className="mt-6 border-b border-slate-400 w-48">&nbsp;</div>
+                </div>
+                <div>
+                  <span className="font-bold block mb-1">Officer Name &amp; Designation:</span>
+                  <div className="mt-6 border-b border-slate-400 w-48">&nbsp;</div>
+                </div>
+              </div>
+              <div className="space-y-5">
+                <div>
+                  <span className="font-bold block mb-1">Date of Physical Verification:</span>
+                  <div className="mt-6 border-b border-slate-400 w-32">&nbsp;</div>
+                </div>
+                <div>
+                  <span className="font-bold block mb-1">Official Stamp / Seal:</span>
+                  <div className="mt-2 h-16 w-16 rounded-full border-2 border-dashed border-slate-300">&nbsp;</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="text-center text-[10px] text-slate-400 border-t border-slate-200 pt-3">
+              Generated by LexMetra — Legal Metrology Compliance AI Platform &bull; Government of India, Ministry of Consumer Affairs &bull; {formatDate(new Date().toISOString())}
+            </div>
+          </div>
+        </div>
       </main>
     </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Login — every endpoint but /health requires a Bearer token on this backend
-// ---------------------------------------------------------------------------
-
-
