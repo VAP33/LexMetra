@@ -127,6 +127,15 @@ DEMO_FSSAI_REGISTRY: Dict[str, Dict[str, Any]] = {
         "status": "ACTIVE",
         "valid_until": "2027-04-18",
     },
+    "10012026000226": {
+        "licensee": "Hershey India Private Limited",
+        "premises": "Plot No. 5, New Industrial Area No. 1, Mandideep, Dist. Raisen - 462046, Madhya Pradesh",
+        "state": "Madhya Pradesh",
+        "category": "Syrups, Sauces, Toppings and Chocolate Products",
+        "license_type": "Central License",
+        "status": "ACTIVE",
+        "valid_until": "2028-09-30",
+    },
 }
 
 

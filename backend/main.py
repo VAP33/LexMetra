@@ -1393,6 +1393,47 @@ async def scan(
         else:
             result.product_identity.product_id = resolved_product_id
 
+    # ------------------------- Barcode & FSSAI Declarations ----------------
+    bc_candidate = None
+    if "barcode" in accumulated_fields and accumulated_fields["barcode"].get("value"):
+        bc_candidate = str(accumulated_fields["barcode"]["value"]).strip()
+    elif primary_symbol and (primary_symbol.gtin13 or primary_symbol.payload):
+        bc_candidate = str(primary_symbol.gtin13 or primary_symbol.payload).strip()
+
+    if bc_candidate and not any(d.field == "barcode" for d in result.declarations):
+        result.declarations.append(
+            schema.CanonicalDeclaration(
+                field="barcode",
+                canonical_name="Barcode / GTIN",
+                label="Barcode / GTIN",
+                status=schema.CanonicalStatus.VERIFIED,
+                value=bc_candidate,
+                confidence=0.98,
+                reason=f"Barcode / GTIN '{bc_candidate}' verified from package symbology/label.",
+            )
+        )
+
+    fssai_candidate = None
+    if "fssai_license_number" in accumulated_fields and accumulated_fields["fssai_license_number"].get("value"):
+        fssai_candidate = str(accumulated_fields["fssai_license_number"]["value"]).strip()
+    else:
+        fssai_num, _ = fssai_verification.extract_fssai_from_evidence(accumulated_fields, all_ocr_lines)
+        if fssai_num:
+            fssai_candidate = fssai_num
+
+    if fssai_candidate and not any(d.field in ("fssai", "fssai_license_number") for d in result.declarations):
+        result.declarations.append(
+            schema.CanonicalDeclaration(
+                field="fssai_license_number",
+                canonical_name="FSSAI License Number",
+                label="FSSAI License Number",
+                status=schema.CanonicalStatus.VERIFIED,
+                value=fssai_candidate,
+                confidence=0.95,
+                reason=f"FSSAI License No. '{fssai_candidate}' detected on package label.",
+            )
+        )
+
 
     # ------------------------- Advisory verification ---------------------
     vlm_notes = []

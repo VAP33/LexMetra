@@ -94,6 +94,14 @@ FIELD_PATTERNS = {
         r"\b(?:common|generic)\s+name\b",
         re.I,
     ),
+    "fssai_license_number": re.compile(
+        r"\bfssai\b|\blic(?:en[cs]e)?\s*(?:no\.?|number|#)?\b",
+        re.I,
+    ),
+    "barcode": re.compile(
+        r"\b(?:barcode|gtin|ean)\b",
+        re.I,
+    ),
 }
 
 # These labels commonly have their value in the same line or in a nearby
@@ -1244,6 +1252,46 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                         }
                         used_line_idx.add(idx)
                         break
+
+        # Standalone or explicit FSSAI 14-digit license number detection
+        if "fssai_license_number" not in found:
+            for idx, line in enumerate(ordered):
+                m = re.search(r"\b([12]\d{13})\b", line.text)
+                if m:
+                    fssai_val = m.group(1)
+                    found["fssai_license_number"] = {
+                        "field": "fssai_license_number",
+                        "label": "FSSAI License Number",
+                        "value": fssai_val,
+                        "raw_text": line.text.strip(),
+                        "confidence": line.confidence * 0.92,
+                        "bbox": line.bbox,
+                        "label_bbox": line.bbox,
+                        "source": "ocr_fssai_license",
+                        "status": "DETECTED",
+                    }
+                    used_line_idx.add(idx)
+                    break
+
+        # Standalone or explicit 13-digit EAN / GTIN barcode detection
+        if "barcode" not in found:
+            for idx, line in enumerate(ordered):
+                m = re.search(r"\b(890\d{10}|\d{13})\b", line.text)
+                if m:
+                    bc_val = m.group(1)
+                    found["barcode"] = {
+                        "field": "barcode",
+                        "label": "Barcode / GTIN",
+                        "value": bc_val,
+                        "raw_text": line.text.strip(),
+                        "confidence": line.confidence * 0.92,
+                        "bbox": line.bbox,
+                        "label_bbox": line.bbox,
+                        "source": "ocr_barcode_digits",
+                        "status": "DETECTED",
+                    }
+                    used_line_idx.add(idx)
+                    break
 
     attach_reading_agreement(found, ordered)
 

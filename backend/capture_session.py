@@ -250,6 +250,14 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
     if "product_id" in classified:
         bridged["product_id"] = classified["product_id"]
 
+    # Ensure fssai_license_number remains preserved
+    if "fssai_license_number" in classified:
+        bridged["fssai_license_number"] = classified["fssai_license_number"]
+
+    # Ensure barcode remains preserved
+    if "barcode" in classified:
+        bridged["barcode"] = classified["barcode"]
+
     return bridged
 
 

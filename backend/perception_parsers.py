@@ -56,12 +56,14 @@ LEXMETRA_SYSTEM_PROMPT = """You are LexMetra's package-declaration extraction en
 
 EXTRACT ONLY VISIBLE INFO. NEVER GUESS, HALLUCINATE, CALCULATE, OR FILL MISSING DATA.
 
-FIELDS: PRODUCT_NAME, PRODUCT_ID, MRP, USP, NET_QUANTITY, MFD, EXPIRY, USE_BEFORE, BATCH, MANUFACTURER, MARKETER, PACKER, IMPORTER, ADDRESS, CONSUMER_CARE, COUNTRY_OF_ORIGIN.
+FIELDS: PRODUCT_NAME, PRODUCT_ID, MRP, USP, NET_QUANTITY, MFD, EXPIRY, USE_BEFORE, BATCH, MANUFACTURER, MARKETER, PACKER, IMPORTER, ADDRESS, CONSUMER_CARE, COUNTRY_OF_ORIGIN, FSSAI_LICENSE, BARCODE.
 
 OUTPUT SCHEMA (JSON):
 {
   "product_name": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
   "product_id": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
+  "barcode": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.98 },
+  "fssai_license_number": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
   "declarations": [
     {
       "field": "FIELD_NAME",
@@ -78,16 +80,18 @@ OUTPUT SCHEMA (JSON):
 CRITICAL RULES:
 1. PRODUCT_NAME: Always extract the product's brand and generic name (e.g. "Hair Actives", "Petroleum Jelly", "Skin Protecting Jelly", "Body Lotion", "Toothpaste"). Populate both top-level "product_name" and include a declaration item with field="PRODUCT_NAME".
 2. PRODUCT_ID: Extract the explicit Product ID, SKU, Item Code, Product Code, or Material Number printed on the package label. IMPORTANT HINT: The product ID / SKU is straight away mentioned directly below the barcode itself (or immediately adjacent to / underneath the barcode bars and digits, e.g. '64934436' or item/material code). Do NOT confuse this with the 12-14 digit barcode/GTIN number. Never substitute the barcode. Extract the exact printed Product ID into "product_id" and populate a declaration item with field="PRODUCT_ID".
-3. MRP vs USP: Carefully match labels with their actual values!
+3. BARCODE: Extract the 12-14 digit printed barcode / GTIN / EAN number (e.g. "8901071705479") into top-level "barcode" and include a declaration item with field="BARCODE".
+4. FSSAI_LICENSE: Extract the 14-digit FSSAI license / registration number printed on edible products (e.g. "10012026000226") into top-level "fssai_license_number" and include a declaration item with field="FSSAI_LICENSE".
+5. MRP vs USP: Carefully match labels with their actual values!
    - MRP is the total package retail price (e.g. "MRP ₹: 800.00", "₹800.00").
    - USP is the Unit Sale Price per unit (e.g. "₹ 26.67 per ml", "26.67/ml").
    DO NOT swap MRP and USP! Total price is MRP; rate per ml/g/unit is USP.
-4. NET_QUANTITY: Declared TOTAL net quantity or net weight of the packaged commodity (e.g. "NET WEIGHT 150 g", "150 g", "500 ml", "1 kg"). You MUST extract the EXACT printed number from the package label (e.g. if the package says "NET WEIGHT: 150 g" or "150g", extract "150 g"; NEVER hallucinate or output generic 100g). Always include the unit ("g", "kg", "ml", "l").
-5. DATES: Keep MFD, EXPIRY, and USE_BEFORE separate. MFD = manufacture date. EXPIRY = explicit expiry date. USE_BEFORE includes explicit or relative statements such as "use before 24 months from date of manufacture".
-6. BATCH: Keep BATCH/LOT separate from barcode, GTIN, FSSAI, license, registration, or other numbers.
-7. ROLES: Keep MANUFACTURER, MARKETER, PACKER, and IMPORTER separate. Do not merge roles even when the same company performs multiple roles. Assign a role only when supported by visible text.
-8. CONCISENESS: Keep evidence_text under 40 characters. Extract each field once. Omit repetitive paragraphs.
-9. UNCERTAINTY: If information is unreadable, ambiguous, contradictory, or cannot be confidently localized, set status="REVIEW_REQUIRED" and value=null.
+6. NET_QUANTITY: Declared TOTAL net quantity or net weight of the packaged commodity (e.g. "NET WEIGHT 150 g", "150 g", "500 ml", "1 kg"). You MUST extract the EXACT printed number from the package label (e.g. if the package says "NET WEIGHT: 150 g" or "150g", extract "150 g"; NEVER hallucinate or output generic 100g). Always include the unit ("g", "kg", "ml", "l").
+7. DATES: Keep MFD, EXPIRY, and USE_BEFORE separate. MFD = manufacture date. EXPIRY = explicit expiry date. USE_BEFORE includes explicit or relative statements such as "use before 24 months from date of manufacture".
+8. BATCH: Keep BATCH/LOT separate from barcode, GTIN, FSSAI, license, registration, or other numbers.
+9. ROLES: Keep MANUFACTURER, MARKETER, PACKER, and IMPORTER separate. Do not merge roles even when the same company performs multiple roles. Assign a role only when supported by visible text.
+10. CONCISENESS: Keep evidence_text under 40 characters. Extract each field once. Omit repetitive paragraphs.
+11. UNCERTAINTY: If information is unreadable, ambiguous, contradictory, or cannot be confidently localized, set status="REVIEW_REQUIRED" and value=null.
 
 Return ONLY valid JSON. No explanations."""
 
@@ -758,6 +762,14 @@ def perception_to_classified_fields(
         "SKU": "product_id",
         "GENERIC_NAME": "common_name",
         "COMMON_NAME": "common_name",
+        "FSSAI": "fssai_license_number",
+        "FSSAI_LICENSE": "fssai_license_number",
+        "FSSAI_NO": "fssai_license_number",
+        "LIC_NO": "fssai_license_number",
+        "BARCODE": "barcode",
+        "GTIN": "barcode",
+        "EAN": "barcode",
+        "EAN_13": "barcode",
     }
 
     # First, if perception top-level product_name exists, seed common_name
