@@ -824,9 +824,8 @@ def _build_canonical_declarations(
                 else:
                     is_applicable = False
         elif field_id == "standard_pack_size":
-            # Rule 5 / Second Schedule was omitted via statutory amendment GSR 779(E) dated 2021-11-02.
-            # For modern packaged goods (post-2021), standard pack sizes are no longer mandatory.
-            is_applicable = context.get("standard_pack_applicable", False)
+            # Rule 5 / Second Schedule evaluation: active when standard_pack_applicable is set or when standard_pack_size is detected
+            is_applicable = context.get("standard_pack_applicable", False) or bool(extractions.get("standard_pack_size"))
 
         if not is_applicable:
             reason = (

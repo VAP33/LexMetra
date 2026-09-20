@@ -147,14 +147,28 @@ def extract_canonical_package_evidence(
     if not image_items:
         return decls, bboxes, confs, crops, face_indices, raw_details
 
-    # Check cache by file paths and timestamps
+    # Check persistent cache by SHA-256 content hash and processing version
+    PROCESSING_VERSION = "v4_sha256_canonical_crops"
     cache_key = None
     try:
-        cache_key = "|".join(f"{p.resolve()}:{p.stat().st_mtime}" for p, _ in image_items) + ":v2_barcode_usp"
+        import hashlib
+        hashes = []
+        for p, bgr in image_items:
+            try:
+                if p.exists():
+                    h = hashlib.sha256(p.read_bytes()).hexdigest()
+                else:
+                    h = hashlib.sha256(bgr.tobytes()).hexdigest()
+            except Exception:
+                h = hashlib.sha256(bgr.tobytes()).hexdigest()
+            hashes.append(h)
+        cache_key = "|".join(hashes) + f":{PROCESSING_VERSION}"
         if cache_key in _EVIDENCE_EXTRACTION_CACHE:
+            logger.info("[+] [CACHE HIT] Reusing persistent reference-image extraction cache for %s", [p.name for p, _ in image_items])
             c_d, c_b, c_c, c_cr, c_fi, c_rd = _EVIDENCE_EXTRACTION_CACHE[cache_key]
             return dict(c_d), dict(c_b), dict(c_c), dict(c_cr), dict(c_fi), dict(c_rd)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Cache key calculation failed: %s", exc)
         cache_key = None
 
     import barcode_decode
@@ -489,7 +503,10 @@ def extract_canonical_package_evidence(
 
         bbox = bboxes.get(k)
         if bbox and 0 <= f_idx < len(image_items):
-            crop_b64 = _make_evidence_crop(face_bgr, bbox, polygon=polygons.get(k))
+            # Bboxes are in CANONICAL (normalized) image coordinates.
+            # Use the canonical image for crop generation to avoid coordinate mismatch.
+            canon_bgr = normalized_faces[f_idx].canonical_image if f_idx < len(normalized_faces) else face_bgr
+            crop_b64 = _make_evidence_crop(canon_bgr, bbox, polygon=polygons.get(k))
             if crop_b64:
                 crops[k] = crop_b64
 
@@ -608,9 +625,6 @@ def find_reference_package(
     if allow_demo_fixtures:
         search_dirs = [
             WORKSPACE_REFERENCE_DIR,
-            Path(__file__).resolve().parent.parent / "dataset" / "Reference Images",
-            Path(__file__).resolve().parent.parent / "dataset" / "New Real Images",
-            Path(__file__).resolve().parent.parent / "dataset",
             Path(__file__).resolve().parent.parent / "images new",
             config.UPLOAD_DIR,
             Path(__file__).resolve().parent.parent / "DEPENDENCIES" / "images dataset",
@@ -850,7 +864,6 @@ def compare_reference_vs_inspected_package(
     ref_image_ids: Dict[str, str] = {}
     ref_image_urls: Dict[str, str] = {}
     primary_ref_bgr = ref_imgs[0][1] if ref_imgs else None
-    raw: Dict[str, Any] = {}
 
     # 2a. REFERENCE EXTRACTION -- Run real LexMetra Localization pipeline across reference surfaces
     if ref_imgs:
@@ -885,7 +898,6 @@ def compare_reference_vs_inspected_package(
     insp_image_ids: Dict[str, str] = {}
     insp_image_urls: Dict[str, str] = {}
     primary_insp_bgr = insp_imgs[0][1] if insp_imgs else None
-    i_raw: Dict[str, Any] = {}
 
     # Optimization: If caller provided rich inspection_declarations (>= 2 items),
     # construct insp_decls, insp_bboxes, insp_crops, etc. directly from them without
@@ -957,7 +969,7 @@ def compare_reference_vs_inspected_package(
     effective_insp_declarations: List[Dict[str, Any]] = []
 
     # If caller provided inspection_declarations (from Capture Session or test), use them as primary and enrich with localized evidence
-    if has_rich_insp_decls:
+    if inspection_declarations and len(inspection_declarations) >= 2:
         seen_fields = set()
         for item in inspection_declarations:
             if isinstance(item, dict):
@@ -1125,7 +1137,7 @@ def compare_reference_vs_inspected_package(
             parts.append(f"{len(review_fields)} review ({rev_names})")
         explanation = (
             f"Packaging integrity evaluated{face_count_note}: " + "; ".join(parts) + ". "
-            "Variations are verified as legitimate production updates, pricing revisions, or OCR ambiguity. "
+            "Variations are verified as legitimate packaging revisions, production lot updates, or OCR ambiguity. "
             "No unauthorized alteration detected."
         )
     elif len(canonical_items) == 0:

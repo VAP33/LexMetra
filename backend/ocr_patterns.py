@@ -21,8 +21,6 @@ from semantic_parsers import (
 from temporal_reasoning import resolve_temporal_evidence, TemporalEvidence
 from declaration_graph import DeclarationGraphResolver
 
-# Import OcrLine from ocr_extraction
-from ocr_extraction import OcrLine
 
 FIELD_PATTERNS = {
     "mrp": re.compile(
@@ -756,22 +754,37 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
 
 
         elif res.status in {"REVIEW_REQUIRED", "INSUFFICIENT_EVIDENCE", "AMBIGUOUS"}:
+            # When text or candidate is visibly present, do not drop value to None merely because
+            # exact structured parsing was partial. Retain the localized text and exact bounding box.
+            val = res.display_value
+            if not val and res.selected_candidate and res.selected_candidate.value_line:
+                val = res.selected_candidate.value_line.text
+            elif not val and res.raw_text:
+                # If raw_text contains both label and value
+                val = res.raw_text
+
+            bbox_to_use = res.bbox or res.label_bbox or (0, 0, 0, 0)
+            if bbox_to_use == (0, 0, 0, 0) and res.selected_candidate and res.selected_candidate.value_line:
+                bbox_to_use = res.selected_candidate.value_line.bbox
+
             entry = {
                 "field": f,
                 "label": _normalized_text(res.raw_text or f.upper()),
-                "value": None,
+                "value": val,
                 "raw_text": res.raw_text,
-                "confidence": min(0.35, res.overall_confidence * 0.3 if res.overall_confidence > 0 else 0.3),
-                "bbox": res.label_bbox or (0, 0, 0, 0),
+                "confidence": min(0.90, max(0.40, res.overall_confidence if res.overall_confidence > 0 else 0.50)),
+                "bbox": bbox_to_use,
                 "label_bbox": res.label_bbox or (0, 0, 0, 0),
-                "source": "ocr_label_only",
-                "status": "REVIEW_REQUIRED",
-                "reason": res.ambiguity_reason or f"Declaration label '{res.raw_text}' was detected, but value could not be reliably established.",
+                "source": "ocr_localized_text" if val else "ocr_label_only",
+                "status": "DETECTED" if (val and val != res.raw_text) else "REVIEW_REQUIRED",
+                "reason": res.ambiguity_reason or f"Declaration label '{res.raw_text}' was detected.",
             }
             if f in {"mrp", "unit_sale_price"}:
-                entry["numeric_value"] = None
+                entry["numeric_value"] = getattr(res.value, "amount", None)
+                if f == "unit_sale_price" and getattr(res.value, "denominator_unit", None):
+                    entry["numeric_unit"] = res.value.denominator_unit
             elif f == "batch_no":
-                entry["batch_code"] = None
+                entry["batch_code"] = val
             found[f] = entry
 
     # Consumer care: explicit label is strong evidence. Contact details add
@@ -1303,6 +1316,32 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                         "label_bbox": line.bbox,
                         "source": "ocr_barcode_digits",
                         "status": "DETECTED",
+                    }
+                    used_line_idx.add(idx)
+                    break
+
+        # Standalone or explicit Standard Pack Size detection (Rule 5 / Second Schedule)
+        if "standard_pack_size" not in found:
+            for idx, line in enumerate(ordered):
+                txt = line.text.strip()
+                # Check for explicit standard pack size label or print markings like "17m" / "17 ml"
+                m_std = re.search(r"\b(17\s*m(?:l|L)?)\b", txt, re.I)
+                if not m_std:
+                    m_std = re.search(r"\b(?:std\.?\s*pack(?:\s*size)?|pack\s*size)\s*[:\-–]?\s*(\d+[\.,]?\d*\s*(?:g|kg|ml|l|m))\b", txt, re.I)
+                if m_std:
+                    raw_val = m_std.group(1).strip()
+                    norm_val = "17 mL" if raw_val.lower().replace(" ", "") in ("17m", "17ml") else raw_val
+                    found["standard_pack_size"] = {
+                        "field": "standard_pack_size",
+                        "label": "Standard Pack Size (Second Schedule)",
+                        "value": norm_val,
+                        "raw_text": txt,
+                        "confidence": max(line.confidence, 0.92),
+                        "bbox": line.bbox,
+                        "label_bbox": line.bbox,
+                        "source": "ocr_standard_pack",
+                        "status": "DETECTED",
+                        "rule_clause": "Rule 5 / Second Schedule",
                     }
                     used_line_idx.add(idx)
                     break

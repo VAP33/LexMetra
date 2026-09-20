@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   BadgeCheck,
+  Building2,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -93,7 +94,7 @@ export function DeclarationRow({
   }
 
   return (
-    <div className="border-b border-border/70 py-4 last:border-0">
+    <div className="border-b border-border/70 py-2.5 sm:py-3 last:border-0">
       <div className="grid w-full grid-cols-[1fr_auto] items-center gap-4 text-left sm:grid-cols-[1.1fr_1fr_auto]">
         <button type="button" onClick={() => setExpanded((v) => !v)} className="text-left">
           <p className="text-sm font-semibold">{declaration.field}</p>
@@ -197,47 +198,6 @@ export function DeclarationRow({
   );
 }
 
-export function AiSignalsSection({ inspection }: { inspection: Inspection }) {
-  const hasSignals = inspection.stickerSuspicions.length > 0 || inspection.similarMatches.length > 0 || inspection.priceOrLabelChangeFlag;
-  if (!hasSignals) return null;
-  return (
-    <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">AI signals</p>
-          <h3 className="mt-2 text-xl font-semibold tracking-[-.035em]">Additional evidence</h3>
-        </div>
-        <ShieldAlert className="h-5 w-5 text-muted-foreground" />
-      </div>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">
-        These are heuristic signals for a human reviewer — they never decide compliance by themselves.
-      </p>
-      <div className="mt-4 space-y-3">
-        {inspection.priceOrLabelChangeFlag && (
-          <div className="flex items-start gap-3 rounded-xl bg-warning-soft p-4">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <p className="text-sm leading-5">{inspection.priceOrLabelChangeFlag}</p>
-          </div>
-        )}
-        {inspection.stickerSuspicions.map((s, i) => (
-          <div key={i} className="flex items-start gap-3 rounded-xl bg-warning-soft p-4">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div>
-              <p className="text-sm font-semibold">Possible sticker or alteration</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{s.reason} (heuristic confidence {(s.confidence * 100).toFixed(0)}%)</p>
-            </div>
-          </div>
-        ))}
-        {inspection.similarMatches.map((m, i) => (
-          <div key={i} className="flex items-center justify-between rounded-xl bg-muted p-4 text-xs">
-            <span className="font-semibold">{m.productId}</span>
-            <span className="text-muted-foreground">similarity: {(m.score * 100).toFixed(0)}%</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 export function ResultView({
   inspection,
@@ -255,6 +215,8 @@ export function ResultView({
   onInspectionUpdated?: (updated: Inspection) => void;
 }) {
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showIntegrityModal, setShowIntegrityModal] = useState(false);
+  const [showDepartmentalModal, setShowDepartmentalModal] = useState(false);
   const [reportTracking, setReportTracking] = useState<{ caseId: string; reportId: string } | null>(null);
   const [resultLang, setResultLang] = useState<"en" | "hi" | "mr">("en");
 
@@ -467,54 +429,161 @@ export function ResultView({
           </section>
         )}
 
-        <AiSignalsSection inspection={inspection} />
-
-        {/* USP 1: Package Integrity Verification */}
-        <PackageIntegrityCard
-          inspectionId={inspection.id}
-          productId={inspection.productId}
-          productName={inspection.product}
-          initialData={inspection.packageIntegrity}
-        />
-
-        {/* USP 2: Generalized Departmental Regulatory Cross-Verification */}
-        <DepartmentalCrossVerificationCard
-          inspectionId={inspection.id}
-          category={inspection.category}
-          productName={inspection.product}
-        />
-
         {/* Escalation notification banner if already reported */}
         {reportTracking && (
-          <div className="flex items-center justify-between rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-xs">
+          <div className="flex items-center justify-between rounded-2xl border border-destructive/40 bg-destructive/10 p-3.5 text-xs">
             <div className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 text-destructive" />
               <span>
                 Statutory Docket filed: <strong>{reportTracking.caseId}</strong> (Tracking ID: {reportTracking.reportId})
               </span>
             </div>
-            <span className="font-bold text-destructive">SUBMITTED TO AUTHORITY</span>
+            <span className="font-bold text-destructive text-[11px]">SUBMITTED TO AUTHORITY</span>
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-4">
-          <Button onClick={onSave} variant={inspection.saved ? "secondary" : "primary"} disabled={inspection.saved}>
-            <BadgeCheck className="h-4 w-4" />{inspection.saved ? "Saved to register" : "Save inspection"}
-          </Button>
-          <Button onClick={onOpenEvidence} variant="secondary">
-            <ScanLine className="h-4 w-4" />View evidence
-          </Button>
-          <Button onClick={onOpenReport} variant="secondary">
-            <FileText className="h-4 w-4" />Report preview
-          </Button>
-          <Button onClick={() => setShowReportModal(true)} variant="secondary" className="border-destructive/30 text-destructive hover:bg-destructive/10">
-            <ShieldAlert className="h-4 w-4" />Escalate to Authority
-          </Button>
-        </div>
+        {/* Compact Action Tablets / Command Strip */}
+        <section className="rounded-2xl border border-border/70 bg-card p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between border-b border-border/50 pb-2 mb-3">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              Inspection Actions &amp; Regulatory Services
+            </p>
+            <span className="text-[10px] text-muted-foreground">6 available actions</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {/* 1. Save Inspection */}
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={inspection.saved}
+              className={`group flex flex-col justify-between rounded-xl border p-3 text-left transition ${
+                inspection.saved
+                  ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 cursor-default"
+                  : "border-border/80 bg-background hover:border-brand/60 hover:bg-brand/5 shadow-xs"
+              }`}
+            >
+              <div className="flex w-full items-center justify-between">
+                <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${inspection.saved ? "bg-emerald-500/15 text-emerald-600" : "bg-brand/10 text-brand"}`}>
+                  <BadgeCheck className="h-4 w-4" />
+                </div>
+                {inspection.saved && (
+                  <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-emerald-600 dark:text-emerald-400">
+                    Saved
+                  </span>
+                )}
+              </div>
+              <div className="mt-2.5">
+                <p className="text-xs font-bold leading-snug text-foreground">
+                  {inspection.saved ? "Inspection Saved" : "Save Inspection"}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                  {inspection.saved ? "In database" : "Record findings"}
+                </p>
+              </div>
+            </button>
+
+            {/* 2. View Evidence */}
+            <button
+              type="button"
+              onClick={onOpenEvidence}
+              className="group flex flex-col justify-between rounded-xl border border-border/80 bg-background p-3 text-left shadow-xs hover:border-brand/60 hover:bg-brand/5 transition"
+            >
+              <div className="flex w-full items-center justify-between">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <ScanLine className="h-4 w-4" />
+                </div>
+                <span className="text-[10px] font-mono text-muted-foreground">Vector</span>
+              </div>
+              <div className="mt-2.5">
+                <p className="text-xs font-bold leading-snug text-foreground">View Evidence</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">Visual bboxes</p>
+              </div>
+            </button>
+
+            {/* 3. Report Preview */}
+            <button
+              type="button"
+              onClick={onOpenReport}
+              className="group flex flex-col justify-between rounded-xl border border-border/80 bg-background p-3 text-left shadow-xs hover:border-brand/60 hover:bg-brand/5 transition"
+            >
+              <div className="flex w-full items-center justify-between">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <span className="text-[10px] font-mono text-muted-foreground">PDF</span>
+              </div>
+              <div className="mt-2.5">
+                <p className="text-xs font-bold leading-snug text-foreground">Report Preview</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">Statutory docket</p>
+              </div>
+            </button>
+
+            {/* 4. Escalate to Authority */}
+            <button
+              type="button"
+              onClick={() => setShowReportModal(true)}
+              className="group flex flex-col justify-between rounded-xl border border-destructive/30 bg-background p-3 text-left shadow-xs hover:border-destructive hover:bg-destructive/5 transition"
+            >
+              <div className="flex w-full items-center justify-between">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+                  <ShieldAlert className="h-4 w-4" />
+                </div>
+                <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[9px] font-bold text-destructive">
+                  Docket
+                </span>
+              </div>
+              <div className="mt-2.5">
+                <p className="text-xs font-bold leading-snug text-destructive">Escalate to Authority</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">Formal violation</p>
+              </div>
+            </button>
+
+            {/* 5. Package Integrity */}
+            <button
+              type="button"
+              onClick={() => setShowIntegrityModal(true)}
+              className="group flex flex-col justify-between rounded-xl border border-border/80 bg-background p-3 text-left shadow-xs hover:border-brand/60 hover:bg-brand/5 transition"
+            >
+              <div className="flex w-full items-center justify-between">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <PackageCheck className="h-4 w-4" />
+                </div>
+                <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[9px] font-bold text-brand">
+                  CV Match
+                </span>
+              </div>
+              <div className="mt-2.5">
+                <p className="text-xs font-bold leading-snug text-foreground">Package Integrity</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">Reference check</p>
+              </div>
+            </button>
+
+            {/* 6. Departmental Cross-Verification */}
+            <button
+              type="button"
+              onClick={() => setShowDepartmentalModal(true)}
+              className="group flex flex-col justify-between rounded-xl border border-border/80 bg-background p-3 text-left shadow-xs hover:border-brand/60 hover:bg-brand/5 transition"
+            >
+              <div className="flex w-full items-center justify-between">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <Building2 className="h-4 w-4" />
+                </div>
+                <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[9px] font-bold text-brand">
+                  4+ Bodies
+                </span>
+              </div>
+              <div className="mt-2.5">
+                <p className="text-xs font-bold leading-snug text-foreground">Departmental Cross-Verification</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground truncate">FSSAI, CDSCO, BIS, BEE</p>
+              </div>
+            </button>
+          </div>
+        </section>
 
         {/* USP 4: Manufacturer / Marketer / Consumer Care Contact */}
         <ManufacturerContactSection inspection={inspection} />
 
+        {/* Modal: Escalate to Authority */}
         {showReportModal && (
           <ConsumerReportModal
             inspection={inspection}
@@ -524,6 +593,72 @@ export function ResultView({
               setShowReportModal(false);
             }}
           />
+        )}
+
+        {/* Modal: Package Integrity */}
+        {showIntegrityModal && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 sm:p-6 animate-in fade-in duration-150">
+            <div className="relative w-full max-w-5xl rounded-2xl border border-border/80 bg-card p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                    <PackageCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">Package Integrity Verification</h3>
+                    <p className="text-xs text-muted-foreground">Comparative cross-check against reference standard packaging</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowIntegrityModal(false)}
+                  className="rounded-xl border border-border p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <PackageIntegrityCard
+                inspectionId={inspection.id}
+                productId={inspection.productId}
+                productName={inspection.product}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Departmental Regulatory Cross-Verification */}
+        {showDepartmentalModal && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 sm:p-6 animate-in fade-in duration-150">
+            <div className="relative w-full max-w-5xl rounded-2xl border border-border/80 bg-card p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">Departmental Regulatory Cross-Verification</h3>
+                    <p className="text-xs text-muted-foreground">Multi-agency regulatory license validation (FSSAI, CDSCO, BIS, BEE)</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDepartmentalModal(false)}
+                  className="rounded-xl border border-border p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <DepartmentalCrossVerificationCard
+                inspectionId={inspection.id}
+                category={inspection.category}
+                productName={inspection.product}
+              />
+            </div>
+          </div>
         )}
       </main>
     </>

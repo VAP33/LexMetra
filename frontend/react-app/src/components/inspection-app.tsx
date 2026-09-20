@@ -303,6 +303,17 @@ export function InspectionApp() {
     setSelected(inspection);
     setInspections((current) => [inspection, ...current]);
     go("result", inspection.id, true);
+    if (inspection?.id) {
+      getInspectionDetail(inspection.id)
+        .then((row) => {
+          if (row) {
+            const hydrated = fromInspectionRow(row);
+            setSelected(hydrated);
+            setInspections((current) => current.map((item) => (item.id === hydrated.id ? hydrated : item)));
+          }
+        })
+        .catch((err) => console.warn("[InspectionApp] Background surface hydration:", err));
+    }
   }
 
   function handleProcessingError(message: string) {
@@ -442,7 +453,16 @@ export function InspectionApp() {
       <ResultView
         inspection={selected}
         onSave={saveAndRegister}
-        onOpenEvidence={() => go("evidence", selected.id)}
+        onOpenEvidence={() => {
+          if (selected?.id && (!selected.surfaces || selected.surfaces.length <= 1)) {
+            getInspectionDetail(selected.id)
+              .then((row) => {
+                if (row) setSelected(fromInspectionRow(row));
+              })
+              .catch(() => {});
+          }
+          go("evidence", selected.id);
+        }}
         onOpenReport={() => go("report", selected.id)}
         onNew={() => go("scan")}
         onInspectionUpdated={handleInspectionUpdated}

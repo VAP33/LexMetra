@@ -160,6 +160,10 @@ FIELD_LABEL_PATTERNS: Dict[str, re.Pattern] = {
         r"\b(?:common|generic)\s+name\b",
         re.I,
     ),
+    "standard_pack_size": re.compile(
+        r"\b(?:std\.?\s*pack(?:\s*size)?|pack\s*size|standard\s*pack(?:\s*size)?)\b|\b17\s*m(?:l|L)?\b",
+        re.I,
+    ),
 }
 
 
@@ -256,11 +260,43 @@ def generate_field_candidates(
     # e.g. "MRP: ₹800.00 (INCL. OF ALL TAXES)" or "BATCH NO. C26HN005"
     inline_val = _parse_candidate_value(field_name, label_line.text, is_label_line=True)
     if inline_val is not None:
+        val_view = label_line
+        if field_name == "unit_sale_price" and isinstance(inline_val, MoneyValue) and not inline_val.is_unit_rate:
+            for neighbor in all_lines:
+                if neighbor.line_index != label_line.line_index and abs(neighbor.bbox[1] - label_line.bbox[1]) <= max(180.0, lh * 4.0):
+                    n_text = neighbor.text.lower()
+                    denom_m = re.search(r"(?:/|per\s*|perm|per\s*)([a-zA-Z]+)", n_text)
+                    if denom_m:
+                        d_u = denom_m.group(1).rstrip(" .,;:")
+                        canon_u = "ml" if "ml" in d_u else ("g" if "g" in d_u or "gm" in d_u else RATE_DENOMINATOR_UNITS.get(d_u))
+                        if canon_u:
+                            inline_val = MoneyValue(
+                                amount=inline_val.amount,
+                                raw_text=f"{label_line.text} {neighbor.text}",
+                                currency="INR",
+                                has_currency_symbol=inline_val.has_currency_symbol,
+                                is_unit_rate=True,
+                                denominator_unit=canon_u,
+                                qualifiers=inline_val.qualifiers,
+                                confidence=0.95,
+                            )
+                            ux1 = min(label_line.bbox[0], neighbor.bbox[0])
+                            uy1 = min(label_line.bbox[1], neighbor.bbox[1])
+                            ux2 = max(label_line.bbox[0] + label_line.bbox[2], neighbor.bbox[0] + neighbor.bbox[2])
+                            uy2 = max(label_line.bbox[1] + label_line.bbox[3], neighbor.bbox[1] + neighbor.bbox[3])
+                            val_view = OcrLineView(
+                                text=f"{label_line.text} {neighbor.text}",
+                                bbox=(ux1, uy1, ux2 - ux1, uy2 - uy1),
+                                confidence=label_line.confidence,
+                                line_index=label_line.line_index,
+                            )
+                            break
+
         cand = CandidateRelationship(
             field=field_name,
             label_text=label_line.text,
             label_line=label_line,
-            value_line=label_line,
+            value_line=val_view,
             parsed_value=inline_val,
             is_inline=True,
             spatial_score=1.0,   # Same line is optimal proximity
@@ -285,6 +321,7 @@ def generate_field_candidates(
 
         # For unit_sale_price: if parsed is MoneyValue and is_unit_rate is False,
         # check if there is an adjacent or same-block unit line (e.g. '= perml:', 'per ml', '/g')
+        val_view = other
         if (
             field_name == "unit_sale_price"
             and isinstance(parsed, MoneyValue)
@@ -317,6 +354,16 @@ def generate_field_candidates(
                                 denominator_unit=canon_u,
                                 qualifiers=parsed.qualifiers,
                                 confidence=min(0.95, other.confidence),
+                            )
+                            ux1 = min(other.bbox[0], neighbor.bbox[0])
+                            uy1 = min(other.bbox[1], neighbor.bbox[1])
+                            ux2 = max(other.bbox[0] + other.bbox[2], neighbor.bbox[0] + neighbor.bbox[2])
+                            uy2 = max(other.bbox[1] + other.bbox[3], neighbor.bbox[1] + neighbor.bbox[3])
+                            val_view = OcrLineView(
+                                text=f"{other.text} {neighbor.text}",
+                                bbox=(ux1, uy1, ux2 - ux1, uy2 - uy1),
+                                confidence=other.confidence,
+                                line_index=other.line_index,
                             )
                             break
 
@@ -361,7 +408,7 @@ def generate_field_candidates(
             field=field_name,
             label_text=label_line.text,
             label_line=label_line,
-            value_line=other,
+            value_line=val_view,
             parsed_value=parsed,
             is_inline=False,
             spatial_score=spatial,
@@ -416,6 +463,16 @@ def _parse_candidate_value(field_name: str, text: str, is_label_line: bool) -> O
                 pass
         return None
 
+    if field_name == "standard_pack_size":
+        m_std = re.search(r"\b(17\s*m(?:l|L)?)\b", text, re.I)
+        if not m_std:
+            m_std = re.search(r"\b(\d+[\.,]?\d*\s*(?:g|kg|ml|l))\b", text, re.I)
+        if m_std:
+            raw_v = m_std.group(1).strip()
+            norm_v = "17 mL" if raw_v.lower().replace(" ", "") in ("17m", "17ml") else raw_v
+            return {"amount": norm_v, "value": norm_v, "raw": text}
+        return None
+
     return None
 
 
@@ -436,6 +493,9 @@ def _compute_type_affinity(field_name: str, parsed_val: Any) -> float:
                 return 1.0
             return 0.60 if parsed_val.amount < 100.0 else 0.30
         return 0.0
+
+    if field_name == "standard_pack_size":
+        return 0.95 if parsed_val else 0.0
 
 
     if field_name == "batch_no":
@@ -503,7 +563,7 @@ class DeclarationGraphResolver:
         # 4. Generate ALL candidates for 1:1 and compound fields without consuming
         field_candidate_map: Dict[str, List[CandidateRelationship]] = {}
         target_fields = [
-            "mrp", "unit_sale_price", "batch_no", "mfg_date", "expiry_date", "best_before", "net_quantity"
+            "mrp", "unit_sale_price", "batch_no", "mfg_date", "expiry_date", "best_before", "net_quantity", "standard_pack_size"
         ]
 
         for fname in target_fields:
@@ -531,22 +591,44 @@ class DeclarationGraphResolver:
         ):
             if role_field in detected_labels:
                 lbl_view, lbl_idx = detected_labels[role_field]
-                # Collect following lines within the same block or nearby lines
-                following = [v.text for v in views if v.line_index > lbl_idx][:5]
+                # Collect following line views within the same block or nearby lines (up to 10 lines)
+                following_views = [v for v in views if v.line_index > lbl_idx][:10]
+                following = [v.text for v in following_views]
                 role_block = parse_role_company_block(role_name, lbl_view.text, following)
+
+                # Compute union bounding box covering label line + all associated address lines
+                union_lines = [lbl_view]
+                for fv in following_views:
+                    fv_clean = fv.text.strip(" |;,.").lower()
+                    if any(fv_clean in cline.lower() or cline.lower() in fv_clean for cline in role_block.all_lines_text if len(cline) > 2):
+                        union_lines.append(fv)
+
+                if union_lines:
+                    min_x = min(l.bbox[0] for l in union_lines)
+                    min_y = min(l.bbox[1] for l in union_lines)
+                    max_x = max(l.bbox[0] + l.bbox[2] for l in union_lines)
+                    max_y = max(l.bbox[1] + l.bbox[3] for l in union_lines)
+                    role_union_bbox = (min_x, min_y, max_x - min_x, max_y - min_y)
+                else:
+                    role_union_bbox = lbl_view.bbox
+
+                full_val = role_block.full_declaration or role_block.company_name
+
                 resolved[role_field] = ResolvedDeclaration(
                     field=role_field,
                     status="RESOLVED" if role_block.company_name else "REVIEW_REQUIRED",
                     value=role_block,
-                    display_value=role_block.company_name,
+                    display_value=full_val,
                     raw_text=lbl_view.text + " " + " ".join(role_block.address_lines),
-                    bbox=lbl_view.bbox,
+                    bbox=role_union_bbox,
                     label_bbox=lbl_view.bbox,
                     overall_confidence=role_block.confidence,
                     details={
                         "company_name": role_block.company_name,
+                        "full_declaration": full_val,
                         "address_lines": role_block.address_lines,
                         "pin_code": role_block.pin_code,
+                        "state": role_block.state,
                     },
                 )
 

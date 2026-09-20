@@ -200,6 +200,11 @@ def get_regulatory_cross_verification(
     mfg_entry = raw_fields.get("manufacturer_name") or raw_fields.get("manufacturer_name_address")
     mfg = mfg_entry.get("value") if isinstance(mfg_entry, dict) else str(mfg_entry) if mfg_entry else None
 
+    # Check for saved departmental dossier first to prevent re-running on every render / page switch
+    saved_dossier = db.get_departmental_dossier(inspection_id)
+    if saved_dossier:
+        return saved_dossier
+
     dossier = departmental_verification.generate_departmental_regulatory_dossier(
         inspection_id=inspection_id,
         product_category=cat,
@@ -209,7 +214,12 @@ def get_regulatory_cross_verification(
         product_gtin=str(gtin) if gtin else None,
         declared_manufacturer=str(mfg) if mfg else None,
     )
-    return dossier.to_dict()
+    dossier_dict = dossier.to_dict()
+    try:
+        db.save_departmental_dossier(inspection_id, dossier_dict)
+    except Exception:
+        pass
+    return dossier_dict
 
 
 @router.get("/inspections/{inspection_id}/fssai")

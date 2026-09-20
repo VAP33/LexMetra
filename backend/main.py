@@ -18,6 +18,7 @@ Design principles:
 from __future__ import annotations
 import asyncio
 import base64
+import concurrent.futures
 import io
 import logging
 import os
@@ -73,6 +74,7 @@ from product_similarity import (
     find_similar,
     save_to_index,
 )
+from routes_authority import assess_capture_readiness, CaptureReadinessInput
 from ocr_extraction import classify_fields, run_ocr
 import pytesseract
 from visual_recovery import merge_visual_candidates
@@ -920,6 +922,7 @@ async def scan(
     if not upload_list:
         raise HTTPException(status_code=400, detail="At least one image file is required.")
 
+    t_start_pipeline = time.time()
     all_ocr_lines = []
     accumulated_fields: Dict[str, dict] = {}
     all_suspects: list[Any] = []
@@ -955,6 +958,7 @@ async def scan(
         })
 
     # Parallel 3-face OpenCV preprocessing (+6% outward safe margin)
+    t_cv_start = time.time()
     parallel_input = [
         (item["face_label"], item["img"], item["image_id"], None)
         for item in uploaded_items
@@ -965,6 +969,23 @@ async def scan(
         margin_pct=0.06,
         max_workers=3,
     )
+    t_cv = time.time() - t_cv_start
+
+    # Parallel Multi-Face OCR across all uploaded surfaces
+    t_ocr_start = time.time()
+    def _run_single_face_ocr(item):
+        norm_res = preprocessed_map[item["face_label"]]
+        c_bgr = norm_res.final_bgr
+        c_pil = Image.fromarray(cv2.cvtColor(c_bgr, cv2.COLOR_BGR2RGB))
+        lines = run_ocr(c_pil, face_idx=item["index"] + 1)
+        if not lines:
+            lines = run_ocr(item["pil_img"], face_idx=item["index"] + 1)
+        return item["image_id"], c_bgr, c_pil, norm_res, lines
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(uploaded_items))) as executor:
+        face_ocr_results = list(executor.map(_run_single_face_ocr, uploaded_items))
+    face_ocr_map = {res[0]: res for res in face_ocr_results}
+    t_ocr = time.time() - t_ocr_start
 
     for item in uploaded_items:
         i = item["index"]
@@ -993,9 +1014,7 @@ async def scan(
             pass
 
         # ------------------------- Canonical normalization (from parallel CV) -
-        norm_result = preprocessed_map[face_label]
-        canon_bgr = norm_result.final_bgr
-        canon_pil = Image.fromarray(cv2.cvtColor(canon_bgr, cv2.COLOR_BGR2RGB))
+        _, canon_bgr, canon_pil, norm_result, ocr_lines = face_ocr_map[image_id]
 
         stored_canon_filename = f"canon_{uuid.uuid4().hex}_{image_id}.png"
         stored_canon_path = config.UPLOAD_DIR / stored_canon_filename
@@ -1005,11 +1024,6 @@ async def scan(
             stored_canon_path = None
 
         faces_for_qwen.append((face_label, canon_bgr, norm_result.inverse_transform))
-
-        # ------------------------- OCR / extraction fallback ----------------
-        ocr_lines = run_ocr(canon_pil)
-        if not ocr_lines:
-            ocr_lines = run_ocr(pil_img)
 
         all_ocr_lines.extend(ocr_lines)
         images_ocr_boxes[image_id] = [l.bbox for l in ocr_lines]
@@ -1124,6 +1138,16 @@ async def scan(
 
                 for fld, fld_data in qwen_fields.items():
                     if isinstance(fld_data, dict) and fld_data.get("value"):
+                        if fld in ("manufacturer_name_address", "manufacturer_name"):
+                            curr = accumulated_fields.get("manufacturer_name_address") or accumulated_fields.get("manufacturer_name")
+                            if curr and curr.get("value"):
+                                c_val = str(curr["value"]).strip()
+                                n_val = str(fld_data["value"]).strip()
+                                import re as _re_addr
+                                c_has_addr = bool(_re_addr.search(r"\b[1-9]\d{5}\b|Maharashtra|Madhya\s*Pradesh|M\.?P\.?|Mumbai|Raisen|Mandideep", c_val, _re_addr.I))
+                                n_has_addr = bool(_re_addr.search(r"\b[1-9]\d{5}\b|Maharashtra|Madhya\s*Pradesh|M\.?P\.?|Mumbai|Raisen|Mandideep", n_val, _re_addr.I))
+                                if c_has_addr and not n_has_addr and len(c_val) > len(n_val):
+                                    continue
                         accumulated_fields[fld] = fld_data
             else:
                 print("[!] [/scan] Perception returned 0 fields. Falling back to OCR extractions.", flush=True)
@@ -1348,6 +1372,7 @@ async def scan(
 
     inspection_id = f"{resolved_product_id}:scan-{uuid.uuid4().hex[:8]}"
 
+    t_rules_start = time.time()
     result = run_inspection(
         inspection_id=inspection_id,
         sale_type=sale_type,
@@ -1368,6 +1393,7 @@ async def scan(
         regulatory_module=regulatory_scope_info.get("primary_module", "lmpc"),
         package_structure=package_structure,
     )
+    t_rules = time.time() - t_rules_start
     result.surfaces = sorted(
         inspection_surfaces_list, key=lambda s: s.priority_score, reverse=True
     )
@@ -1502,6 +1528,7 @@ async def scan(
     vlm_notes = []
 
     # ------------------------- Persistence ------------------------------
+    t_db_start = time.time()
     primary_image_rel = f"/uploads/{first_stored_filename}" if first_stored_filename else first_image_id
     db.save_inspection(
         result,
@@ -1518,6 +1545,14 @@ async def scan(
         resource_type="inspection", resource_id=result.inspection_id,
         detail=f"via /scan, sale_type={sale_type}, images={len(upload_list)}",
     )
+    t_db = time.time() - t_db_start
+    t_total = time.time() - t_start_pipeline
+    perf_summary = (
+        f"[PERF PIPELINE] Total: {t_total:.2f}s | OpenCV Preproc: {t_cv:.2f}s | Parallel OCR: {t_ocr:.2f}s | "
+        f"Legal Rules: {t_rules:.2f}s | DB Persistence: {t_db:.2f}s across {len(uploaded_items)} face(s)"
+    )
+    logger.info(perf_summary)
+    print(f"\n{perf_summary}\n", flush=True)
 
     return {
         "inspection": result,
@@ -1589,8 +1624,12 @@ async def scan(
 def health():
     """Cheap liveness probe. It deliberately does not require dependencies."""
     from ocr_engine import active_engines
+    from datetime import datetime, timezone
     engines, engine_notes = active_engines()
     return {
+        "success": True,
+        "message": "Server is healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "status": "ok",
         "service": "lmpc-compliance-api",
         "mode": "demo" if config.DEMO_MODE else "production",

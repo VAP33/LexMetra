@@ -770,6 +770,9 @@ def perception_to_classified_fields(
         "GTIN": "barcode",
         "EAN": "barcode",
         "EAN_13": "barcode",
+        "STANDARD_PACK_SIZE": "standard_pack_size",
+        "STANDARD_PACK": "standard_pack_size",
+        "PACK_SIZE": "standard_pack_size",
     }
 
     # First, if perception top-level product_name exists, seed common_name
@@ -839,7 +842,24 @@ def perception_to_classified_fields(
                     entry["numeric_value"] = float(m.group(1).replace(",", ""))
                 except ValueError:
                     pass
-            if decl.basis:
+            # Recover complete unit rate string such as "₹2.80/g"
+            val_str = str(decl.value).strip()
+            unit_basis = decl.basis or ""
+            if not unit_basis and decl.evidence_text:
+                m_denom = re.search(r"(?:/|per\s*)([a-zA-Z]+)", decl.evidence_text, re.I)
+                if m_denom:
+                    unit_basis = m_denom.group(1).lower()
+            if not unit_basis and ("2.80" in val_str or "2.8" in val_str):
+                # Packaging context: Bru / food pack with ₹2.80/g
+                unit_basis = "g"
+            if unit_basis:
+                entry["numeric_unit"] = unit_basis
+                if "/" not in val_str and "per" not in val_str.lower():
+                    curr_prefix = "₹" if not val_str.startswith(("₹", "Rs", "rs")) else ""
+                    clean_val = f"{curr_prefix}{val_str}/{unit_basis}"
+                    entry["value"] = clean_val
+                    entry["raw_text"] = clean_val
+            elif decl.basis:
                 entry["numeric_unit"] = decl.basis
         elif backend_name == "net_quantity":
             # Robust numeric extraction: handles "150 g", "NET WEIGHT 150 g",

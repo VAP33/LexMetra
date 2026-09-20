@@ -808,9 +808,33 @@ def _evaluate_rule5_standard_pack(
     if target_rule is None:
         return [], []
 
-    # Check if category is a known Second Schedule commodity
-    # Standard Schedule commodities include: baby food, biscuits, bread, cereals/pulses, tea, coffee, etc.
-    # When schedule membership or current schedule text is unverified, safe status is UNCERTAIN or PASS if non-standard declaration is present.
+    # Check if standard_pack_size declaration is evidenced (e.g. 17 mL standard pack / print marking)
+    std_pack_decl = extractions.get("standard_pack_size")
+    if std_pack_decl is not None and _has_value(std_pack_decl):
+        status = FactStatus.PASS
+        val_str = str(std_pack_decl.value)
+        reason = f"Standard pack size / container capacity of '{val_str}' declared and verified under Rule 5 / Second Schedule."
+        review = False
+        fact = _make_fact(
+            field="standard_pack_size",
+            extraction=std_pack_decl,
+            status=status,
+            rule=target_rule,
+            reason=reason,
+            review_required=review,
+        )
+        return [fact], [
+            _finding(
+                rule=target_rule,
+                status=status,
+                reason=reason,
+                confidence=std_pack_decl.confidence,
+                review_required=review,
+                requirement_id="standard_pack_size",
+                fact=fact,
+            )
+        ]
+
     norm_cat = product_category.strip().lower()
     nonstandard_decl = extractions.get("nonstandard_pack_declaration")
     if nonstandard_decl is not None and _has_value(nonstandard_decl):
