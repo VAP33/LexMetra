@@ -23,7 +23,12 @@ from db import persistence as db
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 REF_DIR = PROJECT_ROOT / "Reference Images"
+if not REF_DIR.exists():
+    REF_DIR = PROJECT_ROOT / "dataset" / "Reference Images"
+
 INSP_DIR = PROJECT_ROOT / "images new"
+if not INSP_DIR.exists():
+    INSP_DIR = PROJECT_ROOT / "dataset" / "New Real Images"
 
 
 def test_hersheys_real_packaging_field_level_comparison():

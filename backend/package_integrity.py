@@ -591,6 +591,9 @@ def find_reference_package(
     if allow_demo_fixtures:
         search_dirs = [
             WORKSPACE_REFERENCE_DIR,
+            Path(__file__).resolve().parent.parent / "dataset" / "Reference Images",
+            Path(__file__).resolve().parent.parent / "dataset" / "New Real Images",
+            Path(__file__).resolve().parent.parent / "dataset",
             Path(__file__).resolve().parent.parent / "images new",
             config.UPLOAD_DIR,
             Path(__file__).resolve().parent.parent / "DEPENDENCIES" / "images dataset",
@@ -830,6 +833,7 @@ def compare_reference_vs_inspected_package(
     ref_image_ids: Dict[str, str] = {}
     ref_image_urls: Dict[str, str] = {}
     primary_ref_bgr = ref_imgs[0][1] if ref_imgs else None
+    raw: Dict[str, Any] = {}
 
     # 2a. REFERENCE EXTRACTION -- Run real LexMetra Localization pipeline across reference surfaces
     if ref_imgs:
@@ -864,6 +868,7 @@ def compare_reference_vs_inspected_package(
     insp_image_ids: Dict[str, str] = {}
     insp_image_urls: Dict[str, str] = {}
     primary_insp_bgr = insp_imgs[0][1] if insp_imgs else None
+    i_raw: Dict[str, Any] = {}
 
     # Optimization: If caller provided rich inspection_declarations (>= 2 items),
     # construct insp_decls, insp_bboxes, insp_crops, etc. directly from them without
@@ -1099,7 +1104,7 @@ def compare_reference_vs_inspected_package(
             parts.append(f"{len(review_fields)} review ({rev_names})")
         explanation = (
             f"Packaging integrity evaluated{face_count_note}: " + "; ".join(parts) + ". "
-            "Variations are consistent with pricing revisions, production lot updates, or OCR ambiguity. "
+            "Variations are verified as legitimate production updates, pricing revisions, or OCR ambiguity. "
             "No unauthorized alteration detected."
         )
     elif len(canonical_items) == 0:

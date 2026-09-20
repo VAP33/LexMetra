@@ -103,7 +103,7 @@ function fieldCompStatusLabel(status: string): string {
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
-function SectionTitle({ n, title }: { n: number; title: string }) {
+function SectionTitle({ n, title }: { n: number | string; title: string }) {
   return (
     <div className="flex items-center gap-2 mb-3 mt-6 first:mt-0">
       <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center">

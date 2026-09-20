@@ -18,8 +18,7 @@ import {
   downloadOrOpenInspectionReportPdf,
   type PublicVerificationDocket,
 } from "../lib/api-client";
-import { LexMetraLogo } from "./ui-primitives";
-import { Button } from "./ui/button";
+import { LexMetraLogo, Button } from "./ui-primitives";
 
 interface PublicVerificationViewProps {
   inspectionId: string;
@@ -108,7 +107,7 @@ export function PublicVerificationView({ inspectionId, onClose }: PublicVerifica
                 {error || "No recorded compliance docket matches this identification token."}
               </p>
               {onClose && (
-                <Button variant="outline" onClick={onClose} className="mt-4">
+                <Button variant="secondary" onClick={onClose} className="mt-4">
                   Close Portal
                 </Button>
               )}
@@ -237,7 +236,7 @@ export function PublicVerificationView({ inspectionId, onClose }: PublicVerifica
                   )}
                 </Button>
                 {onClose && (
-                  <Button variant="outline" onClick={onClose} className="border-border/80">
+                  <Button variant="secondary" onClick={onClose} className="border-border/80">
                     Dismiss
                   </Button>
                 )}
