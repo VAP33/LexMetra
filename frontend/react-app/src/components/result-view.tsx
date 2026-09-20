@@ -474,6 +474,7 @@ export function ResultView({
           inspectionId={inspection.id}
           productId={inspection.productId}
           productName={inspection.product}
+          initialData={inspection.packageIntegrity}
         />
 
         {/* USP 2: Generalized Departmental Regulatory Cross-Verification */}

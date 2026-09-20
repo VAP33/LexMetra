@@ -586,6 +586,8 @@ export function fromScanResponse(
       reason: s.reason,
     })),
     priceOrLabelChangeFlag: raw.price_or_label_change_flag,
+    packageIntegrity: (raw as any).package_integrity || (raw.inspection as any)?.package_integrity || (raw.inspection as any)?.package_integrity_json || undefined,
+    integrityStatus: (raw as any).package_integrity?.status || (raw.inspection as any)?.package_integrity_status || undefined,
   };
 }
 
@@ -685,6 +687,8 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
     similarMatches: [],
     stickerSuspicions: [],
     priceOrLabelChangeFlag: null,
+    packageIntegrity: (row as any).package_integrity_json || (row as any).package_integrity || undefined,
+    integrityStatus: (row as any).package_integrity_status || (row as any).package_integrity?.status || undefined,
   };
 }
 
@@ -784,6 +788,8 @@ export function fromFinalizedInspection(
     similarMatches: [],
     stickerSuspicions: [],
     priceOrLabelChangeFlag: null,
+    packageIntegrity: (inspection as any)?.package_integrity || (inspection as any)?.package_integrity_json || undefined,
+    integrityStatus: (inspection as any)?.package_integrity?.status || (inspection as any)?.package_integrity_status || undefined,
   };
 }
 

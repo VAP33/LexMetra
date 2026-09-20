@@ -55,6 +55,7 @@ import { RegulatoryIntelligenceDashboard } from "./regulatory-intelligence-dashb
 import { CustomerDashboard } from "./customer-dashboard";
 import { SeniorRegionalDashboard } from "./senior-regional-dashboard";
 import { AuthorityDashboardView, MultilingualAssistantWidget } from "./usp-components";
+import { PublicVerificationView } from "./public-verification-view";
 
 export function InspectionApp() {
   const [user, setUser] = useState<AuthedUser | null>(() => (getStoredToken() ? getStoredUser() : null));
@@ -87,6 +88,20 @@ export function InspectionApp() {
   const [preprocessingError, setPreprocessingError] = useState<string | undefined>(undefined);
   const [processingError, setProcessingError] = useState<string | undefined>(undefined);
   const [toast, setToast] = useState<string | undefined>(undefined);
+  const [verifyModalId, setVerifyModalId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash;
+      if (hash.startsWith("#verify:")) {
+        const id = hash.replace("#verify:", "").trim();
+        if (id) setVerifyModalId(id);
+      }
+    };
+    handleHash();
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
 
   function handleSetLang(newLang: Language) {
     setLang(newLang);
@@ -501,6 +516,17 @@ export function InspectionApp() {
       {!isLanding ? <div className="md:pl-64">{content}</div> : content}
       {!isLanding && <BottomNav view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
       <MultilingualAssistantWidget currentInspection={selected || inspections[0]} lang={lang} onLanguageChange={handleSetLang} />
+      {verifyModalId && (
+        <PublicVerificationView
+          inspectionId={verifyModalId}
+          onClose={() => {
+            setVerifyModalId(null);
+            if (window.location.hash.startsWith("#verify:")) {
+              window.history.replaceState(null, "", window.location.pathname + window.location.search);
+            }
+          }}
+        />
+      )}
       {toast && (
         <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-xl md:bottom-8">
           <Check className="h-4 w-4 text-success" />{toast}

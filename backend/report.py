@@ -348,16 +348,35 @@ def _resolve_canonical_image(s: Any) -> Optional[Path]:
     Prioritizes canonical_image_path because all localized bboxes are computed
     in canonical surface coordinate space.
     """
-    for key in ("canonical_image_path", "original_image_path"):
+    candidate_keys = (
+        "canonical_image_path",
+        "canonical_image_url",
+        "canonical_image",
+        "original_image_path",
+        "image_path",
+        "image_url",
+        "image",
+        "image_id",
+    )
+    for key in candidate_keys:
         raw_p = _get(s, key)
         if not raw_p:
             continue
-        if str(raw_p).startswith("/uploads/"):
-            cand = config.UPLOAD_DIR / str(raw_p).replace("/uploads/", "")
-            if cand.exists():
-                return cand
-        elif os.path.exists(str(raw_p)):
-            return Path(str(raw_p))
+        raw_str = str(raw_p).strip()
+        if not raw_str or raw_str in ("None", "-"):
+            continue
+        # Check direct path
+        if os.path.exists(raw_str):
+            return Path(raw_str)
+        # Check /uploads/ or filename in UPLOAD_DIR
+        clean_name = raw_str.replace("/uploads/", "").lstrip("/").split("/")[-1].split("?")[0]
+        cand = config.UPLOAD_DIR / clean_name
+        if cand.exists():
+            return cand
+        # Check scratch/
+        cand_scratch = Path(__file__).resolve().parent / "scratch" / clean_name
+        if cand_scratch.exists():
+            return cand_scratch
     return None
 
 
@@ -599,15 +618,49 @@ def build_inspection_report_pdf(
     else:
         story.append(Paragraph("<font size=15 color='#0f172a'><b>LEXMETRA</b></font>", ParagraphStyle("TitleL", parent=styles["Title"], alignment=1)))
 
-    header_text = Paragraph(
+    # Build live verification QR code
+    qr_cell: Any = ""
+    try:
+        from reportlab.graphics.shapes import Drawing
+        from reportlab.graphics.barcode.qr import QrCodeWidget
+        qr_draw = Drawing(34, 34)
+        qr_w = QrCodeWidget(f"https://lexmetra.gov.in/verify/{inspection_id}")
+        qr_w.barWidth = 32
+        qr_w.barHeight = 32
+        qr_w.qrVersion = 1
+        qr_draw.add(qr_w)
+        qr_caption = Paragraph("<font size=5 color='#64748b'><b>SCAN TO VERIFY</b></font>", ParagraphStyle("QRCap", parent=styles["Normal"], alignment=1))
+        qr_cell = Table([[qr_draw], [qr_caption]], colWidths=[22 * mm])
+        qr_cell.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+    except Exception:
+        qr_cell = ""
+
+    header_left = Paragraph(
         "<font size=10 color='#0f172a'><b>STATUTORY COMPLIANCE INSPECTION DOSSIER</b></font><br/>"
         f"<font size=7.5 color='#475569'><b>Docket:</b> {inspection_id} &nbsp;&bull;&nbsp; "
         f"<b>Framework:</b> Legal Metrology (Packaged Commodities) Rules, 2011 &nbsp;&bull;&nbsp; "
         f"<b>Screened:</b> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</font>",
-        ParagraphStyle("SubTitleBlock", parent=styles["Normal"], fontSize=8, leading=11, alignment=1),
+        ParagraphStyle("SubTitleBlock", parent=styles["Normal"], fontSize=8, leading=11, alignment=0),
     )
-    story.append(header_text)
-    story.append(Spacer(1, 3))
+
+    header_table = Table([[header_left, qr_cell]], colWidths=[158 * mm, 24 * mm])
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 2))
 
     # 1. WHAT IS THE RESULT? (Executive Screening Banner)
     result_banner = [

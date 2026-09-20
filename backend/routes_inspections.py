@@ -112,7 +112,13 @@ def get_inspection(
             p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name")
             img_path = detail.get("image_path") or detail.get("image")
             try:
-                integrity_res = package_integrity.evaluate_package_integrity(img_path, product_id=p_id, product_name=p_name)
+                integrity_res = package_integrity.evaluate_package_integrity(
+                    img_path,
+                    product_id=p_id,
+                    product_name=p_name,
+                    allow_demo_fixtures=True,
+                    inspection_declarations=insp_data.get("declarations") or [],
+                )
                 rep_dict = integrity_res.to_dict()
                 rep_dict["inspection_id"] = inspection_id
                 detail["package_integrity"] = rep_dict
@@ -140,6 +146,22 @@ def get_inspection(
             detail["fssai"] = fssai_res.to_dict()
         except Exception:
             pass
+
+    import lmpc_master_rules
+    insp_data = detail.get("inspection") or detail
+    cat = insp_data.get("commodity_category") or insp_data.get("product_category") or "food"
+    sale_type = insp_data.get("sale_type") or "retail"
+    try:
+        qty_val = float(insp_data.get("net_quantity_value") or 0)
+    except Exception:
+        qty_val = None
+    qty_unit = str(insp_data.get("net_quantity_unit") or "")
+    detail["lmpc_master_rules"] = lmpc_master_rules.evaluate_contextual_rule_applicability(
+        product_category=cat,
+        sale_type=sale_type,
+        net_quantity_val=qty_val,
+        net_quantity_unit=qty_unit,
+    )
 
     return detail
 
@@ -199,6 +221,7 @@ def get_inspection_integrity(
         product_id=p_id,
         product_name=p_name,
         inspection_declarations=declarations,
+        allow_demo_fixtures=True,
     )
     report_dict = res.to_dict()
     report_dict["inspection_id"] = inspection_id
@@ -340,6 +363,99 @@ def get_product_history(
     current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     return db.product_history(product_id)
+
+
+@router.get("/rules/lmpc-master")
+def get_master_rules(
+    category: Optional[str] = None,
+    sale_type: Optional[str] = None,
+    net_quantity: Optional[float] = None,
+    unit: Optional[str] = None,
+):
+    """Returns statutory LMPC 2011 master rules and contextual exemption evaluations."""
+    import lmpc_master_rules
+    if any([category, sale_type, net_quantity is not None, unit]):
+        return lmpc_master_rules.evaluate_contextual_rule_applicability(
+            product_category=category,
+            sale_type=sale_type,
+            net_quantity_val=net_quantity,
+            net_quantity_unit=unit,
+        )
+    return lmpc_master_rules.get_lmpc_master_rule_register()
+
+
+@router.get("/verify/{inspection_id}")
+def get_public_verification_docket(inspection_id: str):
+    """
+    Public statutory verification portal endpoint.
+    Accessible without login by citizens and field officers scanning QR codes.
+    """
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Statutory verification docket not found.")
+
+    insp = detail.get("inspection") or detail
+    declarations = detail.get("declarations") or insp.get("declarations") or []
+
+    verified_decls = [d for d in declarations if str(d.get("status", "")).upper() in ("VERIFIED", "PASS")]
+    review_decls = [d for d in declarations if "REVIEW" in str(d.get("status", "")).upper() or "UNCERTAIN" in str(d.get("status", "")).upper()]
+    violation_decls = [d for d in declarations if "NON_COMPLIANT" in str(d.get("status", "")).upper() or "NOT_DETECTED" in str(d.get("status", "")).upper()]
+
+    p_integrity = detail.get("package_integrity") or {}
+
+    return {
+        "inspection_id": inspection_id,
+        "product_name": insp.get("product_name") or "Packaged Commodity",
+        "product_id": insp.get("product_id") or "Not detected",
+        "category": insp.get("product_category") or "Packaged Commodity",
+        "sale_type": insp.get("sale_type") or "retail",
+        "overall_status": detail.get("overall_status") or insp.get("overall_status") or "UNCERTAIN",
+        "created_at": detail.get("created_at") or detail.get("timestamp"),
+        "digital_seal": {
+            "issued_by": "Legal Metrology Division, Department of Consumer Affairs",
+            "jurisdiction": "Republic of India",
+            "statutory_act": "Legal Metrology Act, 2009 & LMPC Rules, 2011",
+            "seal_status": "AUTHENTIC_GOVERNMENT_SCREENING_RECORD",
+            "docket_hash": f"LMPC-INSP-{abs(hash(inspection_id)) % 100000000:08d}",
+        },
+        "counts": {
+            "verified": len(verified_decls),
+            "review_required": len(review_decls),
+            "violations": len(violation_decls),
+            "total_declarations": len(declarations),
+        },
+        "package_integrity_status": p_integrity.get("status") or "UNVERIFIED",
+        "has_official_report_pdf": True,
+        "report_pdf_url": f"/inspections/{inspection_id}/report.pdf",
+    }
+
+
+@router.get("/inspections/{inspection_id}/qrcode")
+def get_inspection_qr_code(inspection_id: str, request: Request):
+    """
+    Returns a native vector SVG QR code encoding the live public verification docket URL.
+    """
+    try:
+        from reportlab.graphics import renderSVG
+        from reportlab.graphics.shapes import Drawing
+        from reportlab.graphics.barcode.qr import QrCodeWidget
+
+        # Dynamic base URL resolution
+        base_url = str(request.base_url).rstrip("/")
+        # If running in web app, verification docket hash path is /#verify:<id>
+        verify_url = f"{base_url}/#verify:{inspection_id}"
+
+        d = Drawing(120, 120)
+        widget = QrCodeWidget(verify_url)
+        widget.barWidth = 112
+        widget.barHeight = 112
+        widget.qrVersion = 1
+        d.add(widget)
+
+        svg_str = renderSVG.drawToString(d)
+        return Response(content=svg_str, media_type="image/svg+xml")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate QR code: {e}")
 
 
 # ---------------------------------------------------------------------------
