@@ -1478,12 +1478,77 @@ def save_package_integrity_comparison(record: dict) -> str:
     except Exception as e:
         logger.warning("Database insert for package_integrity_comparisons failed: %s", e)
 
+    # 3. Update the inspections table directly so inspection queries immediately contain integrity
+    if insp_id:
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    for alter_sql in [
+                        "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_json JSONB;",
+                        "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_status TEXT;",
+                    ]:
+                        try:
+                            cur.execute(alter_sql)
+                        except Exception:
+                            pass
+                    cur.execute(
+                        """
+                        UPDATE inspections
+                        SET package_integrity_json = %s,
+                            package_integrity_status = %s
+                        WHERE inspection_id = %s
+                        """,
+                        (
+                            json.dumps(record, ensure_ascii=False, default=_json_default),
+                            record.get("comparison_status") or record.get("status", "UNABLE_TO_VERIFY"),
+                            str(insp_id),
+                        ),
+                    )
+        except Exception as e:
+            logger.warning("Updating inspections table with package_integrity failed: %s", e)
+
     return comp_id
+
+
+def save_inspection_detail(inspection_id: str, detail: dict) -> None:
+    """
+    Persist enriched inspection detail attributes (including package_integrity).
+    """
+    pkg_int = detail.get("package_integrity")
+    if not pkg_int or not inspection_id:
+        return
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                for alter_sql in [
+                    "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_json JSONB;",
+                    "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_status TEXT;",
+                ]:
+                    try:
+                        cur.execute(alter_sql)
+                    except Exception:
+                        pass
+                cur.execute(
+                    """
+                    UPDATE inspections
+                    SET package_integrity_json = %s,
+                        package_integrity_status = %s
+                    WHERE inspection_id = %s
+                    """,
+                    (
+                        json.dumps(pkg_int, ensure_ascii=False, default=_json_default),
+                        pkg_int.get("comparison_status") or pkg_int.get("status", "UNABLE_TO_VERIFY"),
+                        str(inspection_id),
+                    ),
+                )
+    except Exception as e:
+        logger.warning("save_inspection_detail failed: %s", e)
 
 
 def get_latest_package_integrity_comparison(inspection_id: str) -> Optional[dict]:
     """
     Retrieve the latest persisted Package Integrity comparison for an inspection.
+    Prefers evaluated/verified comparisons over UNABLE_TO_VERIFY if multiple exist.
     """
     # 1. Try PostgreSQL
     try:
@@ -1493,7 +1558,7 @@ def get_latest_package_integrity_comparison(inspection_id: str) -> Optional[dict
                     """
                     SELECT * FROM package_integrity_comparisons
                     WHERE inspection_id = %s
-                    ORDER BY timestamp DESC
+                    ORDER BY (CASE WHEN comparison_status = 'UNABLE_TO_VERIFY' THEN 1 ELSE 0 END) ASC, timestamp DESC
                     LIMIT 1
                     """,
                     (inspection_id,)
