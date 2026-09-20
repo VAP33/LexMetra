@@ -100,6 +100,15 @@ def init_schema() -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(schema_sql)
+            for alter_sql in [
+                "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_json JSONB;",
+                "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_status TEXT;",
+                "CREATE INDEX IF NOT EXISTS idx_inspections_integrity_status ON inspections(package_integrity_status);",
+            ]:
+                try:
+                    cur.execute(alter_sql)
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -896,6 +905,17 @@ def get_inspection_detail(inspection_id: str) -> Optional[dict]:
                     inspection["image"] = top_s["image_url"]
                 if top_s.get("canonical_image_url"):
                     inspection["canonicalImage"] = top_s["canonical_image_url"]
+
+            # Restore persisted Package Integrity verification (USP 1)
+            raw_integrity = inspection.get("package_integrity_json")
+            if raw_integrity:
+                decoded_int = decode_json_column(raw_integrity)
+                if decoded_int:
+                    inspection["package_integrity"] = decoded_int
+            if not inspection.get("package_integrity"):
+                latest_int = get_latest_package_integrity_comparison(inspection_id)
+                if latest_int:
+                    inspection["package_integrity"] = latest_int
 
             return dict(inspection)
 
