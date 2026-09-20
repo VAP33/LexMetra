@@ -65,8 +65,18 @@ CREATE TABLE IF NOT EXISTS inspections (
     review_required     BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- Canonical, evidence-backed declarations used by the current UI/history.
-    declarations_json   JSONB
+    declarations_json   JSONB,
+
+    -- Persisted Package Integrity comparison report and summary status
+    package_integrity_json   JSONB,
+    package_integrity_status TEXT
 );
+
+ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_json JSONB;
+ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_status TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_inspections_integrity_status
+    ON inspections(package_integrity_status);
 
 CREATE INDEX IF NOT EXISTS idx_inspections_product
     ON inspections(product_id);
