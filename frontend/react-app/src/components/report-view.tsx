@@ -11,6 +11,8 @@ import {
   Loader2,
   Mail,
   Phone,
+  QrCode,
+  ExternalLink,
   ShieldCheck,
   XCircle,
 } from "lucide-react";
@@ -296,17 +298,46 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
           {/* ═══════════════════════════════════════════════════════════════ */}
           <div className="p-6 sm:p-10 space-y-5">
 
-            {/* Document header */}
-            <div className="text-center border-b-2 border-slate-900 pb-4 space-y-1">
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
-                Government of India &bull; Ministry of Consumer Affairs, Food &amp; Public Distribution
-              </p>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase leading-tight">
-                Legal Metrology Compliance Inspection Report
-              </h1>
-              <p className="text-xs text-slate-600 font-medium">
-                Legal Metrology (Packaged Commodities) Rules, 2011 &bull; LexMetra AI Vision Platform v2.4
-              </p>
+            {/* Document header with Official Brand & Prominent Live QR Code */}
+            <div className="flex flex-col sm:flex-row items-center justify-between border-b-2 border-slate-900 pb-4 gap-4">
+              <div className="text-center sm:text-left space-y-1 flex-1">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                  Government of India &bull; Ministry of Consumer Affairs, Food &amp; Public Distribution
+                </p>
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase leading-tight">
+                  Legal Metrology Compliance Inspection Report
+                </h1>
+                <p className="text-xs text-slate-600 font-medium">
+                  Legal Metrology (Packaged Commodities) Rules, 2011 &bull; LexMetra AI Vision Platform v2.4
+                </p>
+              </div>
+
+              {/* Prominent Statutory QR Verification Box */}
+              <div className="flex-shrink-0 flex items-center gap-2.5 bg-slate-50 border border-slate-300 rounded-xl p-2.5 shadow-sm">
+                <div className="h-16 w-16 bg-white border border-slate-300 rounded-lg p-1 flex items-center justify-center">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`https://lexmetra.gov.in/verify/${inspection.id}`)}`}
+                    alt="Scan to Verify Docket"
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+                <div className="text-left">
+                  <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-blue-700">
+                    <QrCode className="h-3.5 w-3.5" />
+                    <span>Statutory Docket</span>
+                  </div>
+                  <div className="text-[9px] font-mono text-slate-500 truncate max-w-[120px]">{inspection.id}</div>
+                  <a
+                    href={`/verify/${inspection.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 underline"
+                  >
+                    <span>Public Verify</span>
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+              </div>
             </div>
 
             {/* Verdict banner */}
@@ -635,29 +666,67 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                       <div className={`px-3 py-1 text-[10px] font-bold text-white uppercase text-center ${isViolation ? "bg-rose-700" : "bg-emerald-700"}`}>
                         Surface {idx + 1}: {(surf as any).faceLabel || (surf as any).surfaceType || `Face ${idx + 1}`} — {isViolation ? "Violations Detected" : "Compliant"}
                       </div>
-                      {/* Image: correct aspect ratio, no distortion */}
-                      <div className="flex items-center justify-center bg-slate-900 w-full" style={{ minHeight: "160px", maxHeight: "300px" }}>
+                      {/* Image: correct aspect ratio with overlaid bounding boxes */}
+                      <div className="relative flex items-center justify-center bg-slate-900 w-full overflow-hidden" style={{ minHeight: "180px", maxHeight: "320px" }}>
                         {(surf as any).imageUrl ? (
-                          <img
-                            src={(surf as any).imageUrl}
-                            alt={(surf as any).faceLabel || `Surface ${idx + 1}`}
-                            style={{
-                              display: "block",
-                              maxWidth: "100%",
-                              maxHeight: "300px",
-                              width: "auto",
-                              height: "auto",
-                              objectFit: "contain",
-                              margin: "0 auto",
-                            }}
-                          />
+                          <div className="relative inline-block max-w-full">
+                            <img
+                              src={(surf as any).imageUrl}
+                              alt={(surf as any).faceLabel || `Surface ${idx + 1}`}
+                              style={{
+                                display: "block",
+                                maxWidth: "100%",
+                                maxHeight: "300px",
+                                width: "auto",
+                                height: "auto",
+                                objectFit: "contain",
+                                margin: "0 auto",
+                              }}
+                            />
+                            {/* Overlay detected bounding boxes on the full packaging image */}
+                            {allDecls
+                              .filter((d: any) => (d.boundingBox || d.bbox) && Array.isArray(d.boundingBox || d.bbox))
+                              .map((d: any, bIdx: number) => {
+                                const rawBox = d.boundingBox || d.bbox;
+                                // Handle normalized vs pixel coordinates
+                                const isNorm = Math.max(...rawBox) <= 1.05;
+                                const leftPct = isNorm ? rawBox[0] * 100 : 0;
+                                const topPct = isNorm ? rawBox[1] * 100 : 0;
+                                const widthPct = isNorm ? rawBox[2] * 100 : 0;
+                                const heightPct = isNorm ? rawBox[3] * 100 : 0;
+                                const isPass = d.status === "VERIFIED" || d.status === "PASS";
+
+                                if (!isNorm) return null;
+
+                                return (
+                                  <div
+                                    key={bIdx}
+                                    className={`absolute pointer-events-none border-2 rounded ${
+                                      isPass ? "border-emerald-500 bg-emerald-500/10" : "border-amber-500 bg-amber-500/10"
+                                    }`}
+                                    style={{
+                                      left: `${leftPct}%`,
+                                      top: `${topPct}%`,
+                                      width: `${widthPct}%`,
+                                      height: `${heightPct}%`,
+                                    }}
+                                  >
+                                    <span className="absolute -top-3.5 left-0 bg-slate-900/90 text-[8px] font-bold text-white px-1 rounded truncate max-w-[120px]">
+                                      {fieldLabel(d.field)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                          </div>
                         ) : (
                           <div className="text-slate-500 text-xs py-12">No image available for Surface {idx + 1}</div>
                         )}
                       </div>
-                      <div className="px-3 py-2 text-[10px] font-mono text-slate-500">
-                        {(surf as any).surfaceId || `surface_${idx + 1}.jpg`} — {isViolation ? "NON-COMPLIANT" : "COMPLIANT"}
-                        {(surf as any).regions?.length > 0 && <span className="ml-2">({(surf as any).regions.length} localized region(s))</span>}
+                      <div className="px-3 py-2 text-[10px] font-mono text-slate-500 flex items-center justify-between">
+                        <span>{(surf as any).surfaceId || `surface_${idx + 1}.jpg`} — {isViolation ? "NON-COMPLIANT" : "COMPLIANT"}</span>
+                        <span className="text-[9px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-bold">
+                          {allDecls.filter((d: any) => d.boundingBox || d.bbox).length} Bounding Box(es) Overlaid
+                        </span>
                       </div>
                     </div>
                   ))}
