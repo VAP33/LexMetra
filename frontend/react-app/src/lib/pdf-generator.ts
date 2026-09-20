@@ -1,0 +1,125 @@
+/**
+ * LexMetra Official PDF Generator
+ * Uses jsPDF + html2canvas to render a fully self-contained PDF
+ * that opens in a new browser tab directly (no print/save-as dialog).
+ */
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+
+export interface PdfProgress {
+  stage: string;
+  pct: number;
+}
+
+/**
+ * Capture a DOM element (by id), paginate it, and open the resulting PDF
+ * in a new browser tab.
+ *
+ * @param elementId  id of the root element to capture
+ * @param onProgress optional progress callback
+ */
+export async function exportElementAsPdf(
+  elementId: string,
+  filename: string = "LexMetra_Inspection_Report.pdf",
+  onProgress?: (p: PdfProgress) => void
+): Promise<void> {
+  const el = document.getElementById(elementId);
+  if (!el) throw new Error(`Element #${elementId} not found`);
+
+  onProgress?.({ stage: "Preparing document…", pct: 5 });
+
+  // Temporarily un-hide any print-hidden elements that are relevant to PDF
+  // We render a clone in off-screen position so the live page isn't affected.
+  const clone = el.cloneNode(true) as HTMLElement;
+  clone.style.position = "absolute";
+  clone.style.top = "-99999px";
+  clone.style.left = "0";
+  clone.style.width = "1024px"; // fixed render width for consistent PDF
+  clone.style.background = "#ffffff";
+  clone.style.fontFamily = "sans-serif";
+  // Remove on-screen action bar (print-hidden) from clone
+  clone.querySelectorAll(".print-hidden").forEach((n) => (n as HTMLElement).remove());
+  document.body.appendChild(clone);
+
+  onProgress?.({ stage: "Rendering pages…", pct: 15 });
+
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await html2canvas(clone, {
+      scale: 2,            // 2× for retina-quality text
+      useCORS: true,       // allow cross-origin images
+      allowTaint: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+      windowWidth: 1024,
+    });
+  } finally {
+    document.body.removeChild(clone);
+  }
+
+  onProgress?.({ stage: "Building PDF…", pct: 65 });
+
+  // A4 in mm
+  const A4_W = 210;
+  const A4_H = 297;
+  const MARGIN = 10; // mm
+
+  const pageW = A4_W - MARGIN * 2;
+  const imgW = canvas.width;
+  const imgH = canvas.height;
+
+  // mm per pixel
+  const mmPerPx = pageW / imgW;
+  const totalHeightMm = imgH * mmPerPx;
+
+  const pdf = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+
+  const pageContentH = A4_H - MARGIN * 2;
+  const pagesCount = Math.ceil(totalHeightMm / pageContentH);
+
+  for (let p = 0; p < pagesCount; p++) {
+    if (p > 0) pdf.addPage();
+
+    // Crop canvas slice for this page
+    const srcYPx = Math.round((p * pageContentH) / mmPerPx);
+    const srcHPx = Math.min(Math.round(pageContentH / mmPerPx), imgH - srcYPx);
+
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = imgW;
+    pageCanvas.height = srcHPx;
+    const ctx = pageCanvas.getContext("2d")!;
+    ctx.drawImage(canvas, 0, srcYPx, imgW, srcHPx, 0, 0, imgW, srcHPx);
+
+    const dataUrl = pageCanvas.toDataURL("image/jpeg", 0.92);
+    const imgHMm = srcHPx * mmPerPx;
+
+    pdf.addImage(dataUrl, "JPEG", MARGIN, MARGIN, pageW, imgHMm);
+
+    onProgress?.({ stage: `Composing page ${p + 1} of ${pagesCount}…`, pct: 65 + Math.round(((p + 1) / pagesCount) * 25) });
+  }
+
+  onProgress?.({ stage: "Opening PDF in new tab…", pct: 95 });
+
+  // Generate blob and open in new tab — no print dialog
+  const blob = pdf.output("blob");
+  const url = URL.createObjectURL(blob);
+  const tab = window.open(url, "_blank");
+
+  // Revoke URL after a delay so the tab has time to load it
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+  if (!tab) {
+    // Fallback: trigger download if popup was blocked
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+  }
+
+  onProgress?.({ stage: "Done", pct: 100 });
+}

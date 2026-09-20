@@ -16,14 +16,13 @@ import {
 } from "lucide-react";
 import { type Inspection } from "@/lib/types";
 import {
-  reportPdfAvailable,
-  reportPdfUrl,
   getPackageIntegrity,
   getDepartmentalCrossVerification,
   type IntegrityReportData,
   type DepartmentalRegulatoryDossierData,
 } from "@/lib/api-client";
 import { Button, formatDate } from "./ui-primitives";
+import { exportElementAsPdf } from "@/lib/pdf-generator";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -131,7 +130,8 @@ function TableHeader({ cols }: { cols: string[] }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: () => void }) {
-  const [pdfState, setPdfState] = useState<"idle" | "checking" | "done">("idle");
+  const [pdfState, setPdfState] = useState<"idle" | "generating" | "done">("idle");
+  const [pdfProgress, setPdfProgress] = useState<{ stage: string; pct: number } | null>(null);
   const [integrityData, setIntegrityData] = useState<IntegrityReportData | null>(null);
   const [dossier, setDossier] = useState<DepartmentalRegulatoryDossierData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -159,18 +159,23 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
   }, [inspection.id]);
 
   async function handleExportPdf() {
-    setPdfState("checking");
+    if (pdfState === "generating") return;
+    setPdfState("generating");
+    setPdfProgress({ stage: "Starting…", pct: 0 });
     try {
-      const available = await reportPdfAvailable(inspection.id);
-      if (available) {
-        window.open(reportPdfUrl(inspection.id), "_blank");
-      } else {
-        window.print();
-      }
-    } catch {
+      await exportElementAsPdf(
+        "lexmetra-report-shell",
+        `LexMetra_Report_${inspection.id.slice(0, 8)}.pdf`,
+        (p) => setPdfProgress(p)
+      );
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      // Graceful fallback to print dialog
       window.print();
+    } finally {
+      setPdfState("done");
+      setTimeout(() => setPdfProgress(null), 1500);
     }
-    setPdfState("done");
   }
 
   const isCompliant = inspection.status === "COMPLIANT" || inspection.status === "EXEMPT";
@@ -232,21 +237,48 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
           <div className="flex items-center gap-2">
             {loading && (
               <span className="flex items-center gap-1 text-xs text-slate-500">
-                <Loader2 className="h-3 w-3 animate-spin" /> Loading data…
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading report data…
               </span>
             )}
             <Button variant="secondary" onClick={() => window.print()} className="border-border/70 text-slate-800">
-              <FileText className="h-4 w-4" /> Print / Save PDF
+              <FileText className="h-4 w-4" /> Print
             </Button>
-            <Button onClick={handleExportPdf} disabled={pdfState === "checking"} className="bg-brand hover:bg-brand/90 text-white shadow-md">
-              <Download className="h-4 w-4" />
-              {pdfState === "checking" ? "Generating…" : "Export Official PDF"}
+            <Button
+              onClick={handleExportPdf}
+              disabled={pdfState === "generating" || loading}
+              className="bg-brand hover:bg-brand/90 text-white shadow-md min-w-[180px] justify-center"
+            >
+              {pdfState === "generating" ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> {pdfProgress?.stage || "Generating…"}</>
+              ) : (
+                <><Download className="h-4 w-4" /> Export Official PDF</>
+              )}
             </Button>
           </div>
         </div>
 
+        {/* PDF progress overlay */}
+        {pdfState === "generating" && pdfProgress && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 print-hidden">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-4 w-80">
+              <Loader2 className="h-10 w-10 animate-spin text-brand" />
+              <div className="text-center">
+                <div className="font-bold text-slate-900 mb-1">Generating Official PDF</div>
+                <div className="text-sm text-slate-500">{pdfProgress.stage}</div>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2">
+                <div
+                  className="bg-brand h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${pdfProgress.pct}%` }}
+                />
+              </div>
+              <div className="text-xs text-slate-400">{pdfProgress.pct}% complete</div>
+            </div>
+          </div>
+        )}
+
         {/* ══ Report document shell ══ */}
-        <div className="report-shell bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden font-sans">
+        <div id="lexmetra-report-shell" className="report-shell bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden font-sans">
 
           {/* ═══════════════════════════════════════════════════════════════ */}
           {/* PAGE 1 — Header · Verdict · Metadata · All Declarations        */}
