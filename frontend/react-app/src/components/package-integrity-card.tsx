@@ -19,6 +19,7 @@ import {
   type FieldComparisonData,
   type ComparisonHistoryItem,
   type IntegrityReportData,
+  API_BASE,
 } from "@/lib/api-client";
 
 // ===========================================================================
@@ -69,7 +70,7 @@ function SideEvidencePanel({
   const resolvedSrc = rawSrc
     ? rawSrc.startsWith("http") || rawSrc.startsWith("data:") || rawSrc.startsWith("blob:")
       ? rawSrc
-      : `http://127.0.0.1:8000${rawSrc.startsWith("/") ? "" : "/"}${rawSrc}`
+      : `${API_BASE}${rawSrc.startsWith("/") ? "" : "/"}${rawSrc}`
     : undefined;
 
   useEffect(() => {
@@ -301,7 +302,6 @@ export function PackageIntegrityCard({
   const [history, setHistory] = useState<ComparisonHistoryItem[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [activeEvidence, setActiveEvidence] = useState<FieldComparisonData | null>(null);
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -887,82 +887,6 @@ export function PackageIntegrityCard({
         </div>
       </div>
 
-      {/* 5. Collapsed Technical Details & Multi-Face Alignment */}
-      <div className="rounded-xl border border-border/60 bg-muted/30 overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
-          className="w-full flex items-center justify-between p-3.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition text-left"
-        >
-          <span className="flex items-center gap-2">
-            <Layers className="h-4 w-4" />
-            Technical Evidence & Alignment Metrics
-          </span>
-          {showTechnicalDetails ? (
-            <ChevronUp className="h-4 w-4" />
-          ) : (
-            <ChevronDown className="h-4 w-4" />
-          )}
-        </button>
-
-        {showTechnicalDetails && (
-          <div className="p-4 pt-1 space-y-3 text-xs border-t border-border/40">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
-              <div>
-                <span className="font-semibold text-foreground">Pipeline: </span>
-                <span>{data.comparison_method?.replace(/_/g, " ")}</span>
-              </div>
-              <div>
-                <span className="font-semibold text-foreground">Fidelity Score: </span>
-                <span className="font-bold text-brand">{(data.confidence_score * 100).toFixed(0)}%</span>
-              </div>
-            </div>
-
-            {/* Reference Packaging Faces Gallery */}
-            {data.reference_image_urls && data.reference_image_urls.length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-border/40">
-                <p className="font-bold text-foreground">
-                  Reference Standard Faces ({data.reference_image_urls.length})
-                </p>
-                <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5">
-                  {data.reference_image_urls.map((url, idx) => {
-                    const match = data.face_matches?.find((m) => m.reference_face_index === idx + 1);
-                    const faceLabel = match?.reference_face_name || `Face ${idx + 1}`;
-                    return (
-                      <div
-                        key={idx}
-                        className="group relative flex flex-col items-center gap-1 rounded-xl border border-border/80 bg-background/80 p-2 shrink-0 w-28"
-                      >
-                        <div className="relative h-16 w-full overflow-hidden rounded-lg bg-slate-950 flex items-center justify-center">
-                          <img
-                            src={url}
-                            alt={faceLabel}
-                            className="h-full w-full object-contain"
-                          />
-                        </div>
-                        <span className="font-bold text-[10px] text-foreground text-center truncate w-full">
-                          {faceLabel}
-                        </span>
-                        {match && (
-                          <span
-                            className={`rounded-full px-1.5 py-0.5 text-[8px] font-bold border ${
-                              match.status === "ALIGNED"
-                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
-                                : "bg-amber-500/10 border-amber-500/30 text-amber-600"
-                            }`}
-                          >
-                            {(match.fidelity_score * 100).toFixed(0)}% Matched
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* 6. Evidence Drawer / Modal */}
       {activeEvidence && (

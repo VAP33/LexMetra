@@ -62,7 +62,8 @@ import {
 import { BeforeAfterSlider } from "./before-after-slider";
 import { type Language, getTranslation } from "@/lib/i18n";
 import { type Declaration, type Inspection, type SurfaceEvidence } from "@/lib/types";
-import { resolveImageUrl } from "@/lib/api-client";
+import { resolveImageUrl, getInspectionDetail, API_BASE } from "@/lib/api-client";
+import { fromInspectionRow } from "@/lib/adapters";
 import { type View, Button, StatusBadge } from "./ui-primitives";
 
 export function DynamicEvidenceCrop({
@@ -210,7 +211,7 @@ export function DynamicEvidenceCrop({
     img.onerror = () => {
       // Fallback without protocol/relative differences
       if (!resolvedSrc.startsWith("http") && typeof window !== "undefined") {
-        const fallbackUrl = `http://127.0.0.1:8000${resolvedSrc.startsWith("/") ? "" : "/"}${resolvedSrc}`;
+        const fallbackUrl = `${API_BASE}${resolvedSrc.startsWith("/") ? "" : "/"}${resolvedSrc}`;
         const retryImg = new Image();
         retryImg.onload = () => {
           setLoading(false);
@@ -311,10 +312,31 @@ export function DynamicEvidenceCrop({
 }
 
 export function EvidenceView({ inspection, onBack }: { inspection: Inspection; onBack: () => void }) {
+  const [currentInspection, setCurrentInspection] = useState<Inspection>(inspection);
+
+  // Ensure ALL persisted faces and evidence are loaded on the FIRST View Evidence click
+  useEffect(() => {
+    let cancelled = false;
+    if (inspection?.id && (!inspection.surfaces || inspection.surfaces.length <= 1)) {
+      getInspectionDetail(inspection.id)
+        .then((row) => {
+          if (!cancelled && row) {
+            setCurrentInspection(fromInspectionRow(row));
+          }
+        })
+        .catch((err) => console.warn("[EvidenceView] Failed to hydrate surfaces on first click:", err));
+    } else {
+      setCurrentInspection(inspection);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [inspection]);
+
   // Synthesize or use populated surfaces from inspection
   const surfaces: SurfaceEvidence[] = useMemo(() => {
-    if (inspection.surfaces && inspection.surfaces.length > 0) {
-      return inspection.surfaces;
+    if (currentInspection.surfaces && currentInspection.surfaces.length > 0) {
+      return currentInspection.surfaces;
     }
     return [
       {
@@ -322,9 +344,9 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
         surfaceType: "Face 1",
         faceLabel: "Face 1",
         priorityScore: 1.0,
-        imageUrl: inspection.image,
-        canonicalImageUrl: inspection.canonicalImage || inspection.image,
-        regions: inspection.evidence,
+        imageUrl: currentInspection.image,
+        canonicalImageUrl: currentInspection.canonicalImage || currentInspection.image,
+        regions: currentInspection.evidence,
         transformHistory: [
           "Original Sensor Capture (Raw)",
           "Package Boundary & Object Detection",
@@ -332,10 +354,10 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
           "Illumination Normalization",
           "Canonical Surface Normalization",
         ],
-        ocrConfidence: inspection.declarations[0]?.ocrConfidence ?? 90,
+        ocrConfidence: currentInspection.declarations[0]?.ocrConfidence ?? 90,
       },
     ];
-  }, [inspection]);
+  }, [currentInspection]);
 
   const [activeSurfaceType, setActiveSurfaceType] = useState<string>(
     surfaces[0]?.surfaceType || "Face 1"
@@ -350,29 +372,69 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
   // Active face for Before/After dual-slider comparison
   const [sliderFace, setSliderFace] = useState<SurfaceEvidence | null>(null);
 
-  // Selected declaration / region (Bidirectional navigation)
-  const [selectedLabel, setSelectedLabel] = useState<string>(
-    inspection.evidence[0]?.label || inspection.declarations[0]?.field || "MRP"
-  );
-
   const activeSurface = useMemo(() => {
     return surfaces.find((s) => s.surfaceType === activeSurfaceType) || surfaces[0];
   }, [surfaces, activeSurfaceType]);
 
+  // Strict face-specific declarations: only show declarations actually on the currently selected face
+  const faceDeclarations = useMemo(() => {
+    if (!activeSurface) return currentInspection.declarations;
+    const fl = (activeSurface.faceLabel || "").toLowerCase().trim();
+    const st = (activeSurface.surfaceType || "").toLowerCase().trim();
+    const sid = (activeSurface.surfaceId || "").toLowerCase().trim();
+
+    return currentInspection.declarations.filter((d) => {
+      // 1. Explicit provenance match
+      const provType = (d.provenance?.surfaceType || "").toLowerCase().trim();
+      const provSid = (d.provenance?.surfaceId || "").toLowerCase().trim();
+      if (provType && (provType === fl || provType === st || provType === sid || provType.replace("face_", "face ") === fl)) {
+        return true;
+      }
+      if (provSid && (provSid === sid || provSid === fl || provSid.replace("face_", "face ") === fl)) {
+        return true;
+      }
+
+      // 2. Matching region on the active surface
+      if (activeSurface.regions && activeSurface.regions.length > 0) {
+        const hasRegion = activeSurface.regions.some((r) => {
+          const rl = (r.label || "").toLowerCase().trim();
+          const df = (d.field || "").toLowerCase().trim();
+          const dcf = (d.canonicalField || "").toLowerCase().trim();
+          return rl === df || rl === dcf || df.includes(rl) || rl.includes(df);
+        });
+        if (hasRegion) return true;
+      }
+
+      return false;
+    });
+  }, [currentInspection.declarations, activeSurface]);
+
+  // Selected declaration / region (Bidirectional navigation)
+  const [selectedLabel, setSelectedLabel] = useState<string>(
+    faceDeclarations[0]?.field || currentInspection.evidence[0]?.label || currentInspection.declarations[0]?.field || "MRP"
+  );
+
   // Synchronize active declaration and region bidirectionally
   const activeDecl = useMemo(() => {
     return (
-      inspection.declarations.find(
+      faceDeclarations.find(
         (d) =>
           d.field.toLowerCase() === selectedLabel.toLowerCase() ||
           d.canonicalField?.toLowerCase() === selectedLabel.toLowerCase() ||
           selectedLabel.toLowerCase().includes(d.field.toLowerCase())
-      ) || inspection.declarations[0]
+      ) ||
+      currentInspection.declarations.find(
+        (d) =>
+          d.field.toLowerCase() === selectedLabel.toLowerCase() ||
+          d.canonicalField?.toLowerCase() === selectedLabel.toLowerCase()
+      ) ||
+      faceDeclarations[0] ||
+      currentInspection.declarations[0]
     );
-  }, [selectedLabel, inspection.declarations]);
+  }, [selectedLabel, faceDeclarations, currentInspection.declarations]);
 
   const activeRegion = useMemo(() => {
-    const pool = activeSurface?.regions?.length ? activeSurface.regions : inspection.evidence;
+    const pool = activeSurface?.regions?.length ? activeSurface.regions : currentInspection.evidence;
     return (
       pool.find(
         (r: any) =>
@@ -381,7 +443,7 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
       ) ||
       pool[0]
     );
-  }, [selectedLabel, activeSurface, inspection.evidence]);
+  }, [selectedLabel, activeSurface, currentInspection.evidence]);
 
   // Target bounding box for evidence crop (raw pixel space)
   const targetBbox = activeRegion?.bboxPx || activeDecl?.evidenceBboxPx;
@@ -400,11 +462,25 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
         setActiveSurfaceType(match.surfaceType);
       }
     }
-  }, [activeDecl, surfaces]);
+  }, [activeDecl, surfaces, activeSurfaceType]);
+
+  // When switching surfaces, auto-select the first declaration of that surface if current selectedLabel is not on it
+  useEffect(() => {
+    if (faceDeclarations.length > 0) {
+      const match = faceDeclarations.find(
+        (d) =>
+          d.field.toLowerCase() === selectedLabel.toLowerCase() ||
+          d.canonicalField?.toLowerCase() === selectedLabel.toLowerCase()
+      );
+      if (!match) {
+        setSelectedLabel(faceDeclarations[0].field);
+      }
+    }
+  }, [faceDeclarations, activeSurfaceType]);
 
   function handleSelectDeclaration(field: string, targetFace?: string) {
     setSelectedLabel(field);
-    const decl = inspection.declarations.find((d) => d.field.toLowerCase() === field.toLowerCase());
+    const decl = currentInspection.declarations.find((d) => d.field.toLowerCase() === field.toLowerCase());
     const surfaceType = targetFace || decl?.provenance?.surfaceType;
     if (surfaceType) {
       const match = surfaces.find(
@@ -420,10 +496,10 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
 
   // Package-level unobserved declarations (Zero false absence warning)
   const unobservedDeclarations = useMemo(() => {
-    return inspection.declarations.filter(
+    return currentInspection.declarations.filter(
       (d) => d.status === "MISSING" || d.status === "UNOBSERVED" || d.status === "REVIEW"
     );
-  }, [inspection.declarations]);
+  }, [currentInspection.declarations]);
 
   return (
     <>
@@ -830,25 +906,31 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
             {/* Quick Declaration Inspector Selector Chips */}
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[.15em] text-muted-foreground mb-2">
-                Quick Declaration Inspector
+                Quick Declaration Inspector ({activeSurface?.faceLabel || activeSurface?.surfaceType})
               </p>
               <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
-                {inspection.declarations.map((d) => {
-                  const isSelected = selectedLabel.toLowerCase() === d.field.toLowerCase();
-                  return (
-                    <button
-                      key={d.field}
-                      type="button"
-                      onClick={() => handleSelectDeclaration(d.field)}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${isSelected
-                          ? "bg-brand text-brand-foreground shadow-xs ring-1 ring-brand"
-                          : "border border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
-                        }`}
-                    >
-                      {d.field}
-                    </button>
-                  );
-                })}
+                {faceDeclarations.length > 0 ? (
+                  faceDeclarations.map((d) => {
+                    const isSelected = selectedLabel.toLowerCase() === d.field.toLowerCase();
+                    return (
+                      <button
+                        key={d.field}
+                        type="button"
+                        onClick={() => handleSelectDeclaration(d.field)}
+                        className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${isSelected
+                            ? "bg-brand text-brand-foreground shadow-xs ring-1 ring-brand"
+                            : "border border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          }`}
+                      >
+                        {d.field}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <span className="text-xs italic text-muted-foreground py-1">
+                    No statutory declarations detected on this surface
+                  </span>
+                )}
               </div>
             </div>
           </section>
