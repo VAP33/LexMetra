@@ -23,6 +23,8 @@ NEVER extrapolate or invent data.
 FIELDS TO EXTRACT:
 - product_name: Brand and generic product name
 - product_id: Explicit printed alphanumeric product ID / SKU (NOT the 12-14 digit barcode)
+- barcode: 12-14 digit numeric barcode / GTIN / EAN printed on the package (e.g. "8901071705479")
+- fssai_license_number: 14-digit FSSAI food business license or registration number (e.g. "10012026000226")
 - mrp: Maximum Retail Price (total package price in INR, e.g. "₹800.00" or "800.00")
 - unit_sale_price: Rate per unit (e.g. "₹26.67/ml")
 - net_quantity: Declared net weight / volume with unit (e.g. "150 g", "500 ml")
@@ -36,9 +38,11 @@ Return a valid JSON object matching EXACTLY this structure:
 {
   "product_name": "string or null",
   "product_id": "string or null",
+  "barcode": "string or null",
+  "fssai_license_number": "string or null",
   "declarations": [
     {
-      "field": "MRP | USP | NET_QUANTITY | MFD | EXPIRY | USE_BEFORE | BATCH | MANUFACTURER | CONSUMER_CARE",
+      "field": "MRP | USP | NET_QUANTITY | MFD | EXPIRY | USE_BEFORE | BATCH | MANUFACTURER | CONSUMER_CARE | FSSAI | BARCODE",
       "value": "string or null",
       "face": "Face 1 | Face 2 | Face 3",
       "evidence_text": "verbatim visible text (<50 chars)",
@@ -86,6 +90,25 @@ async def inspect_package_with_groq(
     - [GROQ] RESPONSE RECEIVED: Xs
     - [GROQ] RESULT RETURNED
     """
+    # Normalize images input to List[Tuple[str, np.ndarray]]
+    norm_images: List[Tuple[str, np.ndarray]] = []
+    for idx, item in enumerate(images or []):
+        if isinstance(item, tuple) and len(item) == 2:
+            lbl = str(item[0])
+            arr = item[1]
+            if isinstance(arr, np.ndarray):
+                norm_images.append((lbl, arr))
+            elif isinstance(arr, (str, bytes, os.PathLike)):
+                loaded = cv2.imread(str(arr))
+                if loaded is not None:
+                    norm_images.append((lbl, loaded))
+        elif isinstance(item, np.ndarray):
+            norm_images.append((f"Face {idx+1}", item))
+        elif isinstance(item, (str, bytes, os.PathLike)):
+            loaded = cv2.imread(str(item))
+            if loaded is not None:
+                norm_images.append((f"Face {idx+1}", loaded))
+    images = norm_images
     num_images = min(3, len(images))
 
     # -------------------------------------------------------------------------
@@ -244,6 +267,12 @@ def groq_result_to_classified_fields(groq_data: Dict[str, Any]) -> Dict[str, Dic
         "CONSUMER_CARE": "consumer_care",
         "PRODUCT_NAME": "common_name",
         "PRODUCT_ID": "product_id",
+        "FSSAI": "fssai_license_number",
+        "FSSAI_LICENSE": "fssai_license_number",
+        "FSSAI_NO": "fssai_license_number",
+        "BARCODE": "barcode",
+        "GTIN": "barcode",
+        "EAN": "barcode",
     }
 
     prod_name = groq_data.get("product_name")
@@ -264,6 +293,30 @@ def groq_result_to_classified_fields(groq_data: Dict[str, Any]) -> Dict[str, Dic
             "value": str(prod_id).strip(),
             "raw_text": str(prod_id).strip(),
             "confidence": 0.95,
+            "status": "DETECTED",
+            "face": "Face 1",
+        }
+
+    fssai_lic = groq_data.get("fssai_license_number")
+    if fssai_lic:
+        f_val = str(fssai_lic).strip()
+        classified["fssai_license_number"] = {
+            "field": "fssai_license_number",
+            "value": f_val,
+            "raw_text": f_val,
+            "confidence": 0.95,
+            "status": "DETECTED",
+            "face": "Face 1",
+        }
+
+    barcode_val = groq_data.get("barcode")
+    if barcode_val:
+        b_val = str(barcode_val).strip()
+        classified["barcode"] = {
+            "field": "barcode",
+            "value": b_val,
+            "raw_text": b_val,
+            "confidence": 0.98,
             "status": "DETECTED",
             "face": "Face 1",
         }

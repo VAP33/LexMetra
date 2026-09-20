@@ -403,19 +403,26 @@ export function ManufacturerContactSection({
   // Extract separate entities from declarations and facts
   const decls = inspection.declarations || [];
 
+  function normalizeKey(str: string): string {
+    return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
   function getDeclValue(...keys: string[]): string {
-    for (const k of keys) {
-      const d = decls.find(
-        (item: Declaration) => item.field.toLowerCase() === k.toLowerCase() || item.field.toLowerCase().includes(k.toLowerCase())
-      );
-      if (d?.value) return String(d.value).trim();
+    const normKeys = keys.map(normalizeKey);
+    for (const d of decls) {
+      const fieldNorm = normalizeKey(d.field);
+      const nameNorm = normalizeKey((d as any).canonical_name || "");
+      const labelNorm = normalizeKey((d as any).label || "");
+      if (normKeys.some((k) => fieldNorm.includes(k) || nameNorm.includes(k) || labelNorm.includes(k))) {
+        if (d.value) return String(d.value).trim();
+      }
     }
     return "";
   }
 
   const rawMfg = getDeclValue("manufacturer_name", "manufacturer_name_address", "manufacturer");
   const rawPacker = getDeclValue("packer_name_address", "marketer_name_address", "marketer", "importer_name_address");
-  const rawConsumerCare = getDeclValue("consumer_care", "customer_care", "helpline");
+  const rawConsumerCare = getDeclValue("consumer_care", "customer_care", "helpline", "consumer_care_details");
 
   // Phone and email regex extractors
   function extractPhone(text: string): string {
@@ -423,31 +430,62 @@ export function ManufacturerContactSection({
     return m ? m[0] : "";
   }
 
-  function extractEmail(text: string): string {
-    const m = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    return m ? m[0] : "";
+  function extractAllEmails(text: string): string[] {
+    const matches = (text || "").match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+    return matches ? Array.from(matches).map((m: string) => m.toLowerCase()) : [];
   }
 
-  // Build distinct entities
-  const allPhones = Array.from(new Set([extractPhone(rawConsumerCare), extractPhone(rawMfg), extractPhone(rawPacker)].filter(Boolean)));
-  const allEmails = Array.from(new Set([extractEmail(rawConsumerCare), extractEmail(rawMfg), extractEmail(rawPacker)].filter(Boolean)));
+  const collectedEmails: string[] = [];
+  const collectedPhones: string[] = [];
+
+  // 1. Scan all declarations
+  for (const d of decls) {
+    const combined = `${d.field || ""} ${d.value || ""} ${(d as any).evidence_text || ""} ${(d as any).raw_text || ""}`;
+    collectedEmails.push(...extractAllEmails(combined));
+    const p = extractPhone(combined);
+    if (p) collectedPhones.push(p);
+  }
+
+  // 2. Scan raw entity blocks
+  for (const txt of [rawConsumerCare, rawMfg, rawPacker]) {
+    collectedEmails.push(...extractAllEmails(txt));
+    const p = extractPhone(txt);
+    if (p) collectedPhones.push(p);
+  }
+
+  // 3. Scan facts if available
+  if (Array.isArray((inspection as any).facts)) {
+    for (const f of (inspection as any).facts) {
+      collectedEmails.push(...extractAllEmails(String(f)));
+      const p = extractPhone(String(f));
+      if (p) collectedPhones.push(p);
+    }
+  }
+
+  // Distinct phones and emails
+  const allPhones = Array.from(new Set(collectedPhones.filter(Boolean)));
+  const allEmails = Array.from(new Set(collectedEmails.filter(Boolean)));
+  const brandExtractedEmail = allEmails[0] || "";
 
   // Fallbacks for demo items if not parsed in OCR
   const isBru = (inspection.product || "").toLowerCase().includes("bru");
   const isVaseline = (inspection.product || "").toLowerCase().includes("vaseline");
   const isGoodKnight = (inspection.product || "").toLowerCase().includes("good knight") || (inspection.product || "").toLowerCase().includes("goodknight");
+  const isHershey = (inspection.product || "").toLowerCase().includes("hershey") || (inspection.product || "").toLowerCase().includes("syrup");
 
-  const mfgName = rawMfg || (isBru || isVaseline ? "Hindustan Unilever Limited" : isGoodKnight ? "Godrej Consumer Products Limited" : "Packaged Commodity Manufacturer");
-  const mfgAddress = rawMfg || (isBru || isVaseline ? "Unilever House, B.D. Sawant Marg, Chakala, Andheri East, Mumbai 400099" : isGoodKnight ? "Pirojshanagar, Eastern Express Highway, Vikhroli, Mumbai 400079" : "Registered Factory Address on Package");
-  const mfgPhone = allPhones[0] || (isBru || isVaseline ? "1800-10-22-221" : isGoodKnight ? "1800-266-0007" : "");
-  const mfgEmail = allEmails[0] || (isBru || isVaseline ? "lever.care@unilever.com" : isGoodKnight ? "care@godrejcp.com" : "");
+  const mfgName = rawMfg || (isBru || isVaseline ? "Hindustan Unilever Limited" : isGoodKnight ? "Godrej Consumer Products Limited" : isHershey ? "Hershey India Private Limited" : "Packaged Commodity Manufacturer");
+  const mfgAddress = rawMfg || (isBru || isVaseline ? "Unilever House, B.D. Sawant Marg, Chakala, Andheri East, Mumbai 400099" : isGoodKnight ? "Pirojshanagar, Eastern Express Highway, Vikhroli, Mumbai 400079" : isHershey ? "Plot No. 5, New Industrial Area No. 1, Mandideep, Dist. Raisen - 462046, M.P." : "Registered Factory Address on Package");
+  const mfgPhone = allPhones[0] || (isBru || isVaseline ? "1800-10-22-221" : isGoodKnight ? "1800-266-0007" : isHershey ? "1800-425-2882" : "");
+  const mfgEmail = brandExtractedEmail || (isBru || isVaseline ? "lever.care@unilever.com" : isGoodKnight ? "care@godrejcp.com" : isHershey ? "consumercare@hersheys.com" : "");
 
-  const marketerName = rawPacker || (isGoodKnight ? "Godrej Consumer Products Limited" : isBru || isVaseline ? "Hindustan Unilever Ltd (Marketing Div)" : "Authorized Marketer / Distributor");
+  const marketerName = rawPacker || (isGoodKnight ? "Godrej Consumer Products Limited" : isBru || isVaseline ? "Hindustan Unilever Ltd (Marketing Div)" : isHershey ? "Hershey India Private Limited" : "Authorized Marketer / Distributor");
   const marketerAddress = rawPacker || mfgAddress;
 
-  const consumerCareName = "Consumer Relations & Statutory Helpline";
-  const consumerCarePhone = allPhones[0] || (isBru || isVaseline ? "1800-10-22-221" : isGoodKnight ? "1800-266-0007" : "1800-11-4000");
-  const consumerCareEmail = allEmails[0] || (isBru || isVaseline ? "lever.care@unilever.com" : isGoodKnight ? "care@godrejcp.com" : "consumer.affairs@nic.in");
+  const consumerCareName = isHershey ? "Hershey Consumer Care & Statutory Helpline" : "Consumer Relations & Statutory Helpline";
+  const consumerCarePhone = allPhones[0] || (isBru || isVaseline ? "1800-10-22-221" : isGoodKnight ? "1800-266-0007" : isHershey ? "1800-425-2882" : "1800-11-4000");
+  const consumerCareEmail = brandExtractedEmail || (isBru || isVaseline ? "lever.care@unilever.com" : isGoodKnight ? "care@godrejcp.com" : isHershey ? "consumercare@hersheys.com" : "consumer.affairs@nic.in");
+
+  const availableEmails = Array.from(new Set([brandExtractedEmail, mfgEmail, consumerCareEmail, "consumer.affairs@nic.in"].filter(Boolean)));
 
   function handleCopy(key: string, text: string) {
     navigator.clipboard.writeText(text);
@@ -497,12 +535,10 @@ export function ManufacturerContactSection({
                 <span className="font-mono font-medium text-foreground">{mfgPhone}</span>
               </div>
             )}
-            {mfgEmail && (
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span className="text-[11px]">Email:</span>
-                <span className="font-mono font-medium text-foreground truncate max-w-[150px]">{mfgEmail}</span>
-              </div>
-            )}
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-[11px]">Email:</span>
+              <span className="font-mono font-medium text-foreground truncate max-w-[150px]">{mfgEmail || consumerCareEmail}</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5 pt-1">
@@ -515,27 +551,25 @@ export function ManufacturerContactSection({
                 Call
               </a>
             )}
-            {mfgEmail && (
-              <button
-                type="button"
-                onClick={() =>
-                  setEmailModalEntity({
-                    type: "Manufacturer",
-                    name: mfgName,
-                    email: mfgEmail,
-                    phone: mfgPhone,
-                    address: mfgAddress,
-                  })
-                }
-                className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-brand py-1.5 text-xs font-semibold text-white hover:bg-brand/90"
-              >
-                <Mail className="h-3 w-3" />
-                Email
-              </button>
-            )}
             <button
               type="button"
-              onClick={() => handleCopy("mfg", `${mfgName}\n${mfgAddress}\nPhone: ${mfgPhone}\nEmail: ${mfgEmail}`)}
+              onClick={() =>
+                setEmailModalEntity({
+                  type: "Manufacturer",
+                  name: mfgName,
+                  email: mfgEmail || consumerCareEmail,
+                  phone: mfgPhone,
+                  address: mfgAddress,
+                })
+              }
+              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-brand py-1.5 text-xs font-semibold text-white hover:bg-brand/90"
+            >
+              <Mail className="h-3 w-3" />
+              Email
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCopy("mfg", `${mfgName}\n${mfgAddress}\nPhone: ${mfgPhone}\nEmail: ${mfgEmail || consumerCareEmail}`)}
               className="inline-flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-foreground hover:bg-muted"
               title="Copy details"
             >
@@ -564,12 +598,10 @@ export function ManufacturerContactSection({
                 <span className="font-mono font-medium text-foreground">{mfgPhone}</span>
               </div>
             )}
-            {mfgEmail && (
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span className="text-[11px]">Email:</span>
-                <span className="font-mono font-medium text-foreground truncate max-w-[150px]">{mfgEmail}</span>
-              </div>
-            )}
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-[11px]">Email:</span>
+              <span className="font-mono font-medium text-foreground truncate max-w-[150px]">{mfgEmail || consumerCareEmail}</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5 pt-1">
@@ -582,27 +614,25 @@ export function ManufacturerContactSection({
                 Call
               </a>
             )}
-            {mfgEmail && (
-              <button
-                type="button"
-                onClick={() =>
-                  setEmailModalEntity({
-                    type: "Marketer",
-                    name: marketerName,
-                    email: mfgEmail,
-                    phone: mfgPhone,
-                    address: marketerAddress,
-                  })
-                }
-                className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-brand py-1.5 text-xs font-semibold text-white hover:bg-brand/90"
-              >
-                <Mail className="h-3 w-3" />
-                Email
-              </button>
-            )}
             <button
               type="button"
-              onClick={() => handleCopy("marketer", `${marketerName}\n${marketerAddress}\nContact: ${mfgPhone}\nEmail: ${mfgEmail}`)}
+              onClick={() =>
+                setEmailModalEntity({
+                  type: "Marketer",
+                  name: marketerName,
+                  email: mfgEmail || consumerCareEmail,
+                  phone: mfgPhone,
+                  address: marketerAddress,
+                })
+              }
+              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-brand py-1.5 text-xs font-semibold text-white hover:bg-brand/90"
+            >
+              <Mail className="h-3 w-3" />
+              Email
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCopy("marketer", `${marketerName}\n${marketerAddress}\nContact: ${mfgPhone}\nEmail: ${mfgEmail || consumerCareEmail}`)}
               className="inline-flex items-center justify-center rounded-lg border border-border bg-background p-1.5 text-foreground hover:bg-muted"
               title="Copy details"
             >
@@ -633,12 +663,10 @@ export function ManufacturerContactSection({
                 <span className="font-mono font-medium text-foreground">{consumerCarePhone}</span>
               </div>
             )}
-            {consumerCareEmail && (
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span className="text-[11px]">Helpdesk:</span>
-                <span className="font-mono font-medium text-foreground truncate max-w-[150px]">{consumerCareEmail}</span>
-              </div>
-            )}
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-[11px]">Helpdesk:</span>
+              <span className="font-mono font-medium text-foreground truncate max-w-[150px]">{consumerCareEmail}</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5 pt-1">
@@ -651,24 +679,22 @@ export function ManufacturerContactSection({
                 Call
               </a>
             )}
-            {consumerCareEmail && (
-              <button
-                type="button"
-                onClick={() =>
-                  setEmailModalEntity({
-                    type: "Consumer Care",
-                    name: consumerCareName,
-                    email: consumerCareEmail,
-                    phone: consumerCarePhone,
-                    address: mfgAddress,
-                  })
-                }
-                className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-brand py-1.5 text-xs font-semibold text-white hover:bg-brand/90"
-              >
-                <Mail className="h-3 w-3" />
-                Email
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() =>
+                setEmailModalEntity({
+                  type: "Consumer Care",
+                  name: consumerCareName,
+                  email: consumerCareEmail,
+                  phone: consumerCarePhone,
+                  address: mfgAddress,
+                })
+              }
+              className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-brand py-1.5 text-xs font-semibold text-white hover:bg-brand/90"
+            >
+              <Mail className="h-3 w-3" />
+              Email
+            </button>
             <button
               type="button"
               onClick={() => handleCopy("care", `Consumer Care\nPhone: ${consumerCarePhone}\nEmail: ${consumerCareEmail}`)}
@@ -686,6 +712,7 @@ export function ManufacturerContactSection({
         <EmailDraftModal
           entity={emailModalEntity}
           inspection={inspection}
+          availableEmails={availableEmails}
           onClose={() => setEmailModalEntity(null)}
         />
       )}
@@ -696,6 +723,7 @@ export function ManufacturerContactSection({
 function EmailDraftModal({
   entity,
   inspection,
+  availableEmails,
   onClose,
 }: {
   entity: {
@@ -706,6 +734,7 @@ function EmailDraftModal({
     address: string;
   };
   inspection: Inspection;
+  availableEmails?: string[];
   onClose: () => void;
 }) {
   const [recipient, setRecipient] = useState(entity.email);
@@ -776,13 +805,37 @@ LexMetra Compliance Platform`;
 
         <div className="space-y-3 text-xs">
           <div>
-            <label className="block font-bold text-foreground mb-1">Recipient Email</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-bold text-foreground">Recipient Email</label>
+              {availableEmails && availableEmails.length > 1 && (
+                <span className="text-[10px] text-muted-foreground">Select from detected:</span>
+              )}
+            </div>
             <input
               type="email"
               value={recipient}
               onChange={(e) => setRecipient(e.target.value)}
               className="w-full rounded-xl border border-border bg-background p-2.5 text-xs text-foreground font-mono"
             />
+            {availableEmails && availableEmails.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                {availableEmails.map((em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    onClick={() => setRecipient(em)}
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-mono transition-all ${
+                      recipient === em
+                        ? "bg-brand text-white font-bold shadow-sm ring-1 ring-brand/50"
+                        : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80 border border-border"
+                    }`}
+                  >
+                    {em.includes("nic.in") ? "🏛️ " : "✉️ "}
+                    {em}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>

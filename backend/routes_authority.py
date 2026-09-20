@@ -178,7 +178,6 @@ def get_regulatory_cross_verification(
     insp_data = detail.get("inspection") or detail
     cat = insp_data.get("commodity_category") or insp_data.get("product_category") or insp_data.get("category")
     p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or insp_data.get("product")
-    gtin = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("productId") or insp_data.get("product_id")
 
     raw_fields = {}
     for d in (insp_data.get("declarations") or []):
@@ -187,6 +186,14 @@ def get_regulatory_cross_verification(
     for f in (detail.get("facts") or []):
         if isinstance(f, dict) and f.get("field"):
             raw_fields[f.get("field")] = f.get("extracted_value")
+
+    gtin = (
+        raw_fields.get("barcode")
+        or raw_fields.get("gtin")
+        or (insp_data.get("product_identity") or {}).get("product_id")
+        or insp_data.get("productId")
+        or insp_data.get("product_id")
+    )
 
     all_lines = detail.get("ocr_lines") or []
     mfg_entry = raw_fields.get("manufacturer_name") or raw_fields.get("manufacturer_name_address")
@@ -215,7 +222,6 @@ def get_inspection_fssai(
     insp_data = detail.get("inspection") or detail
     cat = insp_data.get("commodity_category") or insp_data.get("product_category") or insp_data.get("category") or "food"
     p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or insp_data.get("product")
-    gtin = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("productId") or insp_data.get("product_id")
 
     raw_fields = {}
     for d in (insp_data.get("declarations") or []):
@@ -224,6 +230,14 @@ def get_inspection_fssai(
     for f in (detail.get("facts") or []):
         if isinstance(f, dict) and f.get("field"):
             raw_fields[f.get("field")] = f.get("extracted_value")
+
+    gtin = (
+        raw_fields.get("barcode")
+        or raw_fields.get("gtin")
+        or (insp_data.get("product_identity") or {}).get("product_id")
+        or insp_data.get("productId")
+        or insp_data.get("product_id")
+    )
 
     all_lines = detail.get("ocr_lines") or []
     mfg_entry = raw_fields.get("manufacturer_name") or raw_fields.get("manufacturer_name_address")

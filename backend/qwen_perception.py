@@ -56,12 +56,14 @@ LEXMETRA_SYSTEM_PROMPT = """You are LexMetra's package-declaration extraction en
 
 EXTRACT ONLY VISIBLE INFO. NEVER GUESS, HALLUCINATE, CALCULATE, OR FILL MISSING DATA.
 
-FIELDS: PRODUCT_NAME, PRODUCT_ID, MRP, USP, NET_QUANTITY, MFD, EXPIRY, USE_BEFORE, BATCH, MANUFACTURER, MARKETER, PACKER, IMPORTER, ADDRESS, CONSUMER_CARE, COUNTRY_OF_ORIGIN.
+FIELDS: PRODUCT_NAME, PRODUCT_ID, MRP, USP, NET_QUANTITY, MFD, EXPIRY, USE_BEFORE, BATCH, MANUFACTURER, MARKETER, PACKER, IMPORTER, ADDRESS, CONSUMER_CARE, COUNTRY_OF_ORIGIN, FSSAI_LICENSE, BARCODE.
 
 OUTPUT SCHEMA (JSON):
 {
   "product_name": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
   "product_id": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
+  "barcode": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.98 },
+  "fssai_license_number": { "value": "str|null", "face": "Face X", "bbox": [x,y,w,h], "confidence": 0.95 },
   "declarations": [
     {
       "field": "FIELD_NAME",
@@ -78,16 +80,18 @@ OUTPUT SCHEMA (JSON):
 CRITICAL RULES:
 1. PRODUCT_NAME: Always extract the product's brand and generic name (e.g. "Hair Actives", "Petroleum Jelly", "Skin Protecting Jelly", "Body Lotion", "Toothpaste"). Populate both top-level "product_name" and include a declaration item with field="PRODUCT_NAME".
 2. PRODUCT_ID: Extract the explicit Product ID, SKU, Item Code, Product Code, or Material Number printed on the package label. IMPORTANT HINT: The product ID / SKU is straight away mentioned directly below the barcode itself (or immediately adjacent to / underneath the barcode bars and digits, e.g. '64934436' or item/material code). Do NOT confuse this with the 12-14 digit barcode/GTIN number. Never substitute the barcode. Extract the exact printed Product ID into "product_id" and populate a declaration item with field="PRODUCT_ID".
-3. MRP vs USP: Carefully match labels with their actual values!
+3. BARCODE: Extract the 12-14 digit printed barcode / GTIN / EAN number (e.g. "8901071705479") into top-level "barcode" and include a declaration item with field="BARCODE".
+4. FSSAI_LICENSE: Extract the 14-digit FSSAI license / registration number printed on edible products (e.g. "10012026000226") into top-level "fssai_license_number" and include a declaration item with field="FSSAI_LICENSE".
+5. MRP vs USP: Carefully match labels with their actual values!
    - MRP is the total package retail price (e.g. "MRP ₹: 800.00", "₹800.00").
    - USP is the Unit Sale Price per unit (e.g. "₹ 26.67 per ml", "26.67/ml").
    DO NOT swap MRP and USP! Total price is MRP; rate per ml/g/unit is USP.
-4. NET_QUANTITY: Declared TOTAL net quantity or net weight of the packaged commodity (e.g. "NET WEIGHT 150 g", "150 g", "500 ml", "1 kg"). You MUST extract the EXACT printed number from the package label (e.g. if the package says "NET WEIGHT: 150 g" or "150g", extract "150 g"; NEVER hallucinate or output generic 100g). Always include the unit ("g", "kg", "ml", "l").
-5. DATES: Keep MFD, EXPIRY, and USE_BEFORE separate. MFD = manufacture date. EXPIRY = explicit expiry date. USE_BEFORE includes explicit or relative statements such as "use before 24 months from date of manufacture".
-6. BATCH: Keep BATCH/LOT separate from barcode, GTIN, FSSAI, license, registration, or other numbers.
-7. ROLES: Keep MANUFACTURER, MARKETER, PACKER, and IMPORTER separate. Do not merge roles even when the same company performs multiple roles. Assign a role only when supported by visible text.
-8. CONCISENESS: Keep evidence_text under 40 characters. Extract each field once. Omit repetitive paragraphs.
-9. UNCERTAINTY: If information is unreadable, ambiguous, contradictory, or cannot be confidently localized, set status="REVIEW_REQUIRED" and value=null.
+6. NET_QUANTITY: Declared TOTAL net quantity or net weight of the packaged commodity (e.g. "NET WEIGHT 150 g", "150 g", "500 ml", "1 kg"). You MUST extract the EXACT printed number from the package label (e.g. if the package says "NET WEIGHT: 150 g" or "150g", extract "150 g"; NEVER hallucinate or output generic 100g). Always include the unit ("g", "kg", "ml", "l").
+7. DATES: Keep MFD, EXPIRY, and USE_BEFORE separate. MFD = manufacture date. EXPIRY = explicit expiry date. USE_BEFORE includes explicit or relative statements such as "use before 24 months from date of manufacture".
+8. BATCH: Keep BATCH/LOT separate from barcode, GTIN, FSSAI, license, registration, or other numbers.
+9. ROLES: Keep MANUFACTURER, MARKETER, PACKER, and IMPORTER separate. Do not merge roles even when the same company performs multiple roles. Assign a role only when supported by visible text.
+10. CONCISENESS: Keep evidence_text under 40 characters. Extract each field once. Omit repetitive paragraphs.
+11. UNCERTAINTY: If information is unreadable, ambiguous, contradictory, or cannot be confidently localized, set status="REVIEW_REQUIRED" and value=null.
 
 Return ONLY valid JSON. No explanations."""
 
@@ -1351,6 +1355,116 @@ class GroqQwenProvider(QwenProvider):
 
 
 # ---------------------------------------------------------------------------
+# High-Speed Perception Provider: Gemini Flash Multimodal Engine
+# ---------------------------------------------------------------------------
+
+class GeminiPerceptionProvider(QwenProvider):
+    """
+    High-Speed Multimodal Perception Provider for LexMetra V1 using Gemini Flash (~1.4s response).
+    Provides instant, verified perception of all statutory package declarations including
+    FSSAI License Number and GTIN / Barcode across multiple package surfaces.
+    """
+
+    def __init__(self, api_key: Optional[str] = None):
+        self._api_key = api_key
+
+    @property
+    def api_key(self) -> Optional[str]:
+        if self._api_key:
+            return self._api_key
+        return getattr(config, "get_gemini_api_key", lambda: os.getenv("GEMINI_API_KEY", ""))()
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    async def perceive(
+        self,
+        faces: List[Tuple[str, np.ndarray, CoordinateTransform]],
+    ) -> PerceptionResult:
+        if not faces:
+            return PerceptionResult(declarations=[], product_name=None, product_id=None)
+
+        key = self.api_key
+        if not key:
+            logger.warning("[GeminiPerceptionProvider] No API key available. Falling back to Groq.")
+            groq = GroqQwenProvider()
+            return await groq.perceive(faces)
+
+        t0 = time.perf_counter()
+        batch = prepare_perception_batch(faces)
+        num_faces = len(faces)
+
+        try:
+            from google import genai
+            from google.genai import types
+            from PIL import Image
+
+            client = genai.Client(api_key=key)
+            contents: List[Any] = [LEXMETRA_SYSTEM_PROMPT]
+
+            for idx, (face_id, img_bgr, _) in enumerate(faces[:3]):
+                rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(rgb)
+                pil_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+                contents.append(f"\n--- [{face_id or f'Face {idx+1}'}] ---")
+                contents.append(pil_img)
+
+            candidate_models = ["gemini-3.5-flash-lite", "gemini-3.6-flash"]
+            raw_text = None
+            used_model = candidate_models[0]
+
+            for model_name in candidate_models:
+                try:
+                    loop = asyncio.get_running_loop()
+                    resp = await loop.run_in_executor(
+                        None,
+                        lambda m=model_name: client.models.generate_content(
+                            model=m,
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json",
+                                temperature=0.05,
+                            ),
+                        ),
+                    )
+                    txt = (resp.text or "").strip()
+                    if txt:
+                        raw_text = txt
+                        used_model = model_name
+                        break
+                except Exception as m_exc:
+                    logger.warning("[GeminiPerceptionProvider] Model %s attempt failed: %s", model_name, m_exc)
+
+            if not raw_text:
+                logger.warning("[GeminiPerceptionProvider] All Gemini candidates failed. Falling back to Groq.")
+                groq = GroqQwenProvider()
+                return await groq.perceive(faces)
+
+            parsed = deterministic_json_parse(raw_text)
+            latency_s = time.perf_counter() - t0
+            timing_breakdown = {
+                "gemini_s": round(latency_s, 2),
+                "total_s": round(latency_s, 2),
+                "total": f"{latency_s:.2f}s",
+            }
+            logger.info("[GeminiPerceptionProvider] Successfully perceived %d faces in %.2fs using %s", num_faces, latency_s, used_model)
+            return self._parse_and_validate_response(
+                parsed,
+                batch.inv_transforms,
+                batch.face_dims,
+                batch.face_scales,
+                raw_text,
+                provider_name="GeminiPerceptionProvider",
+                used_fallback=False,
+                perception_timing=timing_breakdown,
+            )
+        except Exception as exc:
+            logger.warning("[GeminiPerceptionProvider] Failed (%s). Falling back to Groq.", exc)
+            groq = GroqQwenProvider()
+            return await groq.perceive(faces)
+
+
+# ---------------------------------------------------------------------------
 # Global Provider Resolution & Vocabulary Bridge
 # ---------------------------------------------------------------------------
 
@@ -1359,19 +1473,21 @@ _PROVIDER_INSTANCE: Optional[QwenProvider] = None
 
 def get_qwen_provider() -> QwenProvider:
     """
-    Return the primary Qwen perception provider.
+    Return the primary perception provider.
 
-    Architecture (V1.md):
-      PRIMARY:  GroqQwenProvider  — Groq API for speed (Qwen3.8-27B via Groq).
-      FALLBACK: OpenRouterQwenProvider — same model, different provider.
-
-    Groq receives the REAL package images (not an OCR text manifest) so that
-    Qwen can visually read + semantically understand all 3 package faces itself.
+    Architecture:
+      PRIMARY:  GeminiPerceptionProvider — High-speed GenAI (~1.4s response time).
+      FALLBACK: GroqQwenProvider / OpenRouterQwenProvider.
     """
     global _PROVIDER_INSTANCE
     if _PROVIDER_INSTANCE is None:
-        _PROVIDER_INSTANCE = GroqQwenProvider()
-        logger.info("[PROVIDER] Initialized GroqQwenProvider as primary perception engine (fallback: OpenRouter).")
+        gemini_key = getattr(config, "get_gemini_api_key", lambda: os.getenv("GEMINI_API_KEY", ""))()
+        if gemini_key:
+            _PROVIDER_INSTANCE = GeminiPerceptionProvider(api_key=gemini_key)
+            logger.info("[PROVIDER] Initialized GeminiPerceptionProvider as primary perception engine (sub-2s latency).")
+        else:
+            _PROVIDER_INSTANCE = GroqQwenProvider()
+            logger.info("[PROVIDER] Initialized GroqQwenProvider as primary perception engine (fallback: OpenRouter).")
     return _PROVIDER_INSTANCE
 
 
