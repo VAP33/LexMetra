@@ -286,4 +286,21 @@
     font-size: clamp(0.875rem, 1vw + 0.5rem, 1rem);
     line-height: 1.6;
   }
+
+  /* Mobile & Desktop responsive helpers */
+  .table-responsive-container {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .modal-responsive {
+    max-width: min(95vw, 680px);
+    max-height: 90vh;
+    overflow-y: auto;
+  }
 }
+

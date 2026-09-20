@@ -48,6 +48,7 @@ tmp/
 outputs/
 results/
 backend/data/evidence_extraction_cache.pkl
+backend/data/integrity_records/
 backend/test_crops/
 
 # Runtime-generated similarity index (rebuilt from scan history)
@@ -99,6 +100,10 @@ backend/db/data_local/
 # Frontend build output and dependencies
 frontend/react-app/dist/
 frontend/react-app/node_modules/
+frontend/react-app/test-results/
+frontend/react-app/playwright-report/
+test-results/
+playwright-report/
 
 # Embedded git repos / nested workspaces
 DEPENDENCIES/OCR Updated Integrated Module/
