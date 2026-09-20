@@ -354,12 +354,12 @@ def _get_decl_face(d: Any) -> str:
     return str(face or "Face 1")
 
 
-def _face_matches(decl_face: str, surface_type: str, surface_id: str, total_surfaces: int) -> bool:
+def _face_matches(decl_face: str, surface_type: str, surface_id: Any, total_surfaces: int) -> bool:
     if total_surfaces <= 1:
         return True
-    df = decl_face.lower().replace(" ", "").replace("_", "")
-    st = surface_type.lower().replace(" ", "").replace("_", "")
-    si = surface_id.lower().replace(" ", "").replace("_", "")
+    df = str(decl_face or "").lower().replace(" ", "").replace("_", "")
+    st = str(surface_type or "").lower().replace(" ", "").replace("_", "")
+    si = str(surface_id or "").lower().replace(" ", "").replace("_", "")
     if df in (st, si) or st in df or si in df:
         return True
     if ("face1" in df or "front" in df) and ("face1" in st or "face1" in si or "front" in st):
@@ -369,6 +369,7 @@ def _face_matches(decl_face: str, surface_type: str, surface_id: str, total_surf
     if ("face3" in df or "side" in df) and ("face3" in st or "face3" in si or "side" in st):
         return True
     return False
+
 
 
 def _clean_pdf_text(text: Any) -> str:
@@ -438,8 +439,8 @@ def _resolve_canonical_image(s: Any) -> Optional[Path]:
 
 def _crop_from_base64(
     crop_b64: str,
-    target_width_mm: float = 48 * mm,
-    target_height_mm: float = 16 * mm,
+    target_width_mm: float = 80 * mm,
+    target_height_mm: float = 34 * mm,
 ) -> Optional[ReportLabImage]:
     """Render pre-computed base64 evidence crop to ReportLabImage preserving aspect ratio."""
     try:
@@ -449,7 +450,7 @@ def _crop_from_base64(
         im = PILImage.open(io.BytesIO(raw)).convert("RGB")
         cw, ch = im.size
         buf = io.BytesIO()
-        im.save(buf, format="JPEG", quality=85)
+        im.save(buf, format="JPEG", quality=90)
         buf.seek(0)
         aspect = float(cw) / float(ch)
         cell_aspect = target_width_mm / target_height_mm
@@ -464,13 +465,14 @@ def _crop_from_base64(
         return None
 
 
+
 def _create_annotated_crop(
     image_path: Path,
     bbox: List[float],
     label: str,
     value: str,
-    target_width_mm: float = 48 * mm,
-    target_height_mm: float = 16 * mm,
+    target_width_mm: float = 80 * mm,
+    target_height_mm: float = 34 * mm,
     box_color: str = "#10b981",
 ) -> Optional[ReportLabImage]:
     """
@@ -495,9 +497,9 @@ def _create_annotated_crop(
             bw = bw - bx
             bh = bh - by
 
-        # Padding identical to frontend: max(dim * 0.35, 20-30px)
-        pad_x = max(bw * 0.35, 30.0)
-        pad_y = max(bh * 0.35, 20.0)
+        # Padding matching the frontend: max(dim * 0.4, 30-40px) for generous context
+        pad_x = max(bw * 0.45, 40.0)
+        pad_y = max(bh * 0.45, 30.0)
 
         crop_x1 = max(0, int(bx - pad_x))
         crop_y1 = max(0, int(by - pad_y))
@@ -518,11 +520,11 @@ def _create_annotated_crop(
             min(cw - 2, int(bx + bw - crop_x1)),
             min(ch - 2, int(by + bh - crop_y1)),
         ]
-        line_w = max(2, int(min(cw, ch) / 35))
+        line_w = max(2, int(min(cw, ch) / 40))
         draw.rectangle(box_in_crop, outline=box_color, width=line_w)
 
         buf = io.BytesIO()
-        crop.save(buf, format="JPEG", quality=85)
+        crop.save(buf, format="JPEG", quality=90)
         buf.seek(0)
 
         # Maintain aspect ratio within cell
@@ -538,6 +540,7 @@ def _create_annotated_crop(
         return ReportLabImage(buf, width=w, height=h)
     except Exception:
         return None
+
 
 
 def _create_annotated_full_image(
@@ -1088,6 +1091,10 @@ def build_inspection_report_pdf(
 
         crop_box_col = "#10b981" if d_st in ("VERIFIED", "PASS") else "#f59e0b"
 
+        # Target crop dimensions — match the UI screenshot proportions
+        CROP_W = 80 * mm
+        CROP_H = 34 * mm
+
         crop_img = None
         # 1. First check if declaration has direct evidence_crop_base64
         c_b64 = _get(matched_decl, "evidence_crop_base64") or _get(matched_decl, "crop_base64")
@@ -1108,7 +1115,7 @@ def build_inspection_report_pdf(
 
         if c_b64:
             try:
-                crop_img = _crop_from_base64(c_b64, target_width_mm=44 * mm, target_height_mm=17 * mm)
+                crop_img = _crop_from_base64(c_b64, target_width_mm=CROP_W, target_height_mm=CROP_H)
             except Exception:
                 crop_img = None
 
@@ -1118,35 +1125,77 @@ def build_inspection_report_pdf(
                 bbox=raw_bbox,
                 label=f_title,
                 value=d_val,
-                target_width_mm=44 * mm,
-                target_height_mm=17 * mm,
+                target_width_mm=CROP_W,
+                target_height_mm=CROP_H,
                 box_color=crop_box_col,
             )
 
-        crop_content = crop_img if crop_img else Paragraph("<b>No Localized Crop</b><br/><font size=6 color='#64748b'>Physical verification</font>", small)
+        st_color = "#16a34a" if d_st in ("VERIFIED", "PASS") else "#d97706"
+        status_badge = f"<font color='{st_color}'><b>{d_st.replace('_', ' ')}</b></font>"
 
-        status_badge = f"<font color='{'#16a34a' if d_st in ('VERIFIED', 'PASS') else '#d97706'}'><b>{d_st.replace('_', ' ')}</b></font>"
-
-        cell_table = Table([
-            [Paragraph(f"<b>{f_title}</b>", header_small), Paragraph(status_badge, ParagraphStyle("RAlign", parent=small, alignment=2))],
-            [Paragraph(f"<b>Observed:</b> {d_val}", small), Paragraph(f"<b>Panel:</b> {d_face}", small)],
-            [crop_content, ""],
-        ], colWidths=[48 * mm, 40 * mm])
-        cell_table.setStyle(TableStyle([
-            ("SPAN", (0, 2), (1, 2)),
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
-            ("BOX", (0, 0), (-1, -1), 0.35, colors.HexColor("#cbd5e1")),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ("LEFTPADDING", (0, 0), (-1, -1), 3),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        # Build label row  (title left, status right)
+        header_row = Table(
+            [[Paragraph(f"<b>{f_title}</b>", header_small),
+              Paragraph(status_badge, ParagraphStyle("RAlign", parent=small, alignment=2))]],
+            colWidths=[54 * mm, 30 * mm],
+        )
+        header_row.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+
+        # Meta row (observed value left, panel right)
+        meta_row = Table(
+            [[Paragraph(f"<b>Observed:</b> {d_val}", small),
+              Paragraph(f"<b>Panel:</b> {d_face}", small)]],
+            colWidths=[54 * mm, 30 * mm],
+        )
+        meta_row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+
+        # Crop placeholder if no image
+        if crop_img:
+            crop_content = Table(
+                [[crop_img]],
+                colWidths=[CROP_W],
+            )
+            crop_content.setStyle(TableStyle([
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+        else:
+            crop_content = Paragraph(
+                "<b>No Localized Crop Available</b><br/>"
+                "<font size=6.5 color='#64748b'>Physical verification required for this field</font>",
+                small,
+            )
+
+        # Outer card — vertically stacked: header | meta | crop
+        cell_table = Table(
+            [[header_row], [meta_row], [crop_content]],
+            colWidths=[86 * mm],
+        )
+        cell_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+            ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#cbd5e1")),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            # Bottom border under status row
+            ("LINEBELOW", (0, 1), (-1, 1), 0.3, colors.HexColor("#e2e8f0")),
         ]))
         crop_cells.append(cell_table)
 
-    # 2-column evidence grid (6 items fit comfortably with 3-face gallery below)
+    # 2-column evidence grid (each column = 90mm, gutter 2mm)
     evidence_grid_rows = []
-    for i in range(0, min(6, len(crop_cells)), 2):
+    for i in range(0, len(crop_cells), 2):
         row = [crop_cells[i]]
         if i + 1 < len(crop_cells):
             row.append(crop_cells[i + 1])
@@ -1158,12 +1207,13 @@ def build_inspection_report_pdf(
         evidence_grid = Table(evidence_grid_rows, colWidths=[90 * mm, 90 * mm])
         evidence_grid.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
             ("LEFTPADDING", (0, 0), (-1, -1), 1),
             ("RIGHTPADDING", (0, 0), (-1, -1), 1),
         ]))
         story.append(evidence_grid)
+
 
     story.append(Spacer(1, 4))
 
