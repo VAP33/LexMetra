@@ -351,6 +351,15 @@ def parse_batch_code(text: str, label_prefix: Optional[str] = None) -> Optional[
     if re.sub(r"[^\w]+", "", code_text).lower() in reserved_keywords:
         return None
 
+    # Do not treat telephone numbers / customer care / contact numbers as batch codes
+    digits_clean = re.sub(r"\D", "", code_text)
+    if (
+        re.search(r"\b(?:tel|phone|ph|call|toll|free|care|contact|whatsapp|helpline|query)\b", text, re.I)
+        or code_text.startswith(("+91", "91 ", "91-", "1800", "1860"))
+        or (len(digits_clean) in (10, 11, 12) and (digits_clean.startswith(("91", "1800", "1860", "080", "022", "011", "044", "033", "040", "020")) or " " in code_text.strip()))
+    ):
+        return None
+
     raw_reading = code_text
     reasons = []
     norm = code_text
@@ -614,10 +623,31 @@ class RoleAddressBlock:
     all_lines_text: List[str] = field(default_factory=list)
     confidence: float = 0.85
 
+    @property
+    def full_declaration(self) -> str:
+        """Complete manufacturer / packer / marketer declaration including full address, state, and PIN."""
+        parts = []
+        if self.company_name:
+            parts.append(self.company_name)
+        for line in self.address_lines:
+            if line and line not in parts:
+                parts.append(line)
+        if self.state and not any(self.state.lower() in p.lower() for p in parts):
+            parts.append(self.state)
+        if self.pin_code and not any(self.pin_code in p for p in parts):
+            parts.append(f"PIN: {self.pin_code}")
+        return ", ".join(parts) if parts else (self.company_name or "")
+
 
 _PIN_RE = re.compile(r"\b(?:pin(?:\s*code)?\s*[:\-–=]*\s*)?([1-9][0-9]{5})\b", re.I)
 _LEGAL_ENTITY_INDICATORS = re.compile(
     r"\b(?:pvt\.?\s*ltd\.?|private\s+limited|ltd\.?|limited|inc\.?|llp|corp\.?|industries|laboratories|pharmaceuticals|wellness|products)\b",
+    re.I,
+)
+
+
+_INDIAN_STATES_RE = re.compile(
+    r"\b(?:Maharashtra|Tamil\s*Nadu|Karnataka|Gujarat|Delhi|Uttar\s*Pradesh|Haryana|Punjab|West\s*Bengal|Telangana|Andhra\s*Pradesh|Kerala|Rajasthan|Madhya\s*Pradesh|Bihar|Odisha|Assam|Goa|Uttarakhand|Himachal\s*Pradesh|Jharkhand|Chhattisgarh)\b",
     re.I,
 )
 
@@ -630,13 +660,8 @@ def parse_role_company_block(
     """
     Parse a company role declaration block without premature inline truncation.
 
-    Handles cases like Traya:
-    Line 0: "MANUFACTURED BY: a |"  (fragment)
-    Line 1: "Traya Health Private Limited" (actual company name)
-    Line 2: "Plot No. 42, Industrial Estate"
-    Line 3: "Mumbai, Maharashtra - 400001"
-
-    Aggregates full company name, address lines, and PIN code.
+    Aggregates full company name, address lines, state, and PIN code.
+    Cleanly separates adjacent roles (e.g. MKTD. BY and MFG. BY).
     """
     block = RoleAddressBlock(
         role=role.upper(),
@@ -655,6 +680,14 @@ def parse_role_company_block(
     if m_role:
         inline_rem = lbl_cleaned[m_role.end():].strip(" :–-=|")
 
+    # If inline remainder contains another role, split it
+    if role.upper() == "MARKETER" and re.search(r"\b(?:mfg|mfd|manufactured)\.?\s*by\b", inline_rem, re.I):
+        m_other = re.search(r"\b(?:mfg|mfd|manufactured)\.?\s*by\b", inline_rem, re.I)
+        inline_rem = inline_rem[:m_other.start()].strip(" :–-=|;,.")
+    elif role.upper() in ("MANUFACTURER", "PACKER") and re.search(r"\b(?:mktd|marketed)\.?\s*by\b", inline_rem, re.I):
+        m_other = re.search(r"\b(?:mktd|marketed)\.?\s*by\b", inline_rem, re.I)
+        inline_rem = inline_rem[:m_other.start()].strip(" :–-=|;,.")
+
     all_candidate_lines = []
     if inline_rem and len(inline_rem) > 1 and not re.match(r"^[a-zA-Z]\s*\|?$", inline_rem):
         all_candidate_lines.append(inline_rem)
@@ -666,9 +699,24 @@ def parse_role_company_block(
         # Stop if we hit an unrelated major declaration label
         if re.search(r"\b(?:m\.?r\.?p\.?|net\s*qty|mfg\.?\s*date|batch|exp\.?\s*date|best\s*before)\b", line_clean, re.I):
             break
+        # If we are parsing MARKETER and hit MFG. BY, take any preceding text and stop
+        if role.upper() == "MARKETER" and re.search(r"\b(?:mfg|mfd|manufactured)\.?\s*by\b", line_clean, re.I):
+            m_mfg = re.search(r"\b(?:mfg|mfd|manufactured)\.?\s*by\b", line_clean, re.I)
+            before_mfg = line_clean[:m_mfg.start()].strip(" |;,.")
+            if before_mfg and len(before_mfg) > 2:
+                all_candidate_lines.append(before_mfg)
+            break
+        # Similarly, if parsing MANUFACTURER and hit MKTD. BY, take preceding text and stop
+        if role.upper() in ("MANUFACTURER", "PACKER") and re.search(r"\b(?:mktd|marketed)\.?\s*by\b", line_clean, re.I):
+            m_mkt = re.search(r"\b(?:mktd|marketed)\.?\s*by\b", line_clean, re.I)
+            before_mkt = line_clean[:m_mkt.start()].strip(" |;,.")
+            if before_mkt and len(before_mkt) > 2:
+                all_candidate_lines.append(before_mkt)
+            break
+
         all_candidate_lines.append(line_clean)
-        # Limit to 5 address lines max
-        if len(all_candidate_lines) >= 6:
+        # Allow up to 10 address lines to prevent truncation of full multi-line factory addresses
+        if len(all_candidate_lines) >= 10:
             break
 
     block.all_lines_text = all_candidate_lines
@@ -696,6 +744,9 @@ def parse_role_company_block(
         m_pin = _PIN_RE.search(line)
         if m_pin and not block.pin_code:
             block.pin_code = m_pin.group(1)
+        m_st = _INDIAN_STATES_RE.search(line)
+        if m_st and not block.state:
+            block.state = m_st.group(0).strip()
 
     if comp_name and _LEGAL_ENTITY_INDICATORS.search(comp_name):
         block.confidence = 0.95

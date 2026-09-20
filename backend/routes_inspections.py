@@ -333,6 +333,17 @@ def get_inspection_report(
     if not detail:
         raise HTTPException(status_code=404, detail="Inspection not found.")
 
+    # Load persisted Package Integrity and Departmental Regulatory Cross-Verification
+    if "package_integrity" not in detail or not detail["package_integrity"]:
+        persisted_pi = db.get_latest_package_integrity_comparison(inspection_id)
+        if persisted_pi:
+            detail["package_integrity"] = persisted_pi
+
+    if "departmental_dossier" not in detail or not detail["departmental_dossier"]:
+        persisted_dos = db.get_departmental_dossier(inspection_id)
+        if persisted_dos:
+            detail["departmental_dossier"] = persisted_dos
+
     pdf_bytes = build_inspection_report_pdf(detail)
     db.record_audit_event(
         action="report_generated",

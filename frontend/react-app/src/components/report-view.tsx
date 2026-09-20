@@ -128,6 +128,95 @@ function TableHeader({ cols }: { cols: string[] }) {
   );
 }
 
+function ReportEvidenceCrop({
+  imageSrc,
+  bbox,
+  polygon,
+  label,
+}: {
+  imageSrc?: string;
+  bbox?: { x: number; y: number; width: number; height: number };
+  polygon?: [number, number][];
+  label: string;
+}) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [rendered, setRendered] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!imageSrc || !bbox || bbox.width <= 0 || bbox.height <= 0) return;
+    let active = true;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (!active) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      const padX = Math.max(bbox.width * 0.35, 20);
+      const padY = Math.max(bbox.height * 0.35, 15);
+      const cropX = Math.max(0, bbox.x - padX);
+      const cropY = Math.max(0, bbox.y - padY);
+      const cropW = Math.max(1, Math.min(nw, bbox.x + bbox.width + padX) - cropX);
+      const cropH = Math.max(1, Math.min(nh, bbox.y + bbox.height + padY) - cropY);
+
+      canvas.width = 160;
+      canvas.height = 70;
+
+      ctx.fillStyle = "#090d16";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const scale = Math.min(canvas.width / cropW, canvas.height / cropH);
+      const rw = cropW * scale;
+      const rh = cropH * scale;
+      const ox = (canvas.width - rw) / 2;
+      const oy = (canvas.height - rh) / 2;
+
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, ox, oy, rw, rh);
+
+      // Draw bounding box
+      const boxCanvasX = ox + (bbox.x - cropX) * scale;
+      const boxCanvasY = oy + (bbox.y - cropY) * scale;
+      const boxCanvasW = bbox.width * scale;
+      const boxCanvasH = bbox.height * scale;
+
+      ctx.fillStyle = "rgba(16, 185, 129, 0.20)";
+      ctx.fillRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+
+      setRendered(true);
+    };
+    img.onerror = () => {
+      if (!active) return;
+      setRendered(false);
+    };
+    img.src = imageSrc;
+    return () => { active = false; };
+  }, [imageSrc, bbox, polygon]);
+
+  if (!imageSrc || !bbox || bbox.width <= 0) {
+    return (
+      <div className="h-[60px] w-[130px] rounded border border-dashed border-slate-300 bg-slate-100 flex items-center justify-center text-[9px] text-slate-400 italic">
+        No BBox
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative inline-block overflow-hidden rounded border border-slate-300 bg-slate-950 shadow-xs">
+      <canvas ref={canvasRef} className="block h-[56px] w-[130px] object-cover" />
+      <span className="absolute bottom-0 left-0 right-0 bg-slate-900/80 px-1 py-0.2 text-center text-[8px] font-mono text-emerald-400 truncate">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,11 +296,22 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
   const emailMatch = consumerCareText.match(/[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}/g);
   const phoneMatch = consumerCareText.match(/(\+?[\d][\d\s\-()]{6,})/g);
 
-  const surfaces = (inspection.surfaces && inspection.surfaces.length > 0)
-    ? inspection.surfaces.slice(0, 4)
-    : inspection.image
-      ? [{ surfaceId: "s1", imageUrl: inspection.image, faceLabel: "Surface 1", priorityScore: 100, regions: [] as any[], surfaceType: "Front" }]
-      : [];
+  const surfaces = React.useMemo(() => {
+    if (inspection.surfaces && inspection.surfaces.length > 0) {
+      return inspection.surfaces.slice(0, 3);
+    }
+    return [
+      {
+        surfaceId: "face_1",
+        surfaceType: "Face 1",
+        faceLabel: "Face 1",
+        priorityScore: 1.0,
+        imageUrl: inspection.image,
+        canonicalImageUrl: inspection.canonicalImage || inspection.image,
+        regions: inspection.evidence || [],
+      },
+    ];
+  }, [inspection]);
 
   const intFields = integrityData?.field_comparisons || [];
   const deptDepts = dossier?.departments || [];
@@ -361,20 +461,45 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
               <SectionTitle n={1} title="Extracted Legal Metrology Declarations (Fused Across All Package Surfaces)" />
               <div className="rounded-xl border border-slate-200 overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
-                  <TableHeader cols={["Statutory Field", "Extracted Value", "Conf.", "Rule Ref.", "Status", "Notes / Reason"]} />
+                  <TableHeader cols={["Statutory Field", "Extracted Value", "Evidence / Localized Section", "Rule Ref.", "Status", "Notes / Reason"]} />
                   <tbody className="divide-y divide-slate-100">
-                    {allDecls.length > 0 ? allDecls.map((d, i) => (
-                      <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                        <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fieldLabel(d.field)}</td>
-                        <td className="px-3 py-2 text-slate-700 max-w-[200px] break-words">{d.value || <span className="text-slate-400 italic">Not observed</span>}</td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{d.confidence != null ? `${d.confidence}%` : "—"}</td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap font-mono">{d.ruleId || "—"}</td>
-                        <td className={`px-3 py-2 whitespace-nowrap ${statusColor(d.status)}`}>{statusLabel(d.status)}</td>
-                        <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[160px] break-words">
-                          {d.reason || (d.missingEvidence?.length ? `Blocked on: ${d.missingEvidence.join(", ")}` : "")}
-                        </td>
-                      </tr>
-                    )) : (
+                    {allDecls.length > 0 ? allDecls.map((d, i) => {
+                      const evRegion = (inspection.evidence || []).find(
+                        (e) => e.label.toLowerCase() === d.field.toLowerCase() ||
+                               (d.canonicalField && e.label.toLowerCase() === d.canonicalField.toLowerCase()) ||
+                               e.label.toLowerCase().includes(d.field.toLowerCase()) ||
+                               d.field.toLowerCase().includes(e.label.toLowerCase())
+                      );
+                      const evSurface = (evRegion?.surfaceType && inspection.surfaces?.find(
+                        (s) => s.surfaceType.toLowerCase() === evRegion.surfaceType?.toLowerCase() ||
+                               s.surfaceId.toLowerCase() === evRegion.surfaceType?.toLowerCase() ||
+                               s.faceLabel?.toLowerCase() === evRegion.surfaceType?.toLowerCase()
+                      )) || inspection.surfaces?.[0];
+
+                      const cropImgSrc = evSurface?.canonicalImageUrl || evSurface?.imageUrl || inspection.canonicalImage || inspection.image;
+                      const cropBbox = d.evidenceBboxPx || evRegion?.bboxPx;
+                      const cropPolygon = d.polygonPx || evRegion?.polygonPx;
+
+                      return (
+                        <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                          <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fieldLabel(d.field)}</td>
+                          <td className="px-3 py-2 text-slate-700 max-w-[200px] break-words">{d.value || <span className="text-slate-400 italic">Not observed</span>}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <ReportEvidenceCrop
+                              imageSrc={cropImgSrc}
+                              bbox={cropBbox}
+                              polygon={cropPolygon}
+                              label={fieldLabel(d.field)}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-slate-500 whitespace-nowrap font-mono">{d.ruleId || "—"}</td>
+                          <td className={`px-3 py-2 whitespace-nowrap ${statusColor(d.status)}`}>{statusLabel(d.status)}</td>
+                          <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[160px] break-words">
+                            {d.reason || (d.missingEvidence?.length ? `Blocked on: ${d.missingEvidence.join(", ")}` : "")}
+                          </td>
+                        </tr>
+                      );
+                    }) : (
                       <tr>
                         <td colSpan={6} className="px-3 py-4 text-center text-slate-400 italic text-xs">No declarations extracted</td>
                       </tr>
@@ -442,28 +567,51 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
               <SectionTitle n={2} title="Statutory Rule-by-Rule Compliance Findings (LMPC Rules, 2011)" />
               <div className="rounded-xl border border-slate-200 overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
-                  <TableHeader cols={["Rule Clause", "Requirement", "Observed Value", "Status", "Statutory Requirement"]} />
+                  <TableHeader cols={["Rule Clause", "Requirement", "Observed Value", "Status", "Evidence / Localized Section", "Statutory Requirement"]} />
                   <tbody className="divide-y divide-slate-100">
                     {[
                       { rule: "Rule 6(1)(a)", req: "Manufacturer / Packer Name & Address", decl: mfgDecl, req_text: "Full name and complete address of manufacturer/packer/importer." },
-                      { rule: "Rule 6(1)(b)", req: "Common / Generic Name of Commodity", decl: allDecls.find(d => d.field.toLowerCase().includes("product") || d.field.toLowerCase().includes("name")), req_text: "Common or generic name of commodity must be declared." },
-                      { rule: "Rule 6(1)(c)", req: "Net Quantity (weight/volume/number)", decl: allDecls.find(d => d.field.toLowerCase().includes("net") || d.field.toLowerCase().includes("quantity")), req_text: "Net quantity in standard metric units." },
-                      { rule: "Rule 6(1)(d)", req: "Month and Year of Manufacture / Packing", decl: allDecls.find(d => d.field.toLowerCase().includes("mfg") || d.field.toLowerCase().includes("manufacture")), req_text: "MM/YYYY or Month-Year format." },
-                      { rule: "Rule 6(1)(e)", req: "Maximum Retail Price (MRP) incl. all taxes", decl: allDecls.find(d => d.field.toLowerCase().includes("mrp") || d.field.toLowerCase().includes("price")), req_text: "MRP as 'M.R.P. ₹ XX.XX (Inclusive of all taxes)'." },
-                      { rule: "Rule 6(1)(da)", req: "Unit Sale Price (USP)", decl: allDecls.find(d => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit_sale")), req_text: "Price per standard unit (per gram, per ml, etc.)." },
+                      { rule: "Rule 6(1)(a)", req: "Marketer / Distributor Name & Address", decl: allDecls.find(d => d.field.toLowerCase().includes("marketer") || d.canonicalField?.toLowerCase() === "marketer_name_address"), req_text: "Full name and address of marketer where distinct from manufacturer." },
+                      { rule: "Rule 6(1)(b)", req: "Common / Generic Name of Commodity", decl: allDecls.find(d => d.field.toLowerCase().includes("product") || d.field.toLowerCase().includes("name") || d.canonicalField?.toLowerCase() === "common_name"), req_text: "Common or generic name of commodity must be declared." },
+                      { rule: "Rule 6(1)(c)", req: "Net Quantity (weight/volume/number)", decl: allDecls.find(d => d.field.toLowerCase().includes("net") || d.field.toLowerCase().includes("quantity") || d.canonicalField?.toLowerCase() === "net_quantity"), req_text: "Net quantity in standard metric units." },
+                      { rule: "Rule 5 / Sch II", req: "Standard Pack Size Compliance", decl: allDecls.find(d => d.field.toLowerCase().includes("standard") || d.field.toLowerCase().includes("pack_size") || d.field.toLowerCase().includes("pack size") || d.canonicalField?.toLowerCase() === "standard_pack_size"), req_text: "Pack size complies with Second Schedule standard packaging specifications." },
+                      { rule: "Rule 6(1)(d)", req: "Month and Year of Manufacture / Packing", decl: allDecls.find(d => d.field.toLowerCase().includes("mfg") || d.field.toLowerCase().includes("manufacture") || d.canonicalField?.toLowerCase() === "mfg_date"), req_text: "MM/YYYY or Month-Year format." },
+                      { rule: "Rule 6(1)(e)", req: "Maximum Retail Price (MRP) incl. all taxes", decl: allDecls.find(d => d.field.toLowerCase().includes("mrp") || d.field.toLowerCase().includes("price") || d.canonicalField?.toLowerCase() === "mrp"), req_text: "MRP as 'M.R.P. ₹ XX.XX (Inclusive of all taxes)'." },
+                      { rule: "Rule 6(1)(da)", req: "Unit Sale Price (USP)", decl: allDecls.find(d => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit_sale") || d.canonicalField?.toLowerCase() === "unit_sale_price"), req_text: "Price per standard unit (per gram, per ml, etc.)." },
                       { rule: "Rule 6(1)(f)", req: "Consumer Care Contact", decl: careDecl, req_text: "Telephone number or email of consumer care." },
-                      { rule: "Rule 6(1)(g)", req: "Country of Origin (Imported Goods)", decl: allDecls.find(d => d.field.toLowerCase().includes("country") || d.field.toLowerCase().includes("origin")), req_text: "Country of origin required for imported goods." },
-                    ].map(({ rule, req, decl, req_text }, i) => (
-                      <tr key={rule} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                        <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">{rule}</td>
-                        <td className="px-3 py-2 font-semibold text-slate-800">{req}</td>
-                        <td className="px-3 py-2 text-slate-700 max-w-[150px] break-words">{decl?.value || <span className="italic text-slate-400">Not Observed</span>}</td>
-                        <td className={`px-3 py-2 whitespace-nowrap ${statusColor(decl?.status || "MISSING")}`}>
-                          {decl ? statusLabel(decl.status) : "NOT OBSERVED ✗"}
-                        </td>
-                        <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[160px] break-words">{req_text}</td>
-                      </tr>
-                    ))}
+                      { rule: "Rule 6(1)(g)", req: "Country of Origin (Imported Goods)", decl: allDecls.find(d => d.field.toLowerCase().includes("country") || d.field.toLowerCase().includes("origin") || d.canonicalField?.toLowerCase() === "country_of_origin"), req_text: "Country of origin required for imported goods." },
+                    ].map(({ rule, req, decl, req_text }, i) => {
+                      // Resolve source surface image for this declaration
+                      const surfaceId = decl?.provenance?.surfaceId;
+                      const surfaceType = decl?.provenance?.surfaceType;
+                      const matchedSurf = inspection.surfaces?.find(
+                        (s) =>
+                          (surfaceId && s.surfaceId?.toLowerCase() === surfaceId.toLowerCase()) ||
+                          (surfaceType && (s.surfaceType?.toLowerCase() === surfaceType.toLowerCase() || s.faceLabel?.toLowerCase() === surfaceType.toLowerCase()))
+                      );
+                      const cropImgSrc = matchedSurf?.imageUrl || matchedSurf?.canonicalImageUrl || inspection.image;
+                      const bbox = decl?.evidenceBboxPx || decl?.valueBboxPx || decl?.canonicalBboxPx;
+
+                      return (
+                        <tr key={rule} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                          <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">{rule}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">{req}</td>
+                          <td className="px-3 py-2 text-slate-700 max-w-[140px] break-words">{decl?.value || <span className="italic text-slate-400">Not Observed</span>}</td>
+                          <td className={`px-3 py-2 whitespace-nowrap ${statusColor(decl?.status || "MISSING")}`}>
+                            {decl ? statusLabel(decl.status) : "NOT OBSERVED ✗"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <ReportEvidenceCrop
+                              imageSrc={cropImgSrc}
+                              bbox={bbox}
+                              polygon={decl?.polygonPx || decl?.canonicalPolygonPx}
+                              label={decl?.field || req}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[150px] break-words">{req_text}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -540,6 +688,58 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+
+                  {/* Comparative Evidence Crops */}
+                  {intFields.some((f) => f.inspection_crop_base64 || f.inspection_crop || f.reference_crop_base64 || f.reference_crop) && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                        Comparative Vector &amp; BBOX Evidence Crops:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        {intFields
+                          .filter((f) => f.inspection_crop_base64 || f.inspection_crop || f.reference_crop_base64 || f.reference_crop)
+                          .map((f, i) => {
+                            const inspSrc = f.inspection_crop_base64 || f.inspection_crop;
+                            const refSrc = f.reference_crop_base64 || f.reference_crop;
+
+                            return (
+                              <div key={i} className="rounded-lg border border-slate-200 bg-white p-2 text-xs space-y-1.5 shadow-2xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-slate-800 truncate">{f.field_name}</span>
+                                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${fieldCompStatusColor(f.status)}`}>
+                                    {fieldCompStatusLabel(f.status)}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div className="space-y-0.5">
+                                    <span className="text-[9px] font-bold text-emerald-700 block">Inspected</span>
+                                    <div className="h-16 w-full rounded bg-slate-950 flex items-center justify-center overflow-hidden border border-emerald-300">
+                                      {inspSrc ? (
+                                        <img src={inspSrc.startsWith("data:") ? inspSrc : `data:image/jpeg;base64,${inspSrc}`} alt="Inspected crop" className="max-h-full max-w-full object-contain" />
+                                      ) : (
+                                        <span className="text-[8px] text-slate-500 italic">No Crop</span>
+                                      )}
+                                    </div>
+                                    <div className="text-[9px] font-mono text-slate-700 truncate">{f.inspection_value || "—"}</div>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <span className="text-[9px] font-bold text-indigo-700 block">Reference</span>
+                                    <div className="h-16 w-full rounded bg-slate-950 flex items-center justify-center overflow-hidden border border-indigo-300">
+                                      {refSrc ? (
+                                        <img src={refSrc.startsWith("data:") ? refSrc : `data:image/jpeg;base64,${refSrc}`} alt="Reference crop" className="max-h-full max-w-full object-contain" />
+                                      ) : (
+                                        <span className="text-[8px] text-slate-500 italic">No Crop</span>
+                                      )}
+                                    </div>
+                                    <div className="text-[9px] font-mono text-slate-700 truncate">{f.reference_value || "—"}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
                     </div>
                   )}
 
@@ -626,41 +826,46 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
 
             {/* Section 5: Evidence surface images */}
             <div>
-              <SectionTitle n={5} title="Photographic Evidence — Annotated Visual Inspection Surfaces" />
+              <SectionTitle n={5} title="Photographic Evidence — Authoritative Visual Inspection Surfaces" />
               {surfaces.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {surfaces.map((surf, idx) => (
-                    <div key={(surf as any).surfaceId || idx} className="print-avoid-break rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
-                      {/* Surface label */}
-                      <div className={`px-3 py-1 text-[10px] font-bold text-white uppercase text-center ${isViolation ? "bg-rose-700" : "bg-emerald-700"}`}>
-                        Surface {idx + 1}: {(surf as any).faceLabel || (surf as any).surfaceType || `Face ${idx + 1}`} — {isViolation ? "Violations Detected" : "Compliant"}
+                <div className={`grid grid-cols-1 ${surfaces.length === 3 ? "md:grid-cols-3" : "sm:grid-cols-2"} gap-4`}>
+                  {surfaces.map((surf, idx) => {
+                    const imgUrl = (surf as any).canonicalImageUrl || (surf as any).imageUrl || inspection.image;
+                    const isPanelViolation = isViolation;
+
+                    return (
+                      <div key={(surf as any).surfaceId || idx} className="print-avoid-break rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shadow-xs">
+                        {/* Surface label */}
+                        <div className={`px-3 py-1 text-[10px] font-bold text-white uppercase text-center ${isPanelViolation ? "bg-rose-700" : "bg-emerald-700"}`}>
+                          {(surf as any).faceLabel || (surf as any).surfaceType || `Face ${idx + 1}`} — {isPanelViolation ? "Violations Detected" : "Compliant"}
+                        </div>
+                        {/* Image: exact original source, preserving aspect ratio */}
+                        <div className="flex items-center justify-center bg-slate-950 w-full" style={{ minHeight: "180px", maxHeight: "280px" }}>
+                          {imgUrl ? (
+                            <img
+                              src={imgUrl}
+                              alt={(surf as any).faceLabel || `Surface ${idx + 1}`}
+                              style={{
+                                display: "block",
+                                maxWidth: "100%",
+                                maxHeight: "280px",
+                                width: "auto",
+                                height: "auto",
+                                objectFit: "contain",
+                                margin: "0 auto",
+                              }}
+                            />
+                          ) : (
+                            <div className="text-slate-500 text-xs py-12">No image available for Surface {idx + 1}</div>
+                          )}
+                        </div>
+                        <div className="px-3 py-2 text-[10px] font-mono text-slate-600 flex items-center justify-between border-t border-slate-200">
+                          <span>{(surf as any).surfaceId || `face_${idx + 1}.jpg`}</span>
+                          {(surf as any).regions?.length > 0 && <span className="font-semibold text-emerald-700">{(surf as any).regions.length} localized region(s)</span>}
+                        </div>
                       </div>
-                      {/* Image: correct aspect ratio, no distortion */}
-                      <div className="flex items-center justify-center bg-slate-900 w-full" style={{ minHeight: "160px", maxHeight: "300px" }}>
-                        {(surf as any).imageUrl ? (
-                          <img
-                            src={(surf as any).imageUrl}
-                            alt={(surf as any).faceLabel || `Surface ${idx + 1}`}
-                            style={{
-                              display: "block",
-                              maxWidth: "100%",
-                              maxHeight: "300px",
-                              width: "auto",
-                              height: "auto",
-                              objectFit: "contain",
-                              margin: "0 auto",
-                            }}
-                          />
-                        ) : (
-                          <div className="text-slate-500 text-xs py-12">No image available for Surface {idx + 1}</div>
-                        )}
-                      </div>
-                      <div className="px-3 py-2 text-[10px] font-mono text-slate-500">
-                        {(surf as any).surfaceId || `surface_${idx + 1}.jpg`} — {isViolation ? "NON-COMPLIANT" : "COMPLIANT"}
-                        {(surf as any).regions?.length > 0 && <span className="ml-2">({(surf as any).regions.length} localized region(s))</span>}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400 italic">

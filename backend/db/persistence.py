@@ -1639,3 +1639,93 @@ def list_package_integrity_history(inspection_id: str) -> list[dict]:
 
     return results
 
+
+# ---------------------------------------------------------------------------
+# Departmental Regulatory Dossier Persistence
+# ---------------------------------------------------------------------------
+
+DOSSIER_STORAGE_DIR = Path(__file__).resolve().parent.parent / "data" / "dossier_records"
+DOSSIER_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def save_departmental_dossier(inspection_id: str, dossier_data: dict) -> None:
+    """
+    Persist Departmental Regulatory Dossier linked to an inspection so that
+    cross-verification does not rerun on page changes or rerenders.
+    """
+    if not inspection_id or not dossier_data:
+        return
+
+    # 1. Dual-write to filesystem cache
+    insp_dir = DOSSIER_STORAGE_DIR / str(inspection_id)
+    insp_dir.mkdir(parents=True, exist_ok=True)
+    file_path = insp_dir / "latest.json"
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(dossier_data, f, indent=2, ensure_ascii=False, default=_json_default)
+    except Exception as e:
+        logger.warning("Filesystem fallback for departmental dossier failed: %s", e)
+
+    # 2. Persist to PostgreSQL if available
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS departmental_dossiers (
+                        inspection_id TEXT PRIMARY KEY,
+                        dossier_json JSONB NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    );
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO departmental_dossiers (inspection_id, dossier_json, updated_at)
+                    VALUES (%s, %s, now())
+                    ON CONFLICT (inspection_id) DO UPDATE SET
+                        dossier_json = EXCLUDED.dossier_json,
+                        updated_at = now();
+                    """,
+                    (inspection_id, _json_or_none(dossier_data)),
+                )
+    except Exception as e:
+        logger.warning("Database save for departmental_dossiers failed: %s", e)
+
+
+def get_departmental_dossier(inspection_id: str) -> Optional[dict]:
+    """
+    Retrieve persisted Departmental Regulatory Dossier for an inspection.
+    """
+    if not inspection_id:
+        return None
+
+    # 1. Try PostgreSQL
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT dossier_json FROM departmental_dossiers
+                    WHERE inspection_id = %s
+                    LIMIT 1
+                    """,
+                    (inspection_id,)
+                )
+                row = cur.fetchone()
+                if row and row.get("dossier_json"):
+                    return decode_json_column(row["dossier_json"]) or row["dossier_json"]
+    except Exception:
+        pass
+
+    # 2. Try Filesystem fallback
+    file_path = DOSSIER_STORAGE_DIR / str(inspection_id) / "latest.json"
+    if file_path.exists():
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    return None
+

@@ -418,7 +418,7 @@ def compare_canonical_fields(
                 mfg_match, mfg_rationale = _is_manufacturer_match(ref_str, insp_str)
                 if mfg_match:
                     status = STATUS_MATCH
-                    finding_cat = FINDING_LEGITIMATE_VARIATION if ref_str == insp_str else FINDING_OCR_UNCERTAINTY
+                    finding_cat = FINDING_LEGITIMATE_VARIATION if ref_str.strip().lower() == insp_str.strip().lower() else FINDING_OCR_UNCERTAINTY
                     diff_type = "Manufacturer entity matches reference"
                     reason = f"Manufacturer declaration ({insp_str}) consistent with reference ({ref_str}). {mfg_rationale}."
                     obs = f"Manufacturer name matches reference specification after OCR token normalization ({mfg_rationale})."
@@ -635,7 +635,7 @@ def compare_canonical_fields(
                 care_match, care_rationale = _semantic_consumer_care_match(ref_str, insp_str)
                 if care_match:
                     status = STATUS_MATCH
-                    finding_cat = FINDING_LEGITIMATE_VARIATION if (norm_sim >= 0.95 or ref_str == insp_str) else FINDING_OCR_UNCERTAINTY
+                    finding_cat = FINDING_LEGITIMATE_VARIATION
                     diff_type = "Consumer care contact semantically consistent"
                     reason = f"Consumer care declaration consistent with reference ({care_rationale})."
                     obs = f"Consumer care semantically verified ({care_rationale}). Raw strings: ref='{ref_str}', insp='{insp_str}'."
@@ -735,7 +735,7 @@ def compare_canonical_fields(
         )
         canonical_items.append(item)
 
-        if status not in (STATUS_INSP_NOT_OBS, STATUS_REF_NOT_OBS) and (status != "MATCH" or finding_cat == FINDING_OCR_UNCERTAINTY or is_susp):
+        if (status not in ("MATCH", STATUS_INSP_NOT_OBS, STATUS_REF_NOT_OBS)) or (finding_cat == FINDING_OCR_UNCERTAINTY and has_ref_evidence and has_insp_evidence):
             differences.append({
                 "field": ref_key,
                 "field_name": display_name.upper(),

@@ -195,7 +195,16 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
             for source_field in ("manufacturer_name", "packer_name", "importer_name"):
                 data = bridged.get(source_field)
                 if data and predicate(data):
-                    picked = data
+                    picked = dict(data)
+                    # If address_lines exist and value is only the short company name, synthesize full declaration
+                    addr_lines = picked.get("address_lines") or []
+                    val_str = str(picked.get("value") or "")
+                    if addr_lines and not any(line in val_str for line in addr_lines if len(line) > 3):
+                        combined_val = val_str + ", " + ", ".join(addr_lines)
+                        pin = picked.get("pin_code")
+                        if pin and pin not in combined_val:
+                            combined_val += f" - {pin}"
+                        picked["value"] = combined_val
                     break
             if picked is not None:
                 bridged["manufacturer_name_address"] = picked
@@ -234,9 +243,25 @@ def bridge_classified_fields(classified: Dict[str, dict]) -> Dict[str, dict]:
         bridged["batch_no"] = bridged["batch_number"]
         bridged["batch_code"] = bridged["batch_number"]
 
-    # Ensure marketer_name remains preserved
+    # Ensure marketer_name remains preserved with full declaration and address
     if "marketer_name" in classified:
-        bridged["marketer_name"] = classified["marketer_name"]
+        mkt_data = dict(classified["marketer_name"])
+        mkt_addr = mkt_data.get("address_lines") or []
+        mkt_val = str(mkt_data.get("value") or "")
+        if mkt_addr and not any(line in mkt_val for line in mkt_addr if len(line) > 3):
+            combined_mkt = mkt_val + ", " + ", ".join(mkt_addr)
+            mkt_st = mkt_data.get("state")
+            if mkt_st and mkt_st not in combined_mkt:
+                combined_mkt += f", {mkt_st}"
+            mkt_pin = mkt_data.get("pin_code")
+            if mkt_pin and mkt_pin not in combined_mkt:
+                combined_mkt += f" - {mkt_pin}"
+            mkt_data["value"] = combined_mkt
+        bridged["marketer_name"] = mkt_data
+
+    # Ensure standard_pack_size remains preserved
+    if "standard_pack_size" in classified:
+        bridged["standard_pack_size"] = classified["standard_pack_size"]
 
     # Ensure consumer_care remains preserved (not caught by any existing bridge)
     if "consumer_care" in classified:
