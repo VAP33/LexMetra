@@ -1541,7 +1541,8 @@ def list_package_integrity_history(inspection_id: str) -> list[dict]:
     # 2. Add any from filesystem not in DB
     insp_dir = INTEGRITY_STORAGE_DIR / str(inspection_id)
     if insp_dir.exists():
-        for p in sorted(insp_dir.glob("pic_*.json"), key=os.path.getmtime, reverse=True):
+        cand_files = [f for f in insp_dir.glob("*.json") if f.name != "latest.json"]
+        for p in sorted(cand_files, key=os.path.getmtime, reverse=True):
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     rec = json.load(f)

@@ -48,6 +48,261 @@ import { type Inspection } from "@/lib/types";
 // USP 1: Package Integrity Verification Component
 // ===========================================================================
 
+function SideEvidencePanel({
+  side,
+  title,
+  subtitle,
+  value,
+  cropBase64,
+  imageUrl,
+  bbox,
+  polygon,
+  confidence,
+  surfaceId,
+  imageId,
+  status,
+  isMissing,
+}: {
+  side: "LEFT" | "RIGHT";
+  title: string;
+  subtitle: string;
+  value?: string;
+  cropBase64?: string;
+  imageUrl?: string;
+  bbox?: number[];
+  polygon?: number[][];
+  confidence?: number;
+  surfaceId?: string;
+  imageId?: string;
+  status?: string;
+  isMissing?: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [isRendered, setIsRendered] = useState(false);
+
+  const isLeft = side === "LEFT";
+  const accentColor = isLeft ? "#10b981" : "#818cf8"; // Emerald for Left (Inspected), Indigo for Right (Reference)
+  const badgeBorder = isLeft
+    ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10"
+    : "border-indigo-500/30 text-indigo-400 bg-indigo-500/10";
+
+  // Build resolved source
+  const rawSrc = cropBase64 || imageUrl;
+  const resolvedSrc = rawSrc
+    ? rawSrc.startsWith("http") || rawSrc.startsWith("data:") || rawSrc.startsWith("blob:")
+      ? rawSrc
+      : `http://127.0.0.1:8000${rawSrc.startsWith("/") ? "" : "/"}${rawSrc}`
+    : undefined;
+
+  useEffect(() => {
+    if (!resolvedSrc || isMissing) return;
+
+    let isMounted = true;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+
+    img.onload = () => {
+      if (!isMounted) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+
+      let cropX = 0;
+      let cropY = 0;
+      let cropW = nw;
+      let cropH = nh;
+      let drawPolygon = polygon;
+      let drawBbox = bbox;
+
+      if (!cropBase64 && bbox && bbox.length >= 4 && nw > bbox[2] * 1.5) {
+        const [bx, by, bw, bh] = bbox;
+        const padX = Math.max(bw * 0.35, 30);
+        const padY = Math.max(bh * 0.35, 20);
+        cropX = Math.max(0, bx - padX);
+        cropY = Math.max(0, by - padY);
+        cropW = Math.max(1, Math.min(nw, bx + bw + padX) - cropX);
+        cropH = Math.max(1, Math.min(nh, by + bh + padY) - cropY);
+
+        if (polygon && polygon.length >= 3) {
+          drawPolygon = polygon.map(([px, py]) => [px - cropX, py - cropY]);
+        }
+        drawBbox = [bx - cropX, by - cropY, bw, bh];
+      }
+
+      canvas.width = 600;
+      canvas.height = Math.max(220, Math.min(Math.round(600 * (cropH / cropW)), 380));
+
+      ctx.fillStyle = "#030712";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const scale = Math.min(canvas.width / cropW, canvas.height / cropH);
+      const rw = cropW * scale;
+      const rh = cropH * scale;
+      const ox = (canvas.width - rw) / 2;
+      const oy = (canvas.height - rh) / 2;
+
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, ox, oy, rw, rh);
+
+      if (!cropBase64 && drawPolygon && drawPolygon.length >= 3) {
+        ctx.beginPath();
+        const startPt = drawPolygon[0];
+        ctx.moveTo(ox + startPt[0] * scale, oy + startPt[1] * scale);
+        for (let i = 1; i < drawPolygon.length; i++) {
+          ctx.lineTo(ox + drawPolygon[i][0] * scale, oy + drawPolygon[i][1] * scale);
+        }
+        ctx.closePath();
+        ctx.fillStyle = isLeft ? "rgba(16, 185, 129, 0.15)" : "rgba(99, 102, 241, 0.15)";
+        ctx.fill();
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      } else if (!cropBase64 && drawBbox && drawBbox.length >= 4) {
+        const [bx, by, bw, bh] = drawBbox;
+        ctx.fillStyle = isLeft ? "rgba(16, 185, 129, 0.12)" : "rgba(99, 102, 241, 0.12)";
+        ctx.fillRect(ox + bx * scale, oy + by * scale, bw * scale, bh * scale);
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox + bx * scale, oy + by * scale, bw * scale, bh * scale);
+      }
+
+      setIsRendered(true);
+      setLoadError(false);
+    };
+
+    img.onerror = () => {
+      if (!isMounted) return;
+      setLoadError(true);
+    };
+
+    img.src = resolvedSrc;
+    return () => {
+      isMounted = false;
+    };
+  }, [resolvedSrc, bbox, polygon, isMissing, isLeft, accentColor, cropBase64]);
+
+  if (isMissing || (!resolvedSrc && !value)) {
+    return (
+      <div className="rounded-xl border border-border/80 bg-card p-4 space-y-3 flex flex-col justify-between">
+        <div className="flex items-center justify-between border-b border-border/40 pb-2">
+          <div>
+            <span className="text-xs font-bold uppercase tracking-wider text-foreground">{title}</span>
+            <p className="text-[10px] text-muted-foreground">{subtitle}</p>
+          </div>
+          <span className="rounded px-2 py-0.5 text-[9px] font-bold border border-amber-500/30 bg-amber-500/10 text-amber-500">
+            UNOBSERVED
+          </span>
+        </div>
+        <div className="h-44 w-full rounded-xl bg-slate-950/70 flex flex-col items-center justify-center p-4 text-center border border-dashed border-border/80">
+          <ShieldAlert className="h-8 w-8 text-amber-500 mb-2 opacity-80" />
+          <p className="text-xs font-semibold text-foreground">Declaration Not Observed</p>
+          <p className="text-[10px] text-muted-foreground mt-1 max-w-[220px]">
+            No verified text localization or OCR match found on any {isLeft ? "inspected" : "reference"} panel.
+          </p>
+          <span className="mt-2 text-[9px] font-mono rounded bg-muted/60 px-2 py-0.5 text-muted-foreground">
+            Status: {status || "NOT_OBSERVED"}
+          </span>
+        </div>
+        <div className="rounded-lg bg-muted/40 p-2.5 text-xs">
+          <span className="text-[10px] uppercase font-bold text-muted-foreground block">Observed Value:</span>
+          <span className="font-mono text-muted-foreground italic text-[11px]">— No declaration detected —</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`rounded-xl border ${
+        isLeft ? "border-emerald-500/30 bg-emerald-500/[0.02]" : "border-indigo-500/30 bg-indigo-500/[0.02]"
+      } p-4 space-y-3`}
+    >
+      <div className="flex items-center justify-between border-b border-border/40 pb-2">
+        <div>
+          <span
+            className={`text-xs font-black uppercase tracking-wider ${
+              isLeft ? "text-emerald-400" : "text-indigo-400"
+            }`}
+          >
+            {title}
+          </span>
+          <p className="text-[10px] text-muted-foreground">{subtitle}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {confidence !== undefined && (
+            <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold border ${badgeBorder}`}>
+              {(confidence * 100).toFixed(0)}% Conf
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Visual Canvas Display */}
+      <div className="relative h-48 w-full rounded-xl bg-slate-950 flex items-center justify-center overflow-hidden border border-border/80 shadow-inner">
+        {resolvedSrc && !loadError ? (
+          <>
+            <canvas ref={canvasRef} className="max-h-full max-w-full object-contain" />
+            {!isRendered && (
+              <img
+                src={resolvedSrc}
+                alt={title}
+                className="max-h-full max-w-full object-contain"
+                onError={() => setLoadError(true)}
+              />
+            )}
+          </>
+        ) : (
+          <div className="text-center p-3 text-slate-400 text-xs">
+            <p className="font-semibold">{value || "No Crop Available"}</p>
+          </div>
+        )}
+
+        {/* Overlay Badges */}
+        <div className="absolute top-2 left-2 flex flex-wrap gap-1 pointer-events-none">
+          {polygon && polygon.length >= 3 ? (
+            <span className="rounded bg-black/80 backdrop-blur px-1.5 py-0.5 text-[9px] font-mono text-emerald-300 border border-emerald-500/40">
+              Vector DBNet Polygon ({polygon.length} pts)
+            </span>
+          ) : bbox ? (
+            <span className="rounded bg-black/80 backdrop-blur px-1.5 py-0.5 text-[9px] font-mono text-slate-300 border border-slate-700">
+              BBox [{bbox.join(", ")}]
+            </span>
+          ) : null}
+        </div>
+
+        {(surfaceId || imageId) && (
+          <div className="absolute bottom-2 right-2 flex gap-1 pointer-events-none">
+            <span className="rounded bg-black/80 backdrop-blur px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground border border-border/60">
+              {[surfaceId, imageId].filter(Boolean).join(" • ")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Extracted Specification & Metadata */}
+      <div className="rounded-lg bg-card border border-border/70 p-3 space-y-1.5 text-xs shadow-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase font-bold text-muted-foreground">
+            {isLeft ? "Inspected Marking" : "Reference Master"}
+          </span>
+          {bbox && (
+            <span className="text-[9px] font-mono text-muted-foreground">
+              Coord: [{bbox[0]}, {bbox[1]}, {bbox[2]}×{bbox[3]}]
+            </span>
+          )}
+        </div>
+        <div className="font-mono text-sm font-black text-foreground bg-muted/30 px-2 py-1.5 rounded border border-border/40 break-words">
+          {value || "—"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PackageIntegrityCard({
   inspectionId,
   productId: _productId,
@@ -582,6 +837,42 @@ export function PackageIntegrityCard({
                     </div>
                   </div>
 
+                  {/* Special Barcode Product ID Breakdown */}
+                  {(item.field_key === "barcode" || item.field_name.toLowerCase().includes("barcode")) && (item.decoded_value || item.observed_value || item.barcode_verification_status) && (
+                    <div className="rounded-lg border border-blue-500/30 bg-blue-500/[0.04] p-2 space-y-1 text-[10px]">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Barcode Cross-Check</span>
+                        <span className={`rounded px-1.5 py-0.2 font-black uppercase text-[9px] border ${
+                          item.barcode_verification_status === "VERIFIED"
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                            : item.barcode_verification_status === "NOT_OBSERVED"
+                            ? "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
+                            : "bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400"
+                        }`}>
+                          {item.barcode_verification_status || "VERIFIED"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-muted-foreground font-mono">
+                        <span>Decoded Bars:</span>
+                        <span className="font-bold text-foreground">{item.decoded_value || "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-muted-foreground font-mono">
+                        <span>Printed Digits:</span>
+                        <span className="font-bold text-foreground">{item.observed_value || "— (Not Observed)"}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Special USP Arithmetic Corroboration Badge */}
+                  {item.field_key === "unit_sale_price" && item.status === "MATCH" && (
+                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.04] p-1.5 flex items-center justify-between text-[10px]">
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <Check className="h-3 w-3" /> Arithmetic Corroborated
+                      </span>
+                      <span className="font-mono text-[9px] text-muted-foreground">MRP / Net Qty</span>
+                    </div>
+                  )}
+
                   {/* Reason snippet */}
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
                     {item.reason}
@@ -687,139 +978,188 @@ export function PackageIntegrityCard({
 
       {/* 6. Evidence Drawer / Modal */}
       {activeEvidence && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-4xl rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-start justify-between border-b border-border/60 pb-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="text-base font-bold text-foreground">
+                  <h4 className="text-lg font-black tracking-tight text-foreground">
                     Evidence Audit: {activeEvidence.field_name}
                   </h4>
-                  <span className="rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border bg-muted text-muted-foreground">
+                  <span className="rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border bg-muted text-muted-foreground">
                     {activeEvidence.field_classification}
                   </span>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border ${
+                      activeEvidence.status === "POTENTIAL DISCREPANCY"
+                        ? "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400"
+                        : activeEvidence.status === "REVIEW REQUIRED"
+                        ? "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
+                        : activeEvidence.status === "EXPECTED TO VARY"
+                        ? "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400"
+                        : activeEvidence.status === "UNABLE TO VERIFY" ||
+                          activeEvidence.status === "REFERENCE NOT OBSERVED" ||
+                          activeEvidence.status === "INSPECTION NOT OBSERVED"
+                        ? "bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400"
+                        : "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                    }`}
+                  >
+                    {activeEvidence.comparison_status || activeEvidence.status}
+                  </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Side-by-side comparative inspection crops and extracted values
+                <p className="text-xs text-muted-foreground mt-1">
+                  Side-by-side comparative inspection crops and localized vector evidence from each packaging surface.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveEvidence(null)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Side-by-Side Reference Crop vs Inspection Crop */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Reference Standard Crop */}
-              <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-foreground">REFERENCE STANDARD</span>
-                  <span className="text-[10px] text-muted-foreground">Golden Standard</span>
-                </div>
+            {/* Side-by-Side: STRICTLY LEFT = ORIGINAL / INSPECTED, RIGHT = REFERENCE / GOLDEN */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* LEFT: ORIGINAL / INSPECTED IMAGE */}
+              <SideEvidencePanel
+                side="LEFT"
+                title="LEFT: ORIGINAL / INSPECTED"
+                subtitle="Physical Scanned Package Evidence"
+                value={activeEvidence.inspection_value}
+                cropBase64={activeEvidence.inspection_crop_base64 || activeEvidence.inspection_crop}
+                imageUrl={activeEvidence.inspection_image_url}
+                bbox={activeEvidence.inspection_bbox}
+                polygon={activeEvidence.inspection_polygon}
+                confidence={activeEvidence.inspection_confidence ?? activeEvidence.confidence}
+                surfaceId={activeEvidence.inspection_surface_id}
+                imageId={activeEvidence.inspection_image_id}
+                status={activeEvidence.status}
+                isMissing={
+                  activeEvidence.status === "INSPECTION NOT OBSERVED" ||
+                  (!activeEvidence.inspection_value && !activeEvidence.inspection_bbox)
+                }
+              />
 
-                <div className="h-36 w-full rounded-lg bg-slate-950 flex items-center justify-center overflow-hidden border border-border/80">
-                  {activeEvidence.reference_crop_base64 ? (
-                    <img
-                      src={activeEvidence.reference_crop_base64}
-                      alt="Reference Crop"
-                      className="max-h-full max-w-full object-contain"
-                    />
-                  ) : (
-                    <div className="text-center p-3 text-slate-400 text-xs">
-                      <p className="font-semibold">Master Reference Declaration</p>
-                      <p className="text-[10px] text-slate-500 mt-1">{activeEvidence.reference_value}</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-xs space-y-1">
-                  <div className="font-mono bg-background/80 p-2 rounded border border-border/60">
-                    <span className="text-muted-foreground text-[10px] block uppercase">Master Value:</span>
-                    <span className="font-bold text-foreground">{activeEvidence.reference_value}</span>
-                  </div>
-                  {activeEvidence.reference_bbox && (
-                    <p className="text-[10px] text-muted-foreground">
-                      BBox: [{activeEvidence.reference_bbox.join(", ")}]
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Inspected Package Crop */}
-              <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-foreground">INSPECTED PACKAGE</span>
-                  <span className="text-[10px] font-bold text-brand">
-                    Conf: {(activeEvidence.confidence * 100).toFixed(0)}%
-                  </span>
-                </div>
-
-                <div className="h-36 w-full rounded-lg bg-slate-950 flex items-center justify-center overflow-hidden border border-border/80">
-                  {activeEvidence.inspection_crop_base64 ? (
-                    <img
-                      src={activeEvidence.inspection_crop_base64}
-                      alt="Inspection Crop"
-                      className="max-h-full max-w-full object-contain"
-                    />
-                  ) : (
-                    <div className="text-center p-3 text-slate-400 text-xs">
-                      <p className="font-semibold">Extracted Package Declaration</p>
-                      <p className="text-[10px] text-slate-500 mt-1">{activeEvidence.inspection_value}</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-xs space-y-1">
-                  <div className="font-mono bg-background/80 p-2 rounded border border-border/60">
-                    <span className="text-muted-foreground text-[10px] block uppercase">Extracted Value:</span>
-                    <span className="font-bold text-foreground">{activeEvidence.inspection_value}</span>
-                  </div>
-                  {activeEvidence.inspection_bbox && (
-                    <p className="text-[10px] text-muted-foreground">
-                      BBox: [{activeEvidence.inspection_bbox.join(", ")}]
-                    </p>
-                  )}
-                </div>
-              </div>
+              {/* RIGHT: REFERENCE / GOLDEN IMAGE */}
+              <SideEvidencePanel
+                side="RIGHT"
+                title="RIGHT: REFERENCE / GOLDEN"
+                subtitle="Registered Digital Master / Catalog Standard"
+                value={activeEvidence.reference_value}
+                cropBase64={activeEvidence.reference_crop_base64 || activeEvidence.reference_crop}
+                imageUrl={activeEvidence.reference_image_url}
+                bbox={activeEvidence.reference_bbox}
+                polygon={activeEvidence.reference_polygon}
+                confidence={activeEvidence.reference_confidence ?? 0.9}
+                surfaceId={activeEvidence.reference_surface_id}
+                imageId={activeEvidence.reference_image_id}
+                status={activeEvidence.status}
+                isMissing={
+                  activeEvidence.status === "REFERENCE NOT OBSERVED" ||
+                  (!activeEvidence.reference_value && !activeEvidence.reference_bbox)
+                }
+              />
             </div>
 
-            {/* Forensic Reason & Evaluation Note */}
-            <div className="rounded-xl border border-border/80 bg-muted/40 p-3.5 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-foreground">Forensic Evaluation:</span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider border ${
-                    activeEvidence.status === "POTENTIAL DISCREPANCY"
-                      ? "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400"
-                      : activeEvidence.status === "REVIEW REQUIRED"
+            {/* Barcode Dual-Channel Evidence Cross-Check Card */}
+            {(activeEvidence.field_key === "barcode" || activeEvidence.decoded_value || activeEvidence.observed_value) && (
+              <div className="rounded-xl border border-blue-500/30 bg-blue-500/[0.03] p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-foreground flex items-center gap-1.5">
+                    Barcode Dual-Channel Verification (Decoded vs Visually Observed)
+                  </span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border ${
+                    activeEvidence.barcode_verification_status === "VERIFIED"
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                      : activeEvidence.barcode_verification_status === "NOT_OBSERVED"
                       ? "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
-                      : "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                  }`}
-                >
-                  {activeEvidence.status}
+                      : "bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400"
+                  }`}>
+                    {activeEvidence.barcode_verification_status || "VERIFIED"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="rounded-lg bg-card border border-border/60 p-2.5 space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground block">Machine Decoded Barcode:</span>
+                    <span className="font-mono text-xs font-black text-foreground">{activeEvidence.decoded_value || activeEvidence.inspection_value || "—"}</span>
+                    <span className="text-[9px] text-muted-foreground block">CV Barcode Detector / ZXing Channel</span>
+                  </div>
+                  <div className="rounded-lg bg-card border border-border/60 p-2.5 space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground block">Visually Observed Printed Digits:</span>
+                    <span className="font-mono text-xs font-black text-foreground">{activeEvidence.observed_value || "— (Not Observable on Packaging)"}</span>
+                    <span className="text-[9px] text-muted-foreground block">OCR Text Localization / HRI Channel</span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground italic">
+                  * Invariant: Printed digits are never fabricated from the machine decoder. Real vector polygons & bboxes preserved.
+                </p>
+              </div>
+            )}
+
+            {/* Unit Sale Price Arithmetic Corroboration Card */}
+            {activeEvidence.field_key === "unit_sale_price" && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.03] p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-foreground flex items-center gap-1.5">
+                    Unit Sale Price (USP) Mathematical Corroboration
+                  </span>
+                  <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400">
+                    LMPC Rule 6 Compliant
+                  </span>
+                </div>
+                <div className="rounded-lg bg-card border border-border/60 p-2.5 space-y-1 text-[11px] leading-relaxed">
+                  <div className="font-mono font-bold text-foreground">
+                    Formula: Declared MRP ÷ Declared Net Quantity = Expected Statutory USP
+                  </div>
+                  <p className="text-muted-foreground text-[10px]">
+                    Corroborated across real localized USP polygon/bbox, normalized statutory basis units, and declared retail price.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Forensic Reason & Evaluation Note */}
+            <div className="rounded-xl border border-border/80 bg-muted/30 p-4 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-foreground flex items-center gap-1.5">
+                  Forensic Decision & Comparison Analysis
                 </span>
+                {activeEvidence.normalized_similarity !== undefined && (
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    OCR Sim: {(activeEvidence.normalized_similarity * 100).toFixed(0)}%
+                  </span>
+                )}
               </div>
               <p className="text-foreground leading-relaxed">
-                <strong>Finding: </strong> {activeEvidence.reason}
+                <strong>Decision Rationale: </strong> {activeEvidence.comparison_reason || activeEvidence.reason}
               </p>
               {activeEvidence.observation_note && (
-                <p className="text-muted-foreground text-[11px] leading-relaxed border-t border-border/40 pt-1.5">
+                <p className="text-muted-foreground text-[11px] leading-relaxed border-t border-border/40 pt-2">
                   <strong>Inspector Observation: </strong> {activeEvidence.observation_note}
                 </p>
               )}
+              <div className="border-t border-border/40 pt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                <span className="rounded bg-background/80 px-2 py-0.5 border border-border/60">
+                  Field Classification: <strong>{activeEvidence.field_classification}</strong>
+                </span>
+                <span className="rounded bg-background/80 px-2 py-0.5 border border-border/60">
+                  Finding Category: <strong>{activeEvidence.finding_category}</strong>
+                </span>
+                <span className="rounded bg-background/80 px-2 py-0.5 border border-border/60">
+                  Severity: <strong>{activeEvidence.severity}</strong>
+                </span>
+              </div>
             </div>
 
             <div className="flex items-center justify-end pt-2 border-t border-border/60">
               <button
                 type="button"
                 onClick={() => setActiveEvidence(null)}
-                className="rounded-xl bg-brand px-4 py-2 text-xs font-bold text-white hover:bg-brand/90 transition"
+                className="rounded-xl bg-brand px-5 py-2 text-xs font-bold text-white hover:bg-brand/90 transition shadow-sm"
               >
-                Done
+                Close Audit
               </button>
             </div>
           </div>

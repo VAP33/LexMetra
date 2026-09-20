@@ -79,7 +79,7 @@ def test_hersheys_real_packaging_field_level_comparison():
     if "Manufacturer" in comp_map:
         assert comp_map["Manufacturer"]["status"] in ("MATCH", "REVIEW REQUIRED")
     if "Batch Number" in comp_map:
-        assert comp_map["Batch Number"]["status"] in ("MATCH", "EXPECTED TO VARY")
+        assert comp_map["Batch Number"]["status"] in ("MATCH", "EXPECTED TO VARY", "REFERENCE_NOT_OBSERVED")
 
     # Persist and restore check
     rep_dict = report.to_dict()

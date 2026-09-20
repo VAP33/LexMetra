@@ -724,22 +724,40 @@ export interface FaceMatchData {
 export interface FieldComparisonData {
   field_name: string;
   field_key: string;
+  field?: string;
   field_classification: "STATIC" | "VARIABLE" | "VERSION_SENSITIVE" | string;
   reference_value: string;
   inspection_value: string;
-  status: "MATCH" | "EXPECTED TO VARY" | "REVIEW REQUIRED" | "POTENTIAL DISCREPANCY" | string;
+  status: "MATCH" | "EXPECTED TO VARY" | "REVIEW REQUIRED" | "POTENTIAL DISCREPANCY" | "REFERENCE_NOT_OBSERVED" | "INSPECTION_NOT_OBSERVED" | "UNABLE_TO_VERIFY" | string;
   is_suspicious: boolean;
   finding_category?: string;
   reason: string;
   observation_note?: string;
+  reference_image_id?: string;
+  inspection_image_id?: string;
+  reference_image_url?: string;
+  inspection_image_url?: string;
+  reference_surface_id?: string;
+  inspection_surface_id?: string;
   reference_crop_base64?: string;
   inspection_crop_base64?: string;
+  reference_crop?: string;
+  inspection_crop?: string;
   reference_bbox?: [number, number, number, number];
   inspection_bbox?: [number, number, number, number];
+  reference_polygon?: [number, number][];
+  inspection_polygon?: [number, number][];
+  reference_confidence?: number;
+  inspection_confidence?: number;
+  comparison_status?: string;
+  comparison_reason?: string;
   confidence: number;
   image_quality_score?: number;
   normalized_similarity?: number;
   severity: "LOW" | "MEDIUM" | "HIGH" | string;
+  decoded_value?: string;
+  observed_value?: string;
+  barcode_verification_status?: "VERIFIED" | "REVIEW_REQUIRED" | "NOT_OBSERVED" | string;
 }
 
 export interface ComparisonHistoryItem {

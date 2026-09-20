@@ -47,7 +47,8 @@ temp/
 tmp/
 outputs/
 results/
-runs/
+backend/data/evidence_extraction_cache.pkl
+backend/test_crops/
 
 # Runtime-generated similarity index (rebuilt from scan history)
 backend/product_index.json
