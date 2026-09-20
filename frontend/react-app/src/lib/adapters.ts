@@ -536,6 +536,14 @@ export function fromScanResponse(
     ? mfgDecl.value
     : (details.manufacturerLabel || "Not detected");
 
+  const effectiveOverallStatus =
+    (scoreCounts.applicableCount > 0 &&
+     scoreCounts.verifiedCount === scoreCounts.applicableCount &&
+     scoreCounts.missingCount === 0 &&
+     scoreCounts.reviewCount === 0)
+      ? "PASS"
+      : raw.inspection.overall_status;
+
   return {
     id: raw.inspection.inspection_id,
     product: productName,
@@ -545,7 +553,7 @@ export function fromScanResponse(
     saleType: raw.inspection.sale_type?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Retail",
     timestamp: new Date().toISOString(),
     dateLabel: formatDateLabel(new Date().toISOString()),
-    status: mapOverallStatus(raw.inspection.overall_status),
+    status: mapOverallStatus(effectiveOverallStatus),
     exemptReason: raw.inspection.exempt_reason ?? undefined,
     score: verifiedScore,
     verifiedScore,
@@ -554,7 +562,7 @@ export function fromScanResponse(
     pdpAreaCm2: raw.resolved_inputs?.pdp_area_cm2 ?? undefined,
     barcodeInfo: raw.barcode_info,
     summary:
-      raw.inspection.overall_status === "PASS"
+      effectiveOverallStatus === "PASS"
         ? "All checked declarations verified"
         : raw.inspection.overall_status === "EXEMPT"
           ? raw.inspection.exempt_reason || "Outside rule scope"
@@ -563,11 +571,11 @@ export function fromScanResponse(
             : "All applicable declarations verified under LMPC Rules 2011",
     declarations,
     declarationSummary: raw.inspection.declaration_summary ? {
-      applicable: raw.inspection.declaration_summary.applicable,
+      applicable: scoreCounts.applicableCount,
       detected: raw.inspection.declaration_summary.detected,
-      verified: raw.inspection.declaration_summary.verified,
-      reviewRequired: raw.inspection.declaration_summary.review_required,
-      nonCompliant: raw.inspection.declaration_summary.non_compliant,
+      verified: scoreCounts.verifiedCount,
+      reviewRequired: scoreCounts.reviewCount,
+      nonCompliant: scoreCounts.missingCount,
     } : undefined,
     evidence,
     image: topOrig,
@@ -663,6 +671,14 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
     ? rowMfgDecl.value
     : "Not detected";
 
+  const effectiveOverallStatus =
+    (scoreCounts.applicableCount > 0 &&
+     scoreCounts.verifiedCount === scoreCounts.applicableCount &&
+     scoreCounts.missingCount === 0 &&
+     scoreCounts.reviewCount === 0)
+      ? "PASS"
+      : row.overall_status;
+
   return {
     id: row.inspection_id,
     product: rowProductName,
@@ -672,14 +688,14 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
     saleType: row.sale_type?.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Retail",
     timestamp: row.created_at,
     dateLabel: formatDateLabel(row.created_at),
-    status: mapOverallStatus(row.overall_status),
+    status: mapOverallStatus(effectiveOverallStatus),
     exemptReason: row.exempt_reason ?? undefined,
     score: verifiedScore,
     verifiedScore,
     reviewedScore,
     scoreBreakdown: scoreCounts,
     summary:
-      row.overall_status === "PASS"
+      effectiveOverallStatus === "PASS"
         ? "All checked declarations verified across every captured surface"
         : row.overall_status === "EXEMPT"
           ? row.exempt_reason || "Outside rule scope"
@@ -688,11 +704,11 @@ export function fromInspectionRow(row: RawInspectionRow): Inspection {
             : "All applicable declarations verified under LMPC Rules 2011",
     declarations,
     declarationSummary: row.declaration_summary ? {
-      applicable: row.declaration_summary.applicable,
+      applicable: scoreCounts.applicableCount,
       detected: row.declaration_summary.detected,
-      verified: row.declaration_summary.verified,
-      reviewRequired: row.declaration_summary.review_required,
-      nonCompliant: row.declaration_summary.non_compliant,
+      verified: scoreCounts.verifiedCount,
+      reviewRequired: scoreCounts.reviewCount,
+      nonCompliant: scoreCounts.missingCount,
     } : undefined,
     evidence,
     image: topOrig,
@@ -766,6 +782,14 @@ export function fromFinalizedInspection(
     ? mfgDecl.value
     : (details.manufacturerLabel || "—");
 
+  const effectiveOverallStatus =
+    (scoreCounts.applicableCount > 0 &&
+     scoreCounts.verifiedCount === scoreCounts.applicableCount &&
+     scoreCounts.missingCount === 0 &&
+     scoreCounts.reviewCount === 0)
+      ? "PASS"
+      : inspection.overall_status;
+
   return {
     id: inspection.inspection_id,
     product: productName,
@@ -775,14 +799,14 @@ export function fromFinalizedInspection(
     saleType: inspection.sale_type,
     timestamp: new Date().toISOString(),
     dateLabel: formatDateLabel(new Date().toISOString()),
-    status: mapOverallStatus(inspection.overall_status),
+    status: mapOverallStatus(effectiveOverallStatus),
     exemptReason: inspection.exempt_reason ?? undefined,
     score: verifiedScore,
     verifiedScore,
     reviewedScore,
     scoreBreakdown: scoreCounts,
     summary:
-      inspection.overall_status === "PASS"
+      effectiveOverallStatus === "PASS"
         ? "All checked declarations verified across every captured surface"
         : inspection.overall_status === "EXEMPT"
           ? inspection.exempt_reason || "Outside rule scope"
@@ -791,11 +815,11 @@ export function fromFinalizedInspection(
             : "All applicable declarations verified under LMPC Rules 2011",
     declarations,
     declarationSummary: inspection.declaration_summary ? {
-      applicable: inspection.declaration_summary.applicable,
+      applicable: scoreCounts.applicableCount,
       detected: inspection.declaration_summary.detected,
-      verified: inspection.declaration_summary.verified,
-      reviewRequired: inspection.declaration_summary.review_required,
-      nonCompliant: inspection.declaration_summary.non_compliant,
+      verified: scoreCounts.verifiedCount,
+      reviewRequired: scoreCounts.reviewCount,
+      nonCompliant: scoreCounts.missingCount,
     } : undefined,
     evidence,
     image: topOrig,

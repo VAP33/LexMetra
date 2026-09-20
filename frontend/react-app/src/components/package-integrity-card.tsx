@@ -545,6 +545,118 @@ export function PackageIntegrityCard({
     );
   }
 
+  function renderHistoryModal() {
+    if (!showHistoryModal) return null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+          <div className="flex items-start justify-between border-b border-border/60 pb-3">
+            <div>
+              <h4 className="text-base font-bold text-foreground">Package Integrity Comparison History</h4>
+              <p className="text-xs text-muted-foreground">Historical comparison versions for this inspection</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowHistoryModal(false)}
+              className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
+            {history.map((hist, idx) => {
+              const isCurrent = data?.comparison_id && hist.comparison_id === data.comparison_id;
+              const histDiscrepancies = hist.summary_counts?.potential_discrepancy ?? 0;
+              const histReviews = hist.summary_counts?.review_required ?? 0;
+              const statusBadge = histDiscrepancies > 0
+                ? "bg-red-500/10 border-red-500/30 text-red-600"
+                : histReviews > 0
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-600"
+                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-600";
+
+              return (
+                <div
+                  key={hist.comparison_id || idx}
+                  onClick={() => {
+                    const loadedData = {
+                      ...hist,
+                      has_reference: true,
+                    } as any;
+                    setData(loadedData);
+                    if (onSave) {
+                      onSave(loadedData);
+                    }
+                    setShowHistoryModal(false);
+                  }}
+                  className={`rounded-xl border p-3.5 text-xs transition cursor-pointer ${
+                    isCurrent
+                      ? "border-brand bg-brand/5 shadow-xs ring-1 ring-brand/30"
+                      : "border-border/70 bg-card hover:border-brand/40 hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <div>
+                      <p className="font-bold text-foreground">
+                        {hist.reference_name || "Catalog Reference Standard"}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Compared: {hist.timestamp ? new Date(hist.timestamp).toLocaleString("en-IN") : "Unknown time"}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${statusBadge}`}>
+                      {histDiscrepancies > 0
+                        ? "DISCREPANCY"
+                        : histReviews > 0
+                        ? "REVIEW REQUIRED"
+                        : "CONSISTENT"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground border-t border-border/40 pt-2">
+                    <div className="flex items-center gap-3">
+                      <span>✓ {hist.summary_counts?.consistent ?? 0} consistent</span>
+                      <span>⚠ {hist.summary_counts?.review_required ?? 0} review</span>
+                      <span>🔴 {hist.summary_counts?.potential_discrepancy ?? 0} discrepancy</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const loadedData = {
+                          ...hist,
+                          has_reference: true,
+                        } as any;
+                        setData(loadedData);
+                        if (onSave) {
+                          onSave(loadedData);
+                        }
+                        setShowHistoryModal(false);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg bg-brand/10 hover:bg-brand/20 text-brand px-2.5 py-1 text-xs font-semibold transition"
+                    >
+                      {isCurrent ? "Active" : "Load Comparison"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-end pt-2 border-t border-border/60">
+            <button
+              type="button"
+              onClick={() => setShowHistoryModal(false)}
+              className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-muted"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (error || !data || !data.has_reference) {
     return (
       <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7 space-y-5">
@@ -561,14 +673,26 @@ export function PackageIntegrityCard({
             <h3 className="mt-1 text-xl font-semibold tracking-tight">Package Integrity Verification</h3>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowUploadModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-brand/40 bg-brand/5 hover:bg-brand/10 px-4 py-2 text-xs font-bold text-brand transition shadow-xs self-start sm:self-auto"
-          >
-            <Upload className="h-4 w-4" />
-            Upload Reference Packaging
-          </button>
+          <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+            {history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-muted/60 hover:bg-muted px-3.5 py-2 text-xs font-bold text-foreground transition shadow-xs"
+              >
+                <History className="h-3.5 w-3.5 text-muted-foreground" />
+                History ({history.length})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowUploadModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-brand/40 bg-brand/5 hover:bg-brand/10 px-4 py-2 text-xs font-bold text-brand transition shadow-xs"
+            >
+              <Upload className="h-4 w-4" />
+              Upload Reference Packaging
+            </button>
+          </div>
         </div>
 
         <div className="rounded-xl border border-border/80 bg-muted/30 p-6 text-center space-y-3">
@@ -581,7 +705,7 @@ export function PackageIntegrityCard({
               Upload official packaging photos across all faces (Front, Back, Side) to run comparative field-level screening against this inspected package.
             </p>
           </div>
-          <div className="pt-1">
+          <div className="pt-1 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
               onClick={() => setShowUploadModal(true)}
@@ -590,10 +714,21 @@ export function PackageIntegrityCard({
               <Upload className="h-3.5 w-3.5" />
               Upload Reference Packaging Standard
             </button>
+            {history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-xs font-bold text-foreground hover:bg-muted transition shadow-xs"
+              >
+                <History className="h-3.5 w-3.5 text-muted-foreground" />
+                Select from Comparison History ({history.length})
+              </button>
+            )}
           </div>
         </div>
 
         {renderUploadModal()}
+        {renderHistoryModal()}
       </section>
     );
   }
@@ -1206,221 +1341,10 @@ export function PackageIntegrityCard({
       )}
 
       {/* 7. History Drawer / Modal */}
-      {showHistoryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-start justify-between border-b border-border/60 pb-3">
-              <div>
-                <h4 className="text-base font-bold text-foreground">Package Integrity Comparison History</h4>
-                <p className="text-xs text-muted-foreground">Historical comparison versions for this inspection</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowHistoryModal(false)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              {history.map((hist, idx) => {
-                const isCurrent = hist.comparison_id === data.comparison_id;
-                const histDiscrepancies = hist.summary_counts?.potential_discrepancy ?? 0;
-                const histReviews = hist.summary_counts?.review_required ?? 0;
-                const statusBadge = histDiscrepancies > 0
-                  ? "bg-red-500/10 border-red-500/30 text-red-600"
-                  : histReviews > 0
-                  ? "bg-amber-500/10 border-amber-500/30 text-amber-600"
-                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-600";
-
-                return (
-                  <div
-                    key={hist.comparison_id || idx}
-                    className={`rounded-xl border p-3.5 text-xs transition ${
-                      isCurrent
-                        ? "border-brand bg-brand/5 shadow-xs"
-                        : "border-border/70 bg-card hover:border-brand/40"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <div>
-                        <p className="font-bold text-foreground">
-                          {hist.reference_name || "Catalog Reference Standard"}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          Compared: {hist.timestamp ? new Date(hist.timestamp).toLocaleString("en-IN") : "Unknown time"}
-                        </p>
-                      </div>
-                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${statusBadge}`}>
-                        {histDiscrepancies > 0
-                          ? "DISCREPANCY"
-                          : histReviews > 0
-                          ? "REVIEW REQUIRED"
-                          : "CONSISTENT"}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground border-t border-border/40 pt-2">
-                      <span>✓ {hist.summary_counts?.consistent ?? 0} consistent</span>
-                      <span>⚠ {hist.summary_counts?.review_required ?? 0} review</span>
-                      <span>🔴 {hist.summary_counts?.potential_discrepancy ?? 0} discrepancy</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-end pt-2 border-t border-border/60">
-              <button
-                type="button"
-                onClick={() => setShowHistoryModal(false)}
-                className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-muted"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderHistoryModal()}
 
       {/* 8. Upload Reference Image Modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-border/60 pb-3">
-              <div>
-                <h4 className="text-base font-bold text-foreground">Upload Reference Packaging</h4>
-                <p className="text-xs text-muted-foreground">For comparative field-by-field screening</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowUploadModal(false)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUploadCompare} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-foreground mb-1">Reference Classification</label>
-                <select
-                  value={uploadRefType}
-                  onChange={(e: any) => setUploadRefType(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground focus:border-brand focus:outline-none"
-                >
-                  <option value="UNVERIFIED">UNVERIFIED (User / Inspector Reference Photo)</option>
-                  <option value="TRUSTED">TRUSTED (Official Brand / Catalog Master)</option>
-                  <option value="DEMO">DEMO (Pre-seeded Benchmark Fixture)</option>
-                </select>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Uploaded reference standards are screened for advisory comparative guidance only.
-                </p>
-              </div>
-
-              <div>
-                <label className="block font-bold text-foreground mb-1">
-                  Reference Packaging Faces ({selectedFiles.length} Selected)
-                </label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files.length > 0) {
-                      const newFiles = Array.from(e.target.files);
-                      setSelectedFiles((prev) => [...prev, ...newFiles]);
-                      e.target.value = "";
-                    }
-                  }}
-                  className="hidden"
-                />
-
-                {selectedFiles.length === 0 ? (
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-brand/60 hover:bg-brand/5 transition text-center"
-                  >
-                    <Upload className="h-5 w-5 text-muted-foreground mb-1.5" />
-                    <p className="font-semibold text-foreground text-xs">Click to select Reference Face Images</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Upload front, back, and side panels for comprehensive multi-surface comparison
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                    {selectedFiles.map((file, idx) => (
-                      <div
-                        key={`${file.name}-${idx}`}
-                        className="flex items-center justify-between p-2 rounded-lg border border-border bg-background text-xs"
-                      >
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="shrink-0 rounded bg-brand/10 text-brand px-1.5 py-0.5 text-[10px] font-bold">
-                            Face {idx + 1}
-                          </span>
-                          <span className="truncate font-medium text-foreground">{file.name}</span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground">
-                            ({(file.size / 1024).toFixed(0)} KB)
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedFiles((prev) => prev.filter((_, i) => i !== idx))}
-                          className="shrink-0 p-1 text-muted-foreground hover:text-red-500 rounded"
-                          title="Remove face image"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full py-1.5 text-center text-xs font-semibold text-brand border border-dashed border-brand/40 rounded-lg hover:bg-brand/5 transition"
-                      >
-                        + Add Another Reference Face
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUploadModal(false);
-                    setSelectedFiles([]);
-                  }}
-                  className="rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-muted"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={selectedFiles.length === 0 || comparing}
-                  className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 text-xs font-bold text-white hover:bg-brand/90 disabled:opacity-50"
-                >
-                  {comparing ? (
-                    <>
-                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                      Comparing…
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-3.5 w-3.5" />
-                      Run Comparison ({selectedFiles.length} Face{selectedFiles.length > 1 ? "s" : ""})
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {renderUploadModal()}
 
       {/* Bottom Save / Persistence Action Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-border/60">

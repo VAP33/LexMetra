@@ -399,7 +399,11 @@ export function ResultView({
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Checked</p>
               <p className="mt-1 text-sm font-semibold">
-                {inspection.declarationSummary ? `${inspection.declarationSummary.verified} / ${inspection.declarationSummary.applicable}` : `${verified} / ${total}`}
+                {inspection.scoreBreakdown
+                  ? `${inspection.scoreBreakdown.verifiedCount} / ${inspection.scoreBreakdown.applicableCount}`
+                  : inspection.declarationSummary
+                  ? `${inspection.declarationSummary.verified} / ${inspection.declarationSummary.applicable}`
+                  : `${verified} / ${total}`}
                 {inspection.pdpAreaCm2 ? ` · ${inspection.pdpAreaCm2} cm² PDP` : ""}
               </p>
             </div>
