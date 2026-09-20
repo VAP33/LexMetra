@@ -682,6 +682,83 @@ export function reportPdfUrl(id: string): string {
   return `${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf`;
 }
 
+export async function downloadOrOpenInspectionReportPdf(id: string): Promise<void> {
+  const token = getStoredToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const url = `${API_BASE}/inspections/${encodeURIComponent(id)}/report.pdf`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    throw new Error(`Failed to generate official report PDF (${res.status})`);
+  }
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const win = window.open(blobUrl, "_blank");
+  if (!win) {
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = `LexMetra_Inspection_Report_${id.slice(0, 12)}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
+
+export interface PublicVerificationDocket {
+  inspection_id: string;
+  product_name: string;
+  product_id: string;
+  category: string;
+  sale_type: string;
+  overall_status: string;
+  created_at: string;
+  digital_seal: {
+    issued_by: string;
+    jurisdiction: string;
+    statutory_act: string;
+    seal_status: string;
+    docket_hash: string;
+  };
+  counts: {
+    verified: number;
+    review_required: number;
+    violations: number;
+    total_declarations: number;
+  };
+  package_integrity_status: string;
+  has_official_report_pdf: boolean;
+  report_pdf_url: string;
+}
+
+export async function getPublicVerificationDocket(id: string): Promise<PublicVerificationDocket> {
+  return request<PublicVerificationDocket>(`/verify/${encodeURIComponent(id)}`);
+}
+
+export interface MasterRuleItem {
+  id: string;
+  citation: string;
+  chapter: string;
+  title: string;
+  summary: string;
+  category_scope: string;
+  is_mandatory: boolean;
+  penal_section: string;
+  penalty_description: string;
+  exemptions: string[];
+  evaluation_status?: string;
+  context_note?: string;
+}
+
+export async function getMasterRules(params?: { category?: string; saleType?: string }): Promise<MasterRuleItem[]> {
+  const query = new URLSearchParams();
+  if (params?.category) query.set("category", params.category);
+  if (params?.saleType) query.set("sale_type", params.saleType);
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return request<MasterRuleItem[]>(`/rules/lmpc-master${qs}`);
+}
+
 // ---------------------------------------------------------------------------
 // USP 1: Package Integrity Verification
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ export type FactStatus = "PASS" | "FAIL" | "UNCERTAIN" | "EXEMPT";
 // backend's enum. The previous local union here listed five members, two of
 // which ("ABSENT", "UNOBSERVED") the backend never emits.
 export type { RawCanonicalStatus as CanonicalStatus } from "./api-client";
-import type { RawCanonicalStatus } from "./api-client";
+import type { RawCanonicalStatus, IntegrityReportData } from "./api-client";
 
 // --- UI-facing enums (kept from the original app, EXEMPT & UNOBSERVED added) ---
 export type InspectionStatus = "COMPLIANT" | "VIOLATION" | "UNCERTAIN" | "EXEMPT";
@@ -256,6 +256,8 @@ export interface Inspection {
   similarMatches: SimilarMatch[];
   stickerSuspicions: StickerSuspicion[];
   priceOrLabelChangeFlag?: string | null;
+  packageIntegrity?: IntegrityReportData;
+  integrityStatus?: string;
 }
 
 // What the pre-scan details sheet collects before calling /scan. These are

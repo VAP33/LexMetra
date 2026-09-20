@@ -101,6 +101,7 @@ async def compare_package_integrity(
         custom_reference_path=custom_ref_paths[0] if custom_ref_paths else None,
         custom_reference_paths=custom_ref_paths,
         custom_reference_type=reference_type,
+        allow_demo_fixtures=True,
     )
     report_dict = res.to_dict()
     report_dict["inspection_id"] = inspection_id

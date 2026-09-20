@@ -130,7 +130,7 @@ export function InspectionRow({ inspection, onOpen, lang }: { inspection: Inspec
 export function LexMetraLogo({ className = "h-8 sm:h-9 w-auto" }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 420 100"
+      viewBox="0 0 440 100"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
@@ -139,81 +139,103 @@ export function LexMetraLogo({ className = "h-8 sm:h-9 w-auto" }: { className?: 
       <defs>
         <linearGradient id="shieldGradLM" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#1E3A8A" />
-          <stop offset="100%" stopColor="#0F172A" />
+          <stop offset="50%" stopColor="#0F172A" />
+          <stop offset="100%" stopColor="#0284C7" />
         </linearGradient>
-        <linearGradient id="tricolorLM" x1="0%" y1="0%" x2="100%" y2="0%">
+        <linearGradient id="goldScalesLM" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FBBF24" />
+          <stop offset="100%" stopColor="#D97706" />
+        </linearGradient>
+        <linearGradient id="tricolorBadgeLM" x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stopColor="#FF9933" />
-          <stop offset="50%" stopColor="#CBD5E1" />
+          <stop offset="48%" stopColor="#FFFFFF" />
+          <stop offset="52%" stopColor="#000080" />
           <stop offset="100%" stopColor="#138808" />
         </linearGradient>
+        <filter id="glowLM" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#38BDF8" floodOpacity="0.35" />
+        </filter>
       </defs>
 
       {/* Emblem Icon (Left) */}
       <g transform="translate(10, 10)">
+        {/* Outer Shield with Electric Rim */}
         <path
-          d="M40 0 L72 18 L72 58 L40 78 L8 58 L8 18 Z"
+          d="M40 2 L74 19 L74 57 L40 78 L6 57 L6 19 Z"
           fill="url(#shieldGradLM)"
-          stroke="#3B82F6"
+          stroke="#38BDF8"
           strokeWidth="2.5"
           strokeLinejoin="round"
+          filter="url(#glowLM)"
         />
-        <line x1="16" y1="28" x2="22" y2="28" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="16" y1="36" x2="25" y2="36" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
-        <line x1="16" y1="44" x2="22" y2="44" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="16" y1="52" x2="25" y2="52" stroke="#10B981" strokeWidth="2" strokeLinecap="round" />
 
-        {/* Scales of Justice / Legal Metrology */}
-        <path d="M40 16 L40 62" stroke="#E2E8F0" strokeWidth="2.5" strokeLinecap="round" />
-        <path d="M26 26 L54 26" stroke="#F59E0B" strokeWidth="2.5" strokeLinecap="round" />
-        <path d="M26 26 L22 40 L30 40 Z" fill="none" stroke="#CBD5E1" strokeWidth="1.5" />
-        <path d="M20 40 Q26 46 32 40" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
-        <path d="M54 26 L50 40 L58 40 Z" fill="none" stroke="#CBD5E1" strokeWidth="1.5" />
-        <path d="M48 40 Q54 46 60 40" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" />
-        <circle cx="40" cy="26" r="3.5" fill="#38BDF8" stroke="#0F172A" strokeWidth="1" />
+        {/* Vernier Caliper / Precision Scale Grid */}
+        <line x1="14" y1="26" x2="22" y2="26" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="14" y1="34" x2="25" y2="34" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" />
+        <line x1="14" y1="42" x2="22" y2="42" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="14" y1="50" x2="25" y2="50" stroke="#34D399" strokeWidth="2" strokeLinecap="round" />
 
-        {/* Tricolor Ribbon at Base */}
-        <rect x="22" y="66" width="36" height="3" rx="1.5" fill="url(#tricolorLM)" />
+        {/* Scales of Justice Pillar */}
+        <path d="M40 14 L40 64" stroke="#F1F5F9" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M24 24 L56 24" stroke="url(#goldScalesLM)" strokeWidth="2.8" strokeLinecap="round" />
+        
+        {/* Left Scale Pan */}
+        <path d="M24 24 L19 40 L29 40 Z" fill="none" stroke="#E2E8F0" strokeWidth="1.2" />
+        <path d="M17 40 Q24 47 31 40" fill="none" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" />
+
+        {/* Right Scale Pan */}
+        <path d="M56 24 L51 40 L61 40 Z" fill="none" stroke="#E2E8F0" strokeWidth="1.2" />
+        <path d="M49 40 Q56 47 63 40" fill="none" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" />
+
+        {/* Central Fulcrum */}
+        <circle cx="40" cy="24" r="3.8" fill="#38BDF8" stroke="#0F172A" strokeWidth="1.5" />
+
+        {/* Indian National Tricolor Ribbon with Chakra Dot */}
+        <rect x="20" y="67" width="40" height="3.5" rx="1.75" fill="url(#tricolorBadgeLM)" />
       </g>
 
-      {/* Brand Typography */}
+      {/* Brand Typography (Theme Adaptive: uses currentColor for dark/light contrast) */}
       <text
         x="100"
         y="46"
-        fontFamily="system-ui, -apple-system, sans-serif"
+        fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
         fontSize="34"
         fontWeight="900"
         letterSpacing="3"
-        fill="#0F172A"
+        fill="currentColor"
+        className="text-slate-900 dark:text-white"
       >
-        LEX<tspan fill="#2563EB">METRA</tspan>
+        LEX<tspan fill="#0284C7" className="text-sky-500 dark:text-sky-400">METRA</tspan>
       </text>
 
-      {/* DCA IND Pill */}
-      <rect x="306" y="24" width="76" height="24" rx="6" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="1.5" />
+      {/* Official DCA IND Gov Seal Badge */}
+      <rect x="314" y="22" width="84" height="25" rx="6" fill="#0284C7" fillOpacity="0.12" stroke="#0284C7" strokeWidth="1.5" />
       <text
-        x="344"
-        y="40"
+        x="356"
+        y="39"
         fontFamily="system-ui, -apple-system, sans-serif"
         fontSize="11"
         fontWeight="800"
-        fill="#1D4ED8"
+        fill="#0284C7"
+        className="text-sky-600 dark:text-sky-300"
         textAnchor="middle"
         letterSpacing="1"
       >
-        DCA IND
+        GOV · IND
       </text>
 
       {/* Subtitle */}
       <text
         x="102"
-        y="70"
+        y="69"
         fontFamily="system-ui, -apple-system, sans-serif"
         fontSize="10"
         fontWeight="700"
-        letterSpacing="2"
-        fill="#047857"
+        letterSpacing="2.2"
+        fill="#059669"
+        className="text-emerald-700 dark:text-emerald-400"
       >
-        LEGAL METROLOGY DIVISION · GOVT OF INDIA
+        LEGAL METROLOGY STATUTORY COMPLIANCE
       </text>
     </svg>
   );

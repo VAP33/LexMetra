@@ -18,8 +18,11 @@ import { type Inspection } from "@/lib/types";
 import {
   getPackageIntegrity,
   getDepartmentalCrossVerification,
+  downloadOrOpenInspectionReportPdf,
+  getMasterRules,
   type IntegrityReportData,
   type DepartmentalRegulatoryDossierData,
+  type MasterRuleItem,
 } from "@/lib/api-client";
 import { Button, formatDate } from "./ui-primitives";
 import { exportElementAsPdf } from "@/lib/pdf-generator";
@@ -132,8 +135,9 @@ function TableHeader({ cols }: { cols: string[] }) {
 export function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: () => void }) {
   const [pdfState, setPdfState] = useState<"idle" | "generating" | "done">("idle");
   const [pdfProgress, setPdfProgress] = useState<{ stage: string; pct: number } | null>(null);
-  const [integrityData, setIntegrityData] = useState<IntegrityReportData | null>(null);
+  const [integrityData, setIntegrityData] = useState<IntegrityReportData | null>(inspection.packageIntegrity || null);
   const [dossier, setDossier] = useState<DepartmentalRegulatoryDossierData | null>(null);
+  const [masterRules, setMasterRules] = useState<MasterRuleItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -141,13 +145,15 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
     async function loadData() {
       setLoading(true);
       try {
-        const [integrity, dept] = await Promise.allSettled([
+        const [integrity, dept, rules] = await Promise.allSettled([
           getPackageIntegrity(inspection.id),
           getDepartmentalCrossVerification(inspection.id),
+          getMasterRules({ category: inspection.category, saleType: inspection.saleType }),
         ]);
         if (cancelled) return;
         if (integrity.status === "fulfilled") setIntegrityData(integrity.value);
         if (dept.status === "fulfilled") setDossier(dept.value);
+        if (rules.status === "fulfilled") setMasterRules(rules.value);
       } catch {
         // tolerates partial failures silently
       } finally {
@@ -156,25 +162,30 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
     }
     loadData();
     return () => { cancelled = true; };
-  }, [inspection.id]);
+  }, [inspection.id, inspection.category, inspection.saleType]);
 
   async function handleExportPdf() {
     if (pdfState === "generating") return;
     setPdfState("generating");
-    setPdfProgress({ stage: "Starting…", pct: 0 });
+    setPdfProgress({ stage: "Generating official statutory dossier…", pct: 30 });
     try {
-      await exportElementAsPdf(
-        "lexmetra-report-shell",
-        `LexMetra_Report_${inspection.id.slice(0, 8)}.pdf`,
-        (p) => setPdfProgress(p)
-      );
+      setPdfProgress({ stage: "Opening certified 3-page PDF dossier…", pct: 75 });
+      await downloadOrOpenInspectionReportPdf(inspection.id);
+      setPdfProgress({ stage: "Ready!", pct: 100 });
     } catch (err) {
-      console.error("PDF export failed:", err);
-      // Graceful fallback to print dialog
-      window.print();
+      console.warn("Direct PDF retrieval failed, falling back to document export:", err);
+      try {
+        await exportElementAsPdf(
+          "lexmetra-report-shell",
+          `LexMetra_Report_${inspection.id.slice(0, 8)}.pdf`,
+          (p) => setPdfProgress(p)
+        );
+      } catch (fallbackErr) {
+        window.print();
+      }
     } finally {
       setPdfState("done");
-      setTimeout(() => setPdfProgress(null), 1500);
+      setTimeout(() => setPdfProgress(null), 1200);
     }
   }
 
@@ -366,6 +377,59 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                     )) : (
                       <tr>
                         <td colSpan={6} className="px-3 py-4 text-center text-slate-400 italic text-xs">No declarations extracted</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Section 1B: LMPC Master Statutory Rule & Exemption Register */}
+            <div className="print-avoid-break">
+              <SectionTitle n="1B" title="LMPC-2011 Master Statutory Rule & Exemption Register (G.S.R. 202(E))" />
+              <p className="text-xs text-slate-500 mb-2">
+                Statutory codification under the Legal Metrology (Packaged Commodities) Rules, 2011 and Legal Metrology Act, 2009.
+                Contextual exemptions evaluated dynamically for this package category, sale type, and container specification.
+              </p>
+              <div className="rounded-xl border border-slate-200 overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <TableHeader cols={["Statutory Citation", "Chapter / Rule Title", "Category Scope", "Applicability / Exemption", "Contextual Analysis & Conditions", "Penal Section"]} />
+                  <tbody className="divide-y divide-slate-100">
+                    {masterRules.length > 0 ? masterRules.map((r, i) => (
+                      <tr key={r.id || i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="px-3 py-2 font-mono font-bold text-slate-800 whitespace-nowrap">{r.citation}</td>
+                        <td className="px-3 py-2 text-slate-800 font-semibold max-w-[170px] break-words">
+                          <div>{r.title}</div>
+                          <div className="text-[10px] text-slate-500 font-normal">{r.chapter}</div>
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.category_scope}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            r.evaluation_status === "APPLICABLE"
+                              ? "bg-blue-100 text-blue-800"
+                              : r.evaluation_status === "EXEMPT" || r.evaluation_status === "ACTIVE_EXEMPTION"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-slate-100 text-slate-600"
+                          }`}>
+                            {r.evaluation_status || (r.is_mandatory ? "MANDATORY" : "CONDITIONAL")}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 text-[10px] max-w-[240px] break-words">
+                          <div className="font-medium text-slate-700">{r.context_note || r.summary}</div>
+                          {r.exemptions?.length > 0 && (
+                            <div className="text-slate-500 mt-0.5 italic">
+                              Exemptions: {r.exemptions.join("; ")}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px] text-rose-700 whitespace-nowrap">
+                          <div>{r.penal_section}</div>
+                          <div className="text-[9px] text-slate-500 font-sans max-w-[130px] break-words">{r.penalty_description}</div>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-4 text-center text-slate-400 italic text-xs">Loading statutory master rules…</td>
                       </tr>
                     )}
                   </tbody>
@@ -601,6 +665,130 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400 italic">
                   No surface images available in this inspection.
+                </div>
+              )}
+
+              {/* Sub-section 5B: Specific Rule Localized Bounding Box Cutouts */}
+              <div className="mt-5 space-y-3">
+                <div className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <BadgeCheck className="h-3.5 w-3.5 text-emerald-600" />
+                  Specific Rule Localized Bounding Box Cutouts (Aspect Ratio Preserved)
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Micro-crops isolated directly around statutory inscriptions with localized coordinate bounds.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {allDecls.filter((d: any) => d.evidenceCropBase64 || d.evidenceCrop || d.boundingBox || d.bbox).slice(0, 6).map((d: any, idx) => {
+                    const cropB64 = d.evidenceCropBase64 || d.evidenceCrop;
+                    const bbox = d.boundingBox || d.bbox;
+                    const bboxStr = Array.isArray(bbox) ? `[${bbox.map((v: number) => Math.round(v)).join(", ")}]` : null;
+
+                    return (
+                      <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800 truncate">{fieldLabel(d.field)}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            d.status === "VERIFIED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {d.status}
+                          </span>
+                        </div>
+
+                        {/* Aspect ratio preserved crop preview */}
+                        <div className="flex items-center justify-center bg-slate-900 rounded-lg p-2 overflow-hidden" style={{ minHeight: "90px", maxHeight: "140px" }}>
+                          {cropB64 ? (
+                            <img
+                              src={cropB64.startsWith("data:") ? cropB64 : `data:image/jpeg;base64,${cropB64}`}
+                              alt={d.field}
+                              style={{
+                                display: "block",
+                                maxWidth: "100%",
+                                maxHeight: "120px",
+                                width: "auto",
+                                height: "auto",
+                                objectFit: "contain",
+                                margin: "0 auto",
+                              }}
+                            />
+                          ) : (
+                            <div className="text-slate-400 text-[10px] text-center p-2">
+                              Bounding Box Coordinate: {bboxStr || "Mapped"}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                          <span className="truncate max-w-[120px]">Val: {d.value || "—"}</span>
+                          {bboxStr && <span>BBox: {bboxStr}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Sub-section 5C: Side-by-Side Reference vs. Inspected Evidence Comparison */}
+              {intFields.length > 0 && (
+                <div className="mt-5 space-y-3">
+                  <div className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
+                    Side-by-Side Reference Standard vs. Inspected Package Comparison
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Direct visual corroboration between approved catalog reference standard and scanned retail specimen.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {intFields.filter((f) => f.reference_crop || f.inspection_crop).slice(0, 4).map((f, fIdx) => (
+                      <div key={fIdx} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                        <div className="font-bold text-slate-800 flex items-center justify-between">
+                          <span>{fieldLabel(f.field_name)}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            f.comparison_status === "CONSISTENT" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {f.comparison_status || "EVALUATED"}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-center">
+                          {/* Reference Standard */}
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-semibold text-slate-600">Reference Standard</span>
+                            <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
+                              {f.reference_crop ? (
+                                <img
+                                  src={f.reference_crop.startsWith("data:") ? f.reference_crop : `data:image/jpeg;base64,${f.reference_crop}`}
+                                  alt="Reference"
+                                  style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
+                                />
+                              ) : (
+                                <span className="text-slate-400 text-[9px]">Text Standard</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-700 truncate">{f.reference_value || "—"}</div>
+                          </div>
+
+                          {/* Inspected Specimen */}
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-semibold text-slate-600">Inspected Specimen</span>
+                            <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
+                              {f.inspection_crop ? (
+                                <img
+                                  src={f.inspection_crop.startsWith("data:") ? f.inspection_crop : `data:image/jpeg;base64,${f.inspection_crop}`}
+                                  alt="Inspected"
+                                  style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
+                                />
+                              ) : (
+                                <span className="text-slate-400 text-[9px]">Captured Inscription</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] font-mono text-slate-700 truncate">{f.inspection_value || "—"}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

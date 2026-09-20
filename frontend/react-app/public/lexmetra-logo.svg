@@ -1,58 +1,87 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 100" fill="none">
+<svg viewBox="0 0 440 100" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1E3A8A"/>
-      <stop offset="100%" stop-color="#0F172A"/>
+    <linearGradient id="shieldGradLM" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A" />
+      <stop offset="50%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#0284C7" />
     </linearGradient>
-    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F59E0B"/>
-      <stop offset="100%" stop-color="#D97706"/>
+    <linearGradient id="goldScalesLM" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24" />
+      <stop offset="100%" stop-color="#D97706" />
     </linearGradient>
-    <linearGradient id="tricolor" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#FF9933"/>
-      <stop offset="50%" stop-color="#FFFFFF"/>
-      <stop offset="100%" stop-color="#138808"/>
+    <linearGradient id="tricolorBadgeLM" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF9933" />
+      <stop offset="48%" stop-color="#FFFFFF" />
+      <stop offset="52%" stop-color="#000080" />
+      <stop offset="100%" stop-color="#138808" />
     </linearGradient>
+    <filter id="glowLM" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#38BDF8" flood-opacity="0.35" />
+    </filter>
   </defs>
 
-  <!-- Logo Icon Container (Left) -->
+  <!-- Emblem Icon (Left) -->
   <g transform="translate(10, 10)">
-    <!-- Hexagonal Shield Background -->
-    <path d="M40 0 L72 18 L72 58 L40 78 L8 58 L8 18 Z" fill="url(#shieldGrad)" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>
-    
-    <!-- Precision Calibration Marks on the Left Border -->
-    <line x1="16" y1="28" x2="22" y2="28" stroke="#93C5FD" stroke-width="1.5" stroke-linecap="round"/>
-    <line x1="16" y1="36" x2="25" y2="36" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/>
-    <line x1="16" y1="44" x2="22" y2="44" stroke="#93C5FD" stroke-width="1.5" stroke-linecap="round"/>
-    <line x1="16" y1="52" x2="25" y2="52" stroke="#10B981" stroke-width="2" stroke-linecap="round"/>
+    <path
+      d="M40 2 L74 19 L74 57 L40 78 L6 57 L6 19 Z"
+      fill="url(#shieldGradLM)"
+      stroke="#38BDF8"
+      stroke-width="2.5"
+      stroke-linejoin="round"
+      filter="url(#glowLM)"
+    />
+    <line x1="14" y1="26" x2="22" y2="26" stroke="#93C5FD" stroke-width="1.5" stroke-linecap="round" />
+    <line x1="14" y1="34" x2="25" y2="34" stroke="#FBBF24" stroke-width="2" stroke-linecap="round" />
+    <line x1="14" y1="42" x2="22" y2="42" stroke="#93C5FD" stroke-width="1.5" stroke-linecap="round" />
+    <line x1="14" y1="50" x2="25" y2="50" stroke="#34D399" stroke-width="2" stroke-linecap="round" />
 
-    <!-- Scales of Legal Metrology (Balance Beam & Fulcrum) -->
-    <path d="M40 16 L40 62" stroke="#E2E8F0" stroke-width="2.5" stroke-linecap="round"/>
-    <path d="M26 26 L54 26" stroke="#F59E0B" stroke-width="2.5" stroke-linecap="round"/>
-    <!-- Left Pan -->
-    <path d="M26 26 L22 40 L30 40 Z" fill="none" stroke="#CBD5E1" stroke-width="1.5"/>
-    <path d="M20 40 Q26 46 32 40" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/>
-    <!-- Right Pan -->
-    <path d="M54 26 L50 40 L58 40 Z" fill="none" stroke="#CBD5E1" stroke-width="1.5"/>
-    <path d="M48 40 Q54 46 60 40" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"/>
-    <!-- Central Fulcrum / Dial -->
-    <circle cx="40" cy="26" r="3.5" fill="#38BDF8" stroke="#0F172A" stroke-width="1"/>
+    <path d="M40 14 L40 64" stroke="#F1F5F9" stroke-width="2.5" stroke-linecap="round" />
+    <path d="M24 24 L56 24" stroke="url(#goldScalesLM)" stroke-width="2.8" stroke-linecap="round" />
+    <path d="M24 24 L19 40 L29 40 Z" fill="none" stroke="#E2E8F0" stroke-width="1.2" />
+    <path d="M17 40 Q24 47 31 40" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round" />
+    <path d="M56 24 L51 40 L61 40 Z" fill="none" stroke="#E2E8F0" stroke-width="1.2" />
+    <path d="M49 40 Q56 47 63 40" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round" />
+    <circle cx="40" cy="24" r="3.8" fill="#38BDF8" stroke="#0F172A" stroke-width="1.5" />
 
-    <!-- Tricolor Ribbon Accent at Base -->
-    <rect x="22" y="66" width="36" height="3" rx="1.5" fill="url(#tricolor)"/>
+    <rect x="20" y="67" width="40" height="3.5" rx="1.75" fill="url(#tricolorBadgeLM)" />
   </g>
 
-  <!-- Brand Typography -->
-  <text x="102" y="48" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="900" letter-spacing="4" fill="#0F172A">
-    LEX<tspan fill="#2563EB">METRA</tspan>
+  <!-- Typography -->
+  <text
+    x="100"
+    y="46"
+    font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    font-size="34"
+    font-weight="900"
+    letter-spacing="3"
+    fill="#0F172A"
+  >
+    LEX<tspan fill="#0284C7">METRA</tspan>
   </text>
-  
-  <!-- Pill Badge: DCA AI -->
-  <rect x="312" y="24" width="70" height="24" rx="6" fill="#EFF6FF" stroke="#3B82F6" stroke-width="1.5"/>
-  <text x="347" y="40" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="800" fill="#1D4ED8" text-anchor="middle" letter-spacing="1">DCA AI</text>
 
-  <!-- Subtitle -->
-  <text x="104" y="72" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" letter-spacing="2.5" fill="#047857">
-    LEGAL METROLOGY DIVISION · GOVT OF INDIA
+  <rect x="314" y="22" width="84" height="25" rx="6" fill="#0284C7" fill-opacity="0.12" stroke="#0284C7" stroke-width="1.5" />
+  <text
+    x="356"
+    y="39"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="11"
+    font-weight="800"
+    fill="#0284C7"
+    text-anchor="middle"
+    letter-spacing="1"
+  >
+    GOV · IND
+  </text>
+
+  <text
+    x="102"
+    y="69"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="10"
+    font-weight="700"
+    letter-spacing="2.2"
+    fill="#059669"
+  >
+    LEGAL METROLOGY STATUTORY COMPLIANCE
   </text>
 </svg>

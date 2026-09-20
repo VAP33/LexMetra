@@ -284,13 +284,15 @@ export function PackageIntegrityCard({
   inspectionId,
   productId: _productId,
   productName: _productName,
+  initialData,
 }: {
   inspectionId: string;
   productId?: string;
   productName?: string;
+  initialData?: IntegrityReportData | null;
 }) {
-  const [data, setData] = useState<IntegrityReportData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<IntegrityReportData | null>(initialData || null);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadRefType, setUploadRefType] = useState<"TRUSTED" | "DEMO" | "UNVERIFIED">("UNVERIFIED");
@@ -302,15 +304,24 @@ export function PackageIntegrityCard({
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function loadIntegrity() {
-    setLoading(true);
+  useEffect(() => {
+    if (initialData) {
+      setData(initialData);
+      setLoading(false);
+    }
+  }, [initialData]);
+
+  function loadIntegrity(silent = false) {
+    if (!silent) setLoading(true);
     getPackageIntegrity(inspectionId)
       .then((res) => {
         setData(res);
         setLoading(false);
       })
       .catch((err) => {
-        setError(err?.message || "Integrity verification unavailable");
+        if (!initialData) {
+          setError(err?.message || "Integrity verification unavailable");
+        }
         setLoading(false);
       });
 
@@ -324,7 +335,7 @@ export function PackageIntegrityCard({
   }
 
   useEffect(() => {
-    loadIntegrity();
+    loadIntegrity(Boolean(initialData));
   }, [inspectionId]);
 
   async function handleUploadCompare(e: React.FormEvent) {

@@ -381,14 +381,34 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     return lines
 
 
+import hashlib
+from concurrent.futures import ThreadPoolExecutor
+
+_OCR_IMAGE_CACHE: Dict[str, List[OcrLine]] = {}
+
+
+def _get_image_cache_key(image: Image.Image) -> str:
+    try:
+        sample = image.resize((64, 64)).tobytes()
+        return hashlib.md5(sample).hexdigest() + f"_{image.width}x{image.height}"
+    except Exception:
+        return ""
+
+
 def run_ocr(image: Image.Image) -> List[OcrLine]:
     """
     Read an image and return text lines in ORIGINAL image coordinates.
 
     Uses Gemini Vision API as the primary backend when GEMINI_API_KEY is configured,
-    for maximum speed and accuracy. Falls back to Tesseract whole-image multi-variant OCR
+    for maximum speed and accuracy. Falls back to Tesseract whole-image OCR
     if Gemini is unavailable or returns sparse results.
     """
+    cache_key = _get_image_cache_key(image)
+    if cache_key and cache_key in _OCR_IMAGE_CACHE:
+        cached = _OCR_IMAGE_CACHE[cache_key]
+        print(f"[+] [OCR PIPELINE] Cache HIT ({len(cached)} lines)", flush=True)
+        return list(cached)
+
     lines: List[OcrLine] = []
 
     # 1. Gemini Vision API (primary when configured)
@@ -407,10 +427,10 @@ def run_ocr(image: Image.Image) -> List[OcrLine]:
     else:
         print("[*] [OCR PIPELINE] Gemini client unavailable. Using local OCR engines.", flush=True)
 
-    # 2. Whole-image Tesseract OCR (fallback or secondary)
-    if not config.ENABLE_REGION_FIRST_OCR or len(lines) < 8:
+    # 2. Whole-image Tesseract OCR (fallback only when primary OCR found < 5 lines)
+    if len(lines) < 5:
         try:
-            print(f"[*] [OCR PIPELINE] Running Tesseract whole-image OCR (current lines={len(lines)})...", flush=True)
+            print(f"[*] [OCR PIPELINE] Running fast local Tesseract OCR (current lines={len(lines)})...", flush=True)
             whole_lines = _run_ocr_whole_image(image)
             lines.extend(whole_lines)
             print(f"[+] [OCR PIPELINE] Tesseract OCR completed. Total lines before dedupe: {len(lines)}", flush=True)
@@ -419,13 +439,17 @@ def run_ocr(image: Image.Image) -> List[OcrLine]:
 
     deduped = _dedupe_lines(lines)
     print(f"[+] [OCR PIPELINE] Final line count after dedupe: {len(deduped)}", flush=True)
+
+    if cache_key and deduped:
+        _OCR_IMAGE_CACHE[cache_key] = deduped
+
     return deduped
 
 
 def _run_ocr_whole_image(image: Image.Image) -> List[OcrLine]:
     """
     Fast whole-image OCR across tuned preprocessing variants with bounding
-    boxes mapped back to original coordinates.
+    boxes mapped back to original coordinates, using parallel threads for speed.
     """
     original = image.convert("RGB")
     orig_w, orig_h = original.size
@@ -433,38 +457,44 @@ def _run_ocr_whole_image(image: Image.Image) -> List[OcrLine]:
 
     all_lines: List[OcrLine] = []
 
-    for variant_index, variant in enumerate(variants):
+    def _process_variant(item: Tuple[int, Image.Image]) -> List[OcrLine]:
+        v_idx, variant = item
         vw, vh = variant.size
         sx = orig_w / vw
         sy = orig_h / vh
+        local_lines: List[OcrLine] = []
 
-        # PSM 6 handles text blocks and label panels well
         psms = [6]
-        # Only add sparse mode (PSM 11) on first variant if initial extraction found very few lines
-        if variant_index == 0 and len(all_lines) < 6:
+        if v_idx == 0:
             psms.append(11)
 
         for psm in psms:
             try:
-                lines = _ocr_single(variant, psm=psm)
+                single_lines = _ocr_single(variant, psm=psm)
+                for line in single_lines:
+                    x, y, w, h = line.bbox
+                    mapped = (
+                        max(0, int(round(x * sx))),
+                        max(0, int(round(y * sy))),
+                        max(1, int(round(w * sx))),
+                        max(1, int(round(h * sy))),
+                    )
+                    local_lines.append(
+                        OcrLine(
+                            text=line.text,
+                            bbox=mapped,
+                            confidence=line.confidence,
+                        )
+                    )
             except Exception:
                 continue
+        return local_lines
 
-            for line in lines:
-                x, y, w, h = line.bbox
-                mapped = (
-                    max(0, int(round(x * sx))),
-                    max(0, int(round(y * sy))),
-                    max(1, int(round(w * sx))),
-                    max(1, int(round(h * sy))),
-                )
-                all_lines.append(
-                    OcrLine(
-                        text=line.text,
-                        bbox=mapped,
-                        confidence=line.confidence,
-                    )
-                )
+    # Run variants concurrently (max 2 workers) to reduce wall-clock time
+    with ThreadPoolExecutor(max_workers=min(2, len(variants))) as executor:
+        results = executor.map(_process_variant, list(enumerate(variants)))
+        for r in results:
+            all_lines.extend(r)
 
     return _dedupe_lines(all_lines)
 
