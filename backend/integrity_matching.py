@@ -68,14 +68,31 @@ def _make_evidence_crop(
             return None
         ih, iw = image_bgr.shape[:2]
         if isinstance(bbox, dict):
-            x = int(round(float(bbox.get("x", 0))))
-            y = int(round(float(bbox.get("y", 0))))
-            w = int(round(float(bbox.get("width", bbox.get("w", 0)))))
-            h = int(round(float(bbox.get("height", bbox.get("h", 0)))))
+            raw_x = float(bbox.get("x", 0))
+            raw_y = float(bbox.get("y", 0))
+            raw_w = float(bbox.get("width", bbox.get("w", 0)))
+            raw_h = float(bbox.get("height", bbox.get("h", 0)))
         elif isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-            x, y, w, h = [int(round(float(v))) for v in bbox[:4]]
+            raw_x, raw_y, raw_w, raw_h = [float(v) for v in bbox[:4]]
         else:
             return None
+
+        # Convert normalized coordinates (0.0 to 1.05) to pixel coordinates
+        if max(raw_x, raw_y, raw_w, raw_h) <= 1.05:
+            raw_x *= iw
+            raw_y *= ih
+            raw_w *= iw
+            raw_h *= ih
+
+        # Handle [x1, y1, x2, y2] format where 3rd and 4th values are end coordinates
+        if raw_w > raw_x and raw_h > raw_y and (raw_x + raw_w > iw or raw_y + raw_h > ih):
+            raw_w = raw_w - raw_x
+            raw_h = raw_h - raw_y
+
+        x = int(round(raw_x))
+        y = int(round(raw_y))
+        w = int(round(raw_w))
+        h = int(round(raw_h))
 
         if w <= 0 or h <= 0:
             return None

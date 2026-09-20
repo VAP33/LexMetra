@@ -31,14 +31,31 @@ def _make_evidence_crop(
             return None
         ih, iw = image_bgr.shape[:2]
         if isinstance(bbox, dict):
-            x = int(round(float(bbox.get("x", 0))))
-            y = int(round(float(bbox.get("y", 0))))
-            w = int(round(float(bbox.get("width", bbox.get("w", 0)))))
-            h = int(round(float(bbox.get("height", bbox.get("h", 0)))))
+            raw_x = float(bbox.get("x", 0))
+            raw_y = float(bbox.get("y", 0))
+            raw_w = float(bbox.get("width", bbox.get("w", 0)))
+            raw_h = float(bbox.get("height", bbox.get("h", 0)))
         elif isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-            x, y, w, h = [int(round(float(v))) for v in bbox[:4]]
+            raw_x, raw_y, raw_w, raw_h = [float(v) for v in bbox[:4]]
         else:
             return None
+
+        # Convert normalized coordinates (0.0 to 1.05) to pixel coordinates
+        if max(raw_x, raw_y, raw_w, raw_h) <= 1.05:
+            raw_x *= iw
+            raw_y *= ih
+            raw_w *= iw
+            raw_h *= ih
+
+        # Handle [x1, y1, x2, y2] format where 3rd and 4th values are end coordinates
+        if raw_w > raw_x and raw_h > raw_y and (raw_x + raw_w > iw or raw_y + raw_h > ih):
+            raw_w = raw_w - raw_x
+            raw_h = raw_h - raw_y
+
+        x = int(round(raw_x))
+        y = int(round(raw_y))
+        w = int(round(raw_w))
+        h = int(round(raw_h))
 
         if w <= 0 or h <= 0:
             return None
@@ -908,18 +925,22 @@ def compare_reference_vs_inspected_package(
                 insp_confs[k] = 0.95
             crop_b64 = item.get("evidence_crop_base64")
             if crop_b64:
-                insp_crops[k] = crop_b64
+                clean_b64 = crop_b64.split(",")[-1] if "," in crop_b64 else crop_b64
+                insp_crops[k] = clean_b64
             elif bbox and insp_imgs:
                 try:
-                    x1, y1, x2, y2 = [int(val) for val in bbox]
-                    bgr = insp_imgs[0][1]
-                    h, w = bgr.shape[:2]
-                    x1, y1 = max(0, min(w - 1, x1)), max(0, min(h - 1, y1))
-                    x2, y2 = max(x1 + 1, min(w, x2)), max(y1 + 1, min(h, y2))
-                    sub = bgr[y1:y2, x1:x2]
-                    if sub.size > 0:
-                        _, enc = cv2.imencode(".jpg", sub)
-                        insp_crops[k] = base64.b64encode(enc).decode("utf-8")
+                    target_bgr = insp_imgs[0][1]
+                    s_id = str(surf_id or "").lower()
+                    if len(insp_imgs) > 1 and s_id:
+                        for p, img_data in insp_imgs:
+                            if s_id in str(p).lower() or ("back" in s_id and "back" in str(p).lower()):
+                                target_bgr = img_data
+                                break
+                    c_crop = _make_evidence_crop(target_bgr, bbox, polygon=poly)
+                    if c_crop:
+                        clean_b64 = c_crop.split(",")[-1] if "," in c_crop else c_crop
+                        insp_crops[k] = clean_b64
+                        item["evidence_crop_base64"] = clean_b64
                 except Exception:
                     pass
     elif insp_imgs:
