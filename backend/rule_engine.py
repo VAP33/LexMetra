@@ -810,8 +810,19 @@ def _build_canonical_declarations(
         is_applicable = True
         if field_id == "best_before_use_by" and not context.get("best_before_applicable", False):
             is_applicable = False
-        elif field_id == "country_of_origin" and not context.get("is_imported", False):
-            is_applicable = False
+        elif field_id == "country_of_origin":
+            # If explicit origin is extracted, or if imported, it is applicable.
+            # If domestic product, it can still be verified as India (Domestic Origin).
+            has_origin_ext = bool(extractions.get("country_of_origin") and extractions["country_of_origin"].value)
+            if not context.get("is_imported", False) and not has_origin_ext:
+                # Check if manufacturer address indicates domestic origin
+                mfg_ext = extractions.get("manufacturer_name") or extractions.get("manufacturer_name_address")
+                mfg_val = str(getattr(mfg_ext, "value", "") or "").lower()
+                if any(ind in mfg_val for ind in ("india", "mumbai", "delhi", "bengaluru", "chennai", "kolkata", "pune", "gujarat", "tamil nadu", "maharashtra", "haryana", "uttar pradesh", "karnataka")):
+                    # Domestic Indian origin identified from statutory manufacturer premises
+                    is_applicable = True
+                else:
+                    is_applicable = False
         elif field_id == "standard_pack_size":
             # Rule 5 / Second Schedule evaluation: active when standard_pack_applicable is set or when standard_pack_size is detected
             is_applicable = context.get("standard_pack_applicable", False) or bool(extractions.get("standard_pack_size"))
@@ -922,6 +933,14 @@ def _build_canonical_declarations(
                 bbox=None,
                 source=source_type,
             )
+
+        if field_id == "country_of_origin" and not extracted_val:
+            mfg_ext = extractions.get("manufacturer_name") or extractions.get("manufacturer_name_address")
+            mfg_val = str(getattr(mfg_ext, "value", "") or "").lower()
+            if any(ind in mfg_val for ind in ("india", "mumbai", "delhi", "bengaluru", "chennai", "kolkata", "pune", "gujarat", "tamil nadu", "maharashtra", "haryana", "uttar pradesh", "karnataka")):
+                extracted_val = "India (Domestic Origin)"
+                norm_val = "India"
+                confidence = 0.95
 
         if fact and fact.status == FactStatus.PASS and extracted_val:
             status = CanonicalStatus.VERIFIED

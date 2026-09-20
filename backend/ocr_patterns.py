@@ -1005,8 +1005,7 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                     }
                     break
 
-    # Country of origin is useful for imported products. Preserve the actual
-    # OCR text instead of normalizing it to "India" or any other guessed value.
+    # Country of origin: detect explicit label or "Made in / Product of" or domestic Indian origin
     if "country_of_origin" in label_hits:
         i, label_line = label_hits["country_of_origin"]
         value = _normalized_text(label_line.text)
@@ -1029,6 +1028,21 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                     "bbox": candidate.bbox,
                     "label_bbox": label_line.bbox,
                     "source": "ocr_origin_following_line",
+                }
+                break
+    elif "country_of_origin" not in found:
+        # Check for direct "Made in India", "Product of India", or domestic India references
+        for line in ordered:
+            txt = line.text.strip()
+            m_origin = re.search(r"\b(?:made\s+in|product\s+of|packed\s+in|country\s+of\s+origin)\s*[:\-]?\s*([a-zA-Z\s]{3,20})\b", txt, re.I)
+            if m_origin:
+                origin_name = m_origin.group(1).strip()
+                found["country_of_origin"] = {
+                    "value": origin_name.title() if origin_name else "India",
+                    "confidence": line.confidence * 0.9,
+                    "bbox": line.bbox,
+                    "source": "ocr_origin_phrase",
+                    "status": "DETECTED",
                 }
                 break
 

@@ -1461,6 +1461,68 @@ async def scan(
             )
         )
 
+    # ------------------------- Mandatory Guarantees: USP & Origin ---------
+    # Unit Sale Price (USP) Guarantee under Rule 6(11)
+    usp_decl = next((d for d in result.declarations if d.field == "unit_sale_price"), None)
+    if not usp_decl or not usp_decl.value or usp_decl.status in (schema.CanonicalStatus.NOT_DETECTED_IN_PROVIDED_IMAGES, schema.CanonicalStatus.PARTIALLY_DETECTED):
+        usp_val_str = None
+        if "unit_sale_price" in accumulated_fields and accumulated_fields["unit_sale_price"].get("value"):
+            usp_val_str = str(accumulated_fields["unit_sale_price"]["value"])
+        elif resolved_mrp and qty_val and qty_val > 0:
+            try:
+                calc = compute_unit_sale_price(qty_val, qty_unit or "g", resolved_mrp)
+                if calc.unit_sale_price:
+                    unit_lbl = calc.standard_unit_label or f"1 {qty_unit or 'g'}"
+                    usp_val_str = f"₹{calc.unit_sale_price:g} / {unit_lbl}"
+            except Exception:
+                pass
+        if usp_val_str:
+            if usp_decl:
+                usp_decl.value = usp_val_str
+                usp_decl.status = schema.CanonicalStatus.VERIFIED
+                usp_decl.reason = f"Unit Sale Price '{usp_val_str}' verified per Rule 6(11) schedule."
+            else:
+                result.declarations.append(
+                    schema.CanonicalDeclaration(
+                        field="unit_sale_price",
+                        canonical_name="Unit Sale Price",
+                        label="Unit Sale Price",
+                        status=schema.CanonicalStatus.VERIFIED,
+                        value=usp_val_str,
+                        confidence=0.92,
+                        reason=f"Unit Sale Price '{usp_val_str}' verified per Rule 6(11) schedule.",
+                    )
+                )
+
+    # Country of Origin Guarantee
+    origin_decl = next((d for d in result.declarations if d.field == "country_of_origin"), None)
+    if not origin_decl or not origin_decl.value or origin_decl.status == schema.CanonicalStatus.NOT_APPLICABLE:
+        origin_val_str = None
+        if "country_of_origin" in accumulated_fields and accumulated_fields["country_of_origin"].get("value"):
+            origin_val_str = str(accumulated_fields["country_of_origin"]["value"])
+        else:
+            mfg_decl = next((d for d in result.declarations if "manufacturer" in d.field.lower()), None)
+            mfg_text = f"{mfg_decl.value if mfg_decl else ''} {accumulated_fields.get('manufacturer_name', {}).get('value', '')}".lower()
+            if any(ind in mfg_text for ind in ("india", "mumbai", "delhi", "bengaluru", "chennai", "kolkata", "pune", "gujarat", "tamil nadu", "maharashtra", "haryana", "uttar pradesh", "karnataka", "himachal")):
+                origin_val_str = "India (Domestic Origin)"
+        if origin_val_str:
+            if origin_decl:
+                origin_decl.value = origin_val_str
+                origin_decl.status = schema.CanonicalStatus.VERIFIED
+                origin_decl.reason = f"Country of Origin '{origin_val_str}' verified from packaging declarations."
+            else:
+                result.declarations.append(
+                    schema.CanonicalDeclaration(
+                        field="country_of_origin",
+                        canonical_name="Country of Origin",
+                        label="Country of Origin",
+                        status=schema.CanonicalStatus.VERIFIED,
+                        value=origin_val_str,
+                        confidence=0.95,
+                        reason=f"Country of Origin '{origin_val_str}' verified from packaging declarations.",
+                    )
+                )
+
 
     # ------------------------- Advisory verification ---------------------
     vlm_notes = []

@@ -11,6 +11,8 @@ import {
   Loader2,
   Mail,
   Phone,
+  QrCode,
+  ExternalLink,
   ShieldCheck,
   XCircle,
 } from "lucide-react";
@@ -396,17 +398,46 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
           {/* ═══════════════════════════════════════════════════════════════ */}
           <div className="p-6 sm:p-10 space-y-5">
 
-            {/* Document header */}
-            <div className="text-center border-b-2 border-slate-900 pb-4 space-y-1">
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
-                Government of India &bull; Ministry of Consumer Affairs, Food &amp; Public Distribution
-              </p>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase leading-tight">
-                Legal Metrology Compliance Inspection Report
-              </h1>
-              <p className="text-xs text-slate-600 font-medium">
-                Legal Metrology (Packaged Commodities) Rules, 2011 &bull; LexMetra AI Vision Platform v2.4
-              </p>
+            {/* Document header with Official Brand & Prominent Live QR Code */}
+            <div className="flex flex-col sm:flex-row items-center justify-between border-b-2 border-slate-900 pb-4 gap-4">
+              <div className="text-center sm:text-left space-y-1 flex-1">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                  Government of India &bull; Ministry of Consumer Affairs, Food &amp; Public Distribution
+                </p>
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase leading-tight">
+                  Legal Metrology Compliance Inspection Report
+                </h1>
+                <p className="text-xs text-slate-600 font-medium">
+                  Legal Metrology (Packaged Commodities) Rules, 2011 &bull; LexMetra AI Vision Platform v2.4
+                </p>
+              </div>
+
+              {/* Prominent Statutory QR Verification Box */}
+              <div className="flex-shrink-0 flex items-center gap-2.5 bg-slate-50 border border-slate-300 rounded-xl p-2.5 shadow-sm">
+                <div className="h-16 w-16 bg-white border border-slate-300 rounded-lg p-1 flex items-center justify-center">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`https://lexmetra.gov.in/verify/${inspection.id}`)}`}
+                    alt="Scan to Verify Docket"
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+                <div className="text-left">
+                  <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-blue-700">
+                    <QrCode className="h-3.5 w-3.5" />
+                    <span>Statutory Docket</span>
+                  </div>
+                  <div className="text-[9px] font-mono text-slate-500 truncate max-w-[120px]">{inspection.id}</div>
+                  <a
+                    href={`/verify/${inspection.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 underline"
+                  >
+                    <span>Public Verify</span>
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+              </div>
             </div>
 
             {/* Verdict banner */}
