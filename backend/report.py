@@ -124,8 +124,27 @@ def _status_of(obj: Any) -> str:
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+        if key in obj and obj[key] is not None:
+            return obj[key]
+        parts = key.split("_")
+        if len(parts) > 1:
+            camel = parts[0] + "".join(p.capitalize() for p in parts[1:])
+            if camel in obj and obj[camel] is not None:
+                return obj[camel]
+        snake = re.sub(r'(?<!^)(?=[A-Z])', '_', key).lower()
+        if snake in obj and obj[snake] is not None:
+            return obj[snake]
+        return default
+    val = getattr(obj, key, None)
+    if val is not None:
+        return val
+    parts = key.split("_")
+    if len(parts) > 1:
+        camel = parts[0] + "".join(p.capitalize() for p in parts[1:])
+        val = getattr(obj, camel, None)
+        if val is not None:
+            return val
+    return default
 
 
 def _bbox_text(bbox: Any) -> Optional[str]:
@@ -368,13 +387,20 @@ def _resolve_canonical_image(s: Any) -> Optional[Path]:
     """
     candidate_keys = (
         "canonical_image_path",
+        "canonicalImagePath",
         "canonical_image_url",
+        "canonicalImageUrl",
         "canonical_image",
+        "canonicalImage",
         "original_image_path",
+        "originalImagePath",
         "image_path",
+        "imagePath",
         "image_url",
+        "imageUrl",
         "image",
         "image_id",
+        "imageId",
     )
     repo_root = Path(__file__).resolve().parents[1]
     for key in candidate_keys:
@@ -394,6 +420,9 @@ def _resolve_canonical_image(s: Any) -> Optional[Path]:
             return p_repo
         # Check /uploads/ or filename in workspace uploads and UPLOAD_DIR
         clean_name = raw_str.replace("/uploads/", "").lstrip("/").split("/")[-1].split("?")[0]
+        p_backend_uploads = repo_root / "backend" / "uploads" / clean_name
+        if p_backend_uploads.exists() and p_backend_uploads.is_file():
+            return p_backend_uploads
         p_uploads = repo_root / "uploads" / clean_name
         if p_uploads.exists() and p_uploads.is_file():
             return p_uploads
@@ -405,6 +434,34 @@ def _resolve_canonical_image(s: Any) -> Optional[Path]:
         if cand_scratch.exists() and cand_scratch.is_file():
             return cand_scratch
     return None
+
+
+def _crop_from_base64(
+    crop_b64: str,
+    target_width_mm: float = 48 * mm,
+    target_height_mm: float = 16 * mm,
+) -> Optional[ReportLabImage]:
+    """Render pre-computed base64 evidence crop to ReportLabImage preserving aspect ratio."""
+    try:
+        import base64
+        clean = crop_b64.split(",")[-1] if "," in crop_b64 else crop_b64
+        raw = base64.b64decode(clean)
+        im = PILImage.open(io.BytesIO(raw)).convert("RGB")
+        cw, ch = im.size
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+        aspect = float(cw) / float(ch)
+        cell_aspect = target_width_mm / target_height_mm
+        if aspect > cell_aspect:
+            w = target_width_mm
+            h = target_width_mm / aspect
+        else:
+            h = target_height_mm
+            w = target_height_mm * aspect
+        return ReportLabImage(buf, width=w, height=h)
+    except Exception:
+        return None
 
 
 def _create_annotated_crop(
@@ -432,6 +489,11 @@ def _create_annotated_crop(
             by *= nh
             bw *= nw
             bh *= nh
+
+        # Handle [x1, y1, x2, y2] format if bw is actually x2
+        if bw > bx and bh > by and (bx + bw > nw or by + bh > nh):
+            bw = bw - bx
+            bh = bh - by
 
         # Padding identical to frontend: max(dim * 0.35, 20-30px)
         pad_x = max(bw * 0.35, 30.0)
@@ -709,6 +771,9 @@ def build_inspection_report_pdf(
     for lp in logo_candidates:
         if lp.exists():
             try:
+                from PIL import Image as PILImage
+                with PILImage.open(str(lp)) as _pimg:
+                    _pimg.verify()
                 logo_img = ReportLabImage(str(lp), width=65 * mm, height=14.5 * mm)
                 break
             except Exception:
@@ -1024,7 +1089,30 @@ def build_inspection_report_pdf(
         crop_box_col = "#10b981" if d_st in ("VERIFIED", "PASS") else "#f59e0b"
 
         crop_img = None
-        if img_path and raw_bbox:
+        # 1. First check if declaration has direct evidence_crop_base64
+        c_b64 = _get(matched_decl, "evidence_crop_base64") or _get(matched_decl, "crop_base64")
+        if not c_b64:
+            ev = _get(matched_decl, "evidence")
+            if isinstance(ev, dict):
+                c_b64 = ev.get("crop_base64") or ev.get("evidence_crop_base64") or ev.get("crop")
+        # 2. Check package_integrity field comparisons
+        if not c_b64:
+            p_integ = _get(inspection, "package_integrity") or {}
+            fcomps = _get(p_integ, "field_comparisons") or []
+            for fc in fcomps:
+                fc_name = (_get(fc, "field_name") or _get(fc, "field") or "").lower()
+                if f_key in fc_name or fc_name in f_key:
+                    c_b64 = _get(fc, "inspection_crop") or _get(fc, "reference_crop")
+                    if c_b64:
+                        break
+
+        if c_b64:
+            try:
+                crop_img = _crop_from_base64(c_b64, target_width_mm=44 * mm, target_height_mm=17 * mm)
+            except Exception:
+                crop_img = None
+
+        if not crop_img and img_path and raw_bbox:
             crop_img = _create_annotated_crop(
                 image_path=img_path,
                 bbox=raw_bbox,

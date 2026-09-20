@@ -114,14 +114,31 @@ export function DynamicEvidenceCrop({
       const nw = img.naturalWidth;
       const nh = img.naturalHeight;
 
-      // Add generous padding (40% of dimensions or at least 35-40px)
-      const padX = Math.max(bbox.width * 0.4, 40);
-      const padY = Math.max(bbox.height * 0.4, 30);
+      let bx = bbox.x;
+      let by = bbox.y;
+      let bw = bbox.width;
+      let bh = bbox.height;
 
-      const cropX = Math.max(0, bbox.x - padX);
-      const cropY = Math.max(0, bbox.y - padY);
-      const cropRight = Math.min(nw, bbox.x + bbox.width + padX);
-      const cropBottom = Math.min(nh, bbox.y + bbox.height + padY);
+      // Auto-scale normalized coordinates (0.0 to 1.0)
+      if (bw <= 1.05 && bh <= 1.05 && nw > 10 && nh > 10) {
+        bx *= nw;
+        by *= nh;
+        bw *= nw;
+        bh *= nh;
+      } else if (bw > bx && bh > by && (bx + bw > nw * 1.05 || by + bh > nh * 1.05)) {
+        // [x1, y1, x2, y2] end coordinates format
+        bw = bw - bx;
+        bh = bh - by;
+      }
+
+      // Add generous padding (40% of dimensions or at least 35-40px)
+      const padX = Math.max(bw * 0.4, 40);
+      const padY = Math.max(bh * 0.4, 30);
+
+      const cropX = Math.max(0, bx - padX);
+      const cropY = Math.max(0, by - padY);
+      const cropRight = Math.min(nw, bx + bw + padX);
+      const cropBottom = Math.min(nh, by + bh + padY);
 
       const cropW = Math.max(1, cropRight - cropX);
       const cropH = Math.max(1, cropBottom - cropY);
@@ -147,10 +164,10 @@ export function DynamicEvidenceCrop({
       ctx.drawImage(img, cropX, cropY, cropW, cropH, offsetX, offsetY, renderW, renderH);
 
       // Bounding box within canvas
-      const boxCanvasX = offsetX + (bbox.x - cropX) * scale;
-      const boxCanvasY = offsetY + (bbox.y - cropY) * scale;
-      const boxCanvasW = bbox.width * scale;
-      const boxCanvasH = bbox.height * scale;
+      const boxCanvasX = offsetX + (bx - cropX) * scale;
+      const boxCanvasY = offsetY + (by - cropY) * scale;
+      const boxCanvasW = bw * scale;
+      const boxCanvasH = bh * scale;
 
       // Draw tight polygon if available, else rectangle
       if (polygon && polygon.length >= 3) {

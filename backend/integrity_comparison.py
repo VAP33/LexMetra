@@ -76,19 +76,23 @@ def compare_canonical_fields(
             if fld:
                 insp_map[fld] = item
 
-    def get_bbox(matched: Optional[Dict[str, Any]]) -> Optional[List[int]]:
+    def get_bbox(matched: Optional[Dict[str, Any]]) -> Optional[List[float]]:
         if not matched:
             return None
         raw_box = matched.get("bounding_box") or matched.get("bbox")
+        if not raw_box and matched.get("evidence"):
+            ev = matched.get("evidence")
+            if isinstance(ev, dict):
+                raw_box = ev.get("display_bbox") or ev.get("canonical_bbox") or ev.get("bbox") or ev.get("bounding_box")
         if isinstance(raw_box, dict):
             return [
-                int(raw_box.get("x", 0)),
-                int(raw_box.get("y", 0)),
-                int(raw_box.get("width", 50)),
-                int(raw_box.get("height", 30)),
+                float(raw_box.get("x", 0)),
+                float(raw_box.get("y", 0)),
+                float(raw_box.get("width", raw_box.get("w", 50))),
+                float(raw_box.get("height", raw_box.get("h", 30))),
             ]
         if isinstance(raw_box, (list, tuple)) and len(raw_box) >= 4:
-            return [int(v) for v in raw_box[:4]]
+            return [float(v) for v in raw_box[:4]]
         return None
 
     def find_insp_match(aliases: List[str]) -> Optional[Dict[str, Any]]:
@@ -157,17 +161,52 @@ def compare_canonical_fields(
             or 0.85
         )
 
+        # Select appropriate image from insp_imgs if multi-face
+        target_insp_bgr = insp_image_bgr
+        if insp_imgs and len(insp_imgs) > 1:
+            for p, img_data in insp_imgs:
+                p_str = str(p).lower()
+                s_str = str(insp_surf or "").lower()
+                img_id_str = str(insp_img_id or "").lower()
+                f_name = ref_key.lower()
+                if (s_str and s_str in p_str) or (img_id_str and img_id_str in p_str):
+                    target_insp_bgr = img_data
+                    break
+                if ("back" in s_str or "face2" in s_str or "face 2" in s_str or f_name in ("manufacturer_name", "manufacturer_address", "fssai_license_number", "barcode", "consumer_care")) and "back" in p_str:
+                    target_insp_bgr = img_data
+                    break
+                if ("front" in s_str or "face1" in s_str or "face 1" in s_str or f_name in ("product_name", "net_quantity")) and "front" in p_str:
+                    target_insp_bgr = img_data
+                    break
+
+        # Select appropriate image from ref_imgs if multi-face
+        target_ref_bgr = ref_image_bgr
+        if ref_imgs and len(ref_imgs) > 1:
+            for p, img_data in ref_imgs:
+                p_str = str(p).lower()
+                s_str = str(ref_surf or "").lower()
+                f_name = ref_key.lower()
+                if s_str and s_str in p_str:
+                    target_ref_bgr = img_data
+                    break
+                if ("back" in s_str or f_name in ("manufacturer_name", "manufacturer_address", "fssai_license_number", "barcode", "consumer_care")) and "back" in p_str:
+                    target_ref_bgr = img_data
+                    break
+                if ("front" in s_str or f_name in ("product_name", "net_quantity")) and "front" in p_str:
+                    target_ref_bgr = img_data
+                    break
+
         # Use pre-made crop if available, otherwise generate on-the-fly with polygon and padding
         insp_crop_premade = (matched_insp.get("evidence_crop_base64") if isinstance(matched_insp, dict) else None) or None
         insp_crop: Optional[str] = insp_crop_premade
-        if not insp_crop and insp_image_bgr is not None and insp_bbox:
-            insp_crop = _make_evidence_crop(insp_image_bgr, insp_bbox, polygon=insp_polygon)
+        if not insp_crop and target_insp_bgr is not None and insp_bbox:
+            insp_crop = _make_evidence_crop(target_insp_bgr, insp_bbox, polygon=insp_polygon)
         ocr_conf = insp_c
-        quality = assess_region_quality(insp_image_bgr, insp_bbox) if (insp_image_bgr is not None and insp_bbox) else {"sharpness": 1.0, "is_degraded": False, "quality_note": "Normal quality"}
+        quality = assess_region_quality(target_insp_bgr, insp_bbox) if (target_insp_bgr is not None and insp_bbox) else {"sharpness": 1.0, "is_degraded": False, "quality_note": "Normal quality"}
 
         ref_crop = (ref_crops or {}).get(ref_key)
-        if not ref_crop and ref_image_bgr is not None and ref_bbox:
-            ref_crop = _make_evidence_crop(ref_image_bgr, ref_bbox, polygon=ref_polygon)
+        if not ref_crop and target_ref_bgr is not None and ref_bbox:
+            ref_crop = _make_evidence_crop(target_ref_bgr, ref_bbox, polygon=ref_polygon)
 
         raw_sim, norm_sim, sim_reason = compute_ocr_similarity(ref_str, insp_str)
 

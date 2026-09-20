@@ -28,6 +28,7 @@ import {
 } from "@/lib/api-client";
 import { Button, formatDate } from "./ui-primitives";
 import { exportElementAsPdf } from "@/lib/pdf-generator";
+import { DynamicEvidenceCrop } from "./evidence-view";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -917,8 +918,23 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {allDecls.filter((d: any) => d.evidenceCropBase64 || d.evidenceCrop || d.boundingBox || d.bbox).slice(0, 6).map((d: any, idx) => {
                     const cropB64 = d.evidenceCropBase64 || d.evidenceCrop;
-                    const bbox = d.boundingBox || d.bbox;
-                    const bboxStr = Array.isArray(bbox) ? `[${bbox.map((v: number) => Math.round(v)).join(", ")}]` : null;
+                    const rawBox = d.boundingBox || d.bbox;
+                    const bboxStr = Array.isArray(rawBox) ? `[${rawBox.map((v: number) => Math.round(v)).join(", ")}]` : null;
+
+                    // Locate matching surface image
+                    const matchingSurface = surfaces.find((s: any) => {
+                      const face = (d.face || d.pageOrView || "").toLowerCase();
+                      const stype = (s.surfaceType || s.surfaceId || "").toLowerCase();
+                      return (face && stype && (face.includes(stype) || stype.includes(face))) || false;
+                    }) || surfaces[0];
+                    const surfaceImg = matchingSurface ? ((matchingSurface as any).canonicalImageUrl || (matchingSurface as any).imageUrl || inspection.canonicalImage || inspection.image) : (inspection.canonicalImage || inspection.image);
+
+                    let bboxObj: { x: number; y: number; width: number; height: number } | undefined = undefined;
+                    if (Array.isArray(rawBox) && rawBox.length >= 4) {
+                      bboxObj = { x: rawBox[0], y: rawBox[1], width: rawBox[2], height: rawBox[3] };
+                    } else if (rawBox && typeof rawBox === 'object') {
+                      bboxObj = { x: rawBox.x ?? 0, y: rawBox.y ?? 0, width: rawBox.width ?? rawBox.w ?? 0, height: rawBox.height ?? rawBox.h ?? 0 };
+                    }
 
                     return (
                       <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
@@ -947,6 +963,15 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                                 margin: "0 auto",
                               }}
                             />
+                          ) : bboxObj && surfaceImg ? (
+                            <div className="w-full flex items-center justify-center">
+                              <DynamicEvidenceCrop
+                                imageSrc={surfaceImg}
+                                bbox={bboxObj}
+                                label={fieldLabel(d.field)}
+                                value={d.value}
+                              />
+                            </div>
                           ) : (
                             <div className="text-slate-400 text-[10px] text-center p-2">
                               Bounding Box Coordinate: {bboxStr || "Mapped"}
@@ -976,54 +1001,95 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {intFields.filter((f) => f.reference_crop || f.inspection_crop).slice(0, 4).map((f, fIdx) => (
-                      <div key={fIdx} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
-                        <div className="font-bold text-slate-800 flex items-center justify-between">
-                          <span>{fieldLabel(f.field_name)}</span>
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                            f.comparison_status === "CONSISTENT" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {f.comparison_status || "EVALUATED"}
-                          </span>
-                        </div>
+                    {intFields.filter((f) => f.reference_crop || f.inspection_crop || f.inspection_value).slice(0, 4).map((f, fIdx) => {
+                      // Lookup declaration and crops
+                      let inspCrop = f.inspection_crop;
+                      let matchedDecl: any = null;
+                      if (!inspCrop) {
+                        const fNameNorm = (f.field_name || "").toLowerCase().replace(/_/g, "");
+                        matchedDecl = allDecls.find((d: any) => {
+                          const dFieldNorm = (d.field || "").toLowerCase().replace(/_/g, "");
+                          return fNameNorm.includes(dFieldNorm) || dFieldNorm.includes(fNameNorm);
+                        });
+                        if (matchedDecl) {
+                          inspCrop = matchedDecl.evidenceCropBase64 || matchedDecl.evidenceCrop;
+                        }
+                      }
 
-                        <div className="grid grid-cols-2 gap-2 text-center">
-                          {/* Reference Standard */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-semibold text-slate-600">Reference Standard</span>
-                            <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
-                              {f.reference_crop ? (
-                                <img
-                                  src={f.reference_crop.startsWith("data:") ? f.reference_crop : `data:image/jpeg;base64,${f.reference_crop}`}
-                                  alt="Reference"
-                                  style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
-                                />
-                              ) : (
-                                <span className="text-slate-400 text-[9px]">Text Standard</span>
-                              )}
-                            </div>
-                            <div className="text-[10px] font-mono text-slate-700 truncate">{f.reference_value || "—"}</div>
+                      // Surface and bbox for DynamicEvidenceCrop fallback
+                      const matchingSurface = matchedDecl ? surfaces.find((s: any) => {
+                        const face = (matchedDecl.face || matchedDecl.pageOrView || "").toLowerCase();
+                        const stype = (s.surfaceType || s.surfaceId || "").toLowerCase();
+                        return (face && stype && (face.includes(stype) || stype.includes(face))) || false;
+                      }) || surfaces[0] : surfaces[0];
+                      const surfaceImg = matchingSurface ? ((matchingSurface as any).canonicalImageUrl || (matchingSurface as any).imageUrl || inspection.canonicalImage || inspection.image) : (inspection.canonicalImage || inspection.image);
+
+                      const rawBox = matchedDecl ? (matchedDecl.boundingBox || matchedDecl.bbox) : null;
+                      let bboxObj: { x: number; y: number; width: number; height: number } | undefined = undefined;
+                      if (Array.isArray(rawBox) && rawBox.length >= 4) {
+                        bboxObj = { x: rawBox[0], y: rawBox[1], width: rawBox[2], height: rawBox[3] };
+                      } else if (rawBox && typeof rawBox === 'object') {
+                        bboxObj = { x: rawBox.x ?? 0, y: rawBox.y ?? 0, width: rawBox.width ?? rawBox.w ?? 0, height: rawBox.height ?? rawBox.h ?? 0 };
+                      }
+
+                      return (
+                        <div key={fIdx} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                          <div className="font-bold text-slate-800 flex items-center justify-between">
+                            <span>{fieldLabel(f.field_name)}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              f.comparison_status === "CONSISTENT" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {f.comparison_status || "EVALUATED"}
+                            </span>
                           </div>
 
-                          {/* Inspected Specimen */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-semibold text-slate-600">Inspected Specimen</span>
-                            <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
-                              {f.inspection_crop ? (
-                                <img
-                                  src={f.inspection_crop.startsWith("data:") ? f.inspection_crop : `data:image/jpeg;base64,${f.inspection_crop}`}
-                                  alt="Inspected"
-                                  style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
-                                />
-                              ) : (
-                                <span className="text-slate-400 text-[9px]">Captured Inscription</span>
-                              )}
+                          <div className="grid grid-cols-2 gap-2 text-center">
+                            {/* Reference Standard */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-semibold text-slate-600">Reference Standard</span>
+                              <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
+                                {f.reference_crop ? (
+                                  <img
+                                    src={f.reference_crop.startsWith("data:") ? f.reference_crop : `data:image/jpeg;base64,${f.reference_crop}`}
+                                    alt="Reference"
+                                    style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
+                                  />
+                                ) : (
+                                  <span className="text-slate-400 text-[9px]">Text Standard</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-700 truncate">{f.reference_value || "—"}</div>
                             </div>
-                            <div className="text-[10px] font-mono text-slate-700 truncate">{f.inspection_value || "—"}</div>
+
+                            {/* Inspected Specimen */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-semibold text-slate-600">Inspected Specimen</span>
+                              <div className="flex items-center justify-center bg-slate-900 rounded p-1.5 overflow-hidden" style={{ minHeight: "75px", maxHeight: "110px" }}>
+                                {inspCrop ? (
+                                  <img
+                                    src={inspCrop.startsWith("data:") ? inspCrop : `data:image/jpeg;base64,${inspCrop}`}
+                                    alt="Inspected"
+                                    style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
+                                  />
+                                ) : bboxObj && surfaceImg ? (
+                                  <div className="w-full flex items-center justify-center">
+                                    <DynamicEvidenceCrop
+                                      imageSrc={surfaceImg}
+                                      bbox={bboxObj}
+                                      label={fieldLabel(f.field_name)}
+                                      value={f.inspection_value || matchedDecl?.value}
+                                    />
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 text-[9px]">{f.inspection_value || "Captured Inscription"}</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-700 truncate">{f.inspection_value || matchedDecl?.value || "—"}</div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

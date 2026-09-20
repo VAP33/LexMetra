@@ -31,14 +31,31 @@ def _make_evidence_crop(
             return None
         ih, iw = image_bgr.shape[:2]
         if isinstance(bbox, dict):
-            x = int(round(float(bbox.get("x", 0))))
-            y = int(round(float(bbox.get("y", 0))))
-            w = int(round(float(bbox.get("width", bbox.get("w", 0)))))
-            h = int(round(float(bbox.get("height", bbox.get("h", 0)))))
+            raw_x = float(bbox.get("x", 0))
+            raw_y = float(bbox.get("y", 0))
+            raw_w = float(bbox.get("width", bbox.get("w", 0)))
+            raw_h = float(bbox.get("height", bbox.get("h", 0)))
         elif isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-            x, y, w, h = [int(round(float(v))) for v in bbox[:4]]
+            raw_x, raw_y, raw_w, raw_h = [float(v) for v in bbox[:4]]
         else:
             return None
+
+        # Convert normalized coordinates (0.0 to 1.05) to pixel coordinates
+        if max(raw_x, raw_y, raw_w, raw_h) <= 1.05:
+            raw_x *= iw
+            raw_y *= ih
+            raw_w *= iw
+            raw_h *= ih
+
+        # Handle [x1, y1, x2, y2] format where 3rd and 4th values are end coordinates
+        if raw_w > raw_x and raw_h > raw_y and (raw_x + raw_w > iw or raw_y + raw_h > ih):
+            raw_w = raw_w - raw_x
+            raw_h = raw_h - raw_y
+
+        x = int(round(raw_x))
+        y = int(round(raw_y))
+        w = int(round(raw_w))
+        h = int(round(raw_h))
 
         if w <= 0 or h <= 0:
             return None
@@ -882,7 +899,63 @@ def compare_reference_vs_inspected_package(
     insp_image_urls: Dict[str, str] = {}
     primary_insp_bgr = insp_imgs[0][1] if insp_imgs else None
 
-    if insp_imgs:
+    # Optimization: If caller provided rich inspection_declarations (>= 2 items),
+    # construct insp_decls, insp_bboxes, insp_crops, etc. directly from them without
+    # repeating heavy multimodal VLM and full-image OCR.
+    has_rich_insp_decls = bool(inspection_declarations and len(inspection_declarations) >= 2)
+
+    if has_rich_insp_decls:
+        import base64
+        for item in inspection_declarations:
+            if not isinstance(item, dict):
+                continue
+            k = (item.get("field") or item.get("name") or "").lower().strip()
+            v = item.get("value") or item.get("detected_value") or item.get("extracted_value")
+            if not k:
+                continue
+            insp_decls[k] = v if v is not None else ""
+            bbox = item.get("bounding_box") or item.get("bbox")
+            if bbox:
+                insp_bboxes[k] = bbox
+            poly = item.get("polygon")
+            if poly:
+                insp_polygons[k] = poly
+            surf_id = item.get("surface_id")
+            if surf_id:
+                insp_surface_ids[k] = surf_id
+            img_id = item.get("image_id") or (insp_imgs[0][0].name if insp_imgs else None)
+            if img_id:
+                insp_image_ids[k] = img_id
+                insp_image_urls[k] = f"/uploads/{img_id}"
+            conf = item.get("confidence")
+            if conf is not None:
+                try:
+                    insp_confs[k] = float(conf)
+                except Exception:
+                    insp_confs[k] = 0.95
+            else:
+                insp_confs[k] = 0.95
+            crop_b64 = item.get("evidence_crop_base64")
+            if crop_b64:
+                clean_b64 = crop_b64.split(",")[-1] if "," in crop_b64 else crop_b64
+                insp_crops[k] = clean_b64
+            elif bbox and insp_imgs:
+                try:
+                    target_bgr = insp_imgs[0][1]
+                    s_id = str(surf_id or "").lower()
+                    if len(insp_imgs) > 1 and s_id:
+                        for p, img_data in insp_imgs:
+                            if s_id in str(p).lower() or ("back" in s_id and "back" in str(p).lower()):
+                                target_bgr = img_data
+                                break
+                    c_crop = _make_evidence_crop(target_bgr, bbox, polygon=poly)
+                    if c_crop:
+                        clean_b64 = c_crop.split(",")[-1] if "," in c_crop else c_crop
+                        insp_crops[k] = clean_b64
+                        item["evidence_crop_base64"] = clean_b64
+                except Exception:
+                    pass
+    elif insp_imgs:
         i_decls, i_bboxes, i_confs, i_crops, i_face_indices, i_raw = extract_canonical_package_evidence(insp_imgs)
         insp_decls = i_decls
         insp_bboxes = i_bboxes
