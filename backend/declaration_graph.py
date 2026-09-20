@@ -889,15 +889,26 @@ class DeclarationGraphResolver:
 
     def _format_display_value(self, parsed_val: Any) -> Optional[str]:
         if isinstance(parsed_val, MoneyValue):
+            amt = parsed_val.amount
+            try:
+                amt_str = f"{float(amt):g}"
+            except Exception:
+                amt_str = str(amt)
             if parsed_val.is_unit_rate:
-                return f"₹{parsed_val.amount:g}/{parsed_val.denominator_unit}"
-            return f"₹{parsed_val.amount:g}"
+                return f"₹{amt_str}/{parsed_val.denominator_unit}"
+            return f"₹{amt_str}"
         if isinstance(parsed_val, BatchCandidate):
             return parsed_val.normalized_reading
         if isinstance(parsed_val, TemporalValue):
             return parsed_val.normalized_iso or parsed_val.calendar_date or parsed_val.raw_text
         if isinstance(parsed_val, dict) and "amount" in parsed_val:
-            return f"{parsed_val['amount']:g} {parsed_val['unit']}"
+            amt = parsed_val['amount']
+            try:
+                amt_str = f"{float(amt):g}"
+            except Exception:
+                amt_str = str(amt)
+            unit_str = parsed_val.get('unit', '')
+            return f"{amt_str} {unit_str}".strip()
         return str(parsed_val) if parsed_val is not None else None
 
     def _extract_value_details(self, parsed_val: Any) -> Dict[str, Any]:

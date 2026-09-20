@@ -898,6 +898,7 @@ def compare_reference_vs_inspected_package(
     insp_image_ids: Dict[str, str] = {}
     insp_image_urls: Dict[str, str] = {}
     primary_insp_bgr = insp_imgs[0][1] if insp_imgs else None
+    i_raw: Optional[Dict[str, Any]] = None  # initialized here; set in elif branch below
 
     # Optimization: If caller provided rich inspection_declarations (>= 2 items),
     # construct insp_decls, insp_bboxes, insp_crops, etc. directly from them without
