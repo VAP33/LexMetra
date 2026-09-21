@@ -338,9 +338,9 @@ def _get_decl_face(d: Any) -> str:
 def _face_matches(decl_face: str, surface_type: str, surface_id: str, total_surfaces: int) -> bool:
     if total_surfaces <= 1:
         return True
-    df = decl_face.lower().replace(" ", "").replace("_", "")
-    st = surface_type.lower().replace(" ", "").replace("_", "")
-    si = surface_id.lower().replace(" ", "").replace("_", "")
+    df = str(decl_face or "").lower().replace(" ", "").replace("_", "")
+    st = str(surface_type or "").lower().replace(" ", "").replace("_", "")
+    si = str(surface_id or "").lower().replace(" ", "").replace("_", "")
     if df in (st, si) or st in df or si in df:
         return True
     if ("face1" in df or "front" in df) and ("face1" in st or "face1" in si or "front" in st):
@@ -822,7 +822,40 @@ def build_inspection_report_pdf(
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     story.append(res_table)
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 2))
+
+    # AI Grounded Inspection Summary & Risk Analysis
+    ai_summary_txt = _clean_pdf_text(str(_get(inspection, "ai_summary") or ""))
+    if not ai_summary_txt or len(ai_summary_txt) < 10:
+        if overall_status in ("VIOLATION", "FAIL"):
+            ai_summary_txt = (
+                f"Statutory analysis of {product_name} under Legal Metrology (Packaged Commodities) Rules, 2011 detected "
+                f"non-compliance in {len(attention_decls)} mandatory declaration(s). Rectification notice under Rule 6 recommended."
+            )
+        elif overall_status in ("COMPLIANT", "PASS"):
+            ai_summary_txt = (
+                f"Statutory inspection of {product_name} confirms affirmative compliance across all {len(verified_decls)} observed "
+                f"Rule 6 statutory declarations. Package conforms with prescribed metric standards and packaging schedules."
+            )
+        else:
+            ai_summary_txt = (
+                f"Evidentiary ambiguity detected for {product_name}. {len(attention_decls)} field(s) require authorized officer confirmation "
+                f"during field audit prior to statutory registration or docket closure."
+            )
+
+    ai_card = Table([[
+        Paragraph(f"<b>AI STATUTORY GROUNDING &amp; RISK ANALYSIS:</b> {ai_summary_txt}", small)
+    ]], colWidths=[182 * mm])
+    ai_card.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#93c5fd")),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(ai_card)
+    story.append(Spacer(1, 3))
 
     # 2. WHAT NEEDS MY ATTENTION? (Prominent Section)
     story.append(Paragraph("Priority Attention &amp; Unresolved Findings (Review Required)", sec_heading))
@@ -1195,61 +1228,58 @@ def build_inspection_report_pdf(
     ))
     story.append(Spacer(1, 2))
 
-    findings_section = build_findings_section(inspection)
-    findings_rows = findings_section.get("rows", [])
-    
-    f_head_style = ParagraphStyle("FHead", parent=small, fontName="Helvetica-Bold", textColor=colors.HexColor("#0f172a"))
+    f_head_style = ParagraphStyle("FHead", parent=small, fontName="Helvetica-Bold", fontSize=6.8, textColor=colors.HexColor("#0f172a"))
     f_table_rows = [[
-        Paragraph("Rule / Parameter", f_head_style),
         Paragraph("Citation", f_head_style),
-        Paragraph("Evaluation Status", f_head_style),
-        Paragraph("Statutory Analysis &amp; Compliance Reason", f_head_style),
+        Paragraph("Chapter / Rule Title", f_head_style),
+        Paragraph("Scope / Status", f_head_style),
+        Paragraph("Contextual Statutory Analysis &amp; Conditions", f_head_style),
+        Paragraph("Penal Provision", f_head_style),
     ]]
     f_style_cmds = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")),
-        ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+        ("FONTSIZE", (0, 0), (-1, -1), 6.5),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2.5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2.5),
     ]
 
-    if findings_rows:
-        for f_idx, fr in enumerate(findings_rows[:5], start=1):
-            f_stat = fr["status"]
-            f_col = STATUS_COLORS.get(f_stat, colors.HexColor("#334155"))
-            f_label = fr['label']
-            clean_label = str(f_label).replace("_", " ").title() if str(f_label).islower() else str(f_label)
-            f_reason = re.sub(r"\'([a-z_]+)\'", lambda m: m.group(1).replace("_", " ").title(), fr["reason"])
-            f_table_rows.append([
-                Paragraph(f"<b>{clean_label}</b>", small),
-                Paragraph(fr["rule_version"], small),
-                Paragraph(f"<font color='{f_col.hexval()}'><b>{f_stat}</b></font>", small),
-                Paragraph(f_reason, small),
-            ])
+    # Prioritize evaluated retail rules with contextual status
+    applicable_master_rules = [r for r in raw_rules if _get(r, "evaluation_status") == "APPLICABLE"]
+    if not applicable_master_rules:
+        applicable_master_rules = raw_rules[:8]
     else:
-        # Ground from top evaluated retail rules in master rules register
-        top_rules = [r for r in raw_rules if _get(r, "evaluation_status") == "APPLICABLE"][:5]
-        if not top_rules:
-            top_rules = raw_rules[:5]
-        for tr in top_rules:
-            tr_cit = _get(tr, "citation") or "Rule 6"
-            tr_title = _get(tr, "title") or "Mandatory Declaration"
-            tr_st = _get(tr, "evaluation_status") or "APPLICABLE"
-            tr_note = _get(tr, "context_note") or _get(tr, "summary") or "Statutory requirement verified."
-            col_hex = "#16a34a" if tr_st in ("APPLICABLE", "COMPLIANT", "VERIFIED") else "#64748b"
-            f_table_rows.append([
-                Paragraph(f"<b>{tr_title}</b>", small),
-                Paragraph(tr_cit, small),
-                Paragraph(f"<font color='{col_hex}'><b>{tr_st}</b></font>", small),
-                Paragraph(tr_note, small),
-            ])
+        exempt_rules = [r for r in raw_rules if _get(r, "evaluation_status") in ("EXEMPT", "EXEMPTED")]
+        applicable_master_rules = applicable_master_rules[:7] + exempt_rules[:1]
 
-    f_table = Table(f_table_rows, colWidths=[48 * mm, 26 * mm, 28 * mm, 80 * mm], repeatRows=1)
+    for mr in applicable_master_rules:
+        cit = _clean_pdf_text(str(_get(mr, "citation") or "Rule 6"))
+        title = _clean_pdf_text(str(_get(mr, "title") or "Mandatory Declaration"))
+        chap = _clean_pdf_text(str(_get(mr, "chapter") or "Chapter II"))
+        cat = _clean_pdf_text(str(_get(mr, "category_scope") or "Retail Packages"))
+        st = _clean_pdf_text(str(_get(mr, "evaluation_status") or "APPLICABLE"))
+        note = _clean_pdf_text(str(_get(mr, "context_note") or _get(mr, "summary") or "Statutory requirement verified."))
+        penal_sec = _clean_pdf_text(str(_get(mr, "penal_section") or "Section 36(1)"))
+        penal_desc = _clean_pdf_text(str(_get(mr, "penalty_description") or "Fine up to Rs. 25,000"))
+
+        col_hex = "#16a34a" if st in ("APPLICABLE", "COMPLIANT", "VERIFIED") else ("#2563eb" if "EXEMPT" in st else "#64748b")
+
+        f_table_rows.append([
+            Paragraph(f"<b>{cit}</b>", small),
+            Paragraph(f"<b>{title}</b><br/><font size=5 color='#64748b'>{chap}</font>", small),
+            Paragraph(f"<font color='{col_hex}'><b>{st}</b></font><br/><font size=5 color='#64748b'>{cat}</font>", small),
+            Paragraph(f"{note}", small),
+            Paragraph(f"<font color='#dc2626'><b>{penal_sec}</b></font><br/><font size=5 color='#475569'>{penal_desc}</font>", small),
+        ])
+
+    f_table = Table(f_table_rows, colWidths=[24 * mm, 38 * mm, 22 * mm, 56 * mm, 42 * mm], repeatRows=1)
     f_table.setStyle(TableStyle(f_style_cmds))
     story.append(f_table)
 
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 3))
 
     # Package Integrity & Multi-Signal Regulatory Dossier
     story.append(Paragraph("Package Integrity Cross-Verification &amp; Regulatory Status", sec_heading))

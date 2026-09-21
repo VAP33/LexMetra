@@ -343,6 +343,52 @@ def get_inspection_integrity_history(
     return {"history": history, "count": len(history)}
 
 
+@router.post("/inspections/{inspection_id}/integrity/clear-cache")
+@router.post("/integrity/{inspection_id}/clear-cache")
+@router.delete("/inspections/{inspection_id}/integrity/cache")
+@router.delete("/integrity/{inspection_id}/cache")
+def clear_inspection_integrity_cache(
+    inspection_id: str,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    """
+    Clears all cached package integrity comparison data, reference standard memory,
+    and cache election for this inspection, enabling a fresh comparison with new reference images.
+    """
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    db.delete_package_integrity_cache(inspection_id)
+
+    detail["package_integrity"] = None
+    detail["package_integrity_json"] = None
+    detail["package_integrity_status"] = "AWAITING_REFERENCE_STANDARD"
+    detail["is_reference_cache"] = False
+    try:
+        db.save_inspection_detail(inspection_id, detail)
+    except Exception:
+        pass
+
+    awaiting_rep = {
+        "inspection_id": inspection_id,
+        "status": "AWAITING_REFERENCE_STANDARD",
+        "has_reference": False,
+        "reference_type": "UNVERIFIED",
+        "reference_image_urls": [],
+        "detected_differences": [],
+        "field_comparisons": [],
+        "explanation": "Reference cache memory deleted. Please upload new reference standard packaging image(s) to run a fresh comparison.",
+        "source_tag": "COMPUTER VISION",
+    }
+    return {
+        "status": "success",
+        "message": "Package integrity cache memory cleared successfully.",
+        "package_integrity": awaiting_rep,
+        "is_reference_cache": False,
+    }
+
+
 class ToggleReferenceCacheRequest(BaseModel):
     is_cache: Optional[bool] = None
 

@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   Save,
   ShieldAlert,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   comparePackageIntegrity,
   savePackageIntegrity,
   toggleReferenceCache,
+  clearPackageIntegrityCache,
   type FieldComparisonData,
   type ComparisonHistoryItem,
   type IntegrityReportData,
@@ -325,6 +327,7 @@ export function PackageIntegrityCard({
   const [history, setHistory] = useState<ComparisonHistoryItem[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [activeEvidence, setActiveEvidence] = useState<FieldComparisonData | null>(null);
+  const [clearingCache, setClearingCache] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -353,6 +356,34 @@ export function PackageIntegrityCard({
       alert(`Failed to update reference cache standard: ${err?.message || "Error"}`);
     } finally {
       setTogglingCache(false);
+    }
+  }
+
+  async function handleClearCacheMemory() {
+    if (clearingCache) return;
+    const confirmClear = window.confirm(
+      "Are you sure you want to delete the reference cache memory for this inspection?\n\nThis will remove the current comparison results and reset the package integrity state so you can upload fresh reference images."
+    );
+    if (!confirmClear) return;
+
+    setClearingCache(true);
+    try {
+      const res = await clearPackageIntegrityCache(inspectionId);
+      setData(res.package_integrity || null);
+      setIsReferenceCache(false);
+      setIsSaved(false);
+      setSaveSuccessMsg("Reference cache memory cleared. You can now upload new reference packaging.");
+      if (onToggleReferenceCache) {
+        onToggleReferenceCache(false);
+      }
+      if (onSave && res.package_integrity) {
+        onSave(res.package_integrity);
+      }
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (err: any) {
+      alert(`Failed to delete cache memory: ${err?.message || "Unknown error"}`);
+    } finally {
+      setClearingCache(false);
     }
   }
 
@@ -736,6 +767,20 @@ export function PackageIntegrityCard({
 
           <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
             {renderSingleTickButton()}
+            <button
+              type="button"
+              onClick={handleClearCacheMemory}
+              disabled={clearingCache}
+              title="Delete and reset reference cache memory"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-2 text-xs font-bold transition shadow-xs disabled:opacity-50"
+            >
+              {clearingCache ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              <span>Delete Cache Memory</span>
+            </button>
             {history.length > 0 && (
               <button
                 type="button"
@@ -916,6 +961,21 @@ export function PackageIntegrityCard({
               History ({history.length})
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={handleClearCacheMemory}
+            disabled={clearingCache}
+            title="Delete reference cache memory and reset to upload new reference packaging"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-red-600 dark:text-red-400 px-3.5 py-1.5 text-xs font-bold transition shadow-xs disabled:opacity-50"
+          >
+            {clearingCache ? (
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            <span>Delete Cache Memory</span>
+          </button>
 
           <button
             type="button"

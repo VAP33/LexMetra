@@ -1018,6 +1018,15 @@ export async function toggleReferenceCache(
   });
 }
 
+export async function clearPackageIntegrityCache(
+  inspectionId: string
+): Promise<{ status: string; message: string; package_integrity: IntegrityReportData; is_reference_cache: boolean }> {
+  return request(`/inspections/${inspectionId}/integrity/clear-cache`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // USP 2: FSSAI Cross-Verification
 // ---------------------------------------------------------------------------

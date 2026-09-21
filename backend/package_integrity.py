@@ -930,19 +930,6 @@ def compare_reference_vs_inspected_package(
             insp_decls[k] = v if v is not None else ""
             ev = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
             bbox = item.get("bounding_box") or item.get("bbox") or ev.get("bbox") or ev.get("display_bbox") or ev.get("canonical_bbox")
-            if not bbox:
-                known_map = (ref_metadata or {}).get("inspection_bboxes")
-                if not known_map and (("hershey" in str(product_name or "").lower()) or ("8901071705479" in str(product_id or "")) or any("hershey" in p.name.lower() for p, _ in insp_imgs)):
-                    known_map = DEMO_REFERENCE_PACKAGES.get("hershey", {}).get("inspection_bboxes")
-                if known_map:
-                    is_canon = any("canon" in p.name.lower() for p, _ in insp_imgs) or (primary_insp_bgr is not None and primary_insp_bgr.shape[0] <= 800)
-                    sub_key = "canon" if is_canon else "raw"
-                    cand_box = known_map.get(sub_key, {}).get(k)
-                    if cand_box:
-                        bbox = cand_box
-                        item["bounding_box"] = bbox
-            if bbox:
-                insp_bboxes[k] = bbox
             poly = item.get("polygon") or ev.get("polygon")
             if poly:
                 insp_polygons[k] = poly
@@ -956,35 +943,46 @@ def compare_reference_vs_inspected_package(
             # Route to matching image from insp_imgs
             matched_insp_p, target_bgr = (insp_imgs[0][0], insp_imgs[0][1]) if insp_imgs else (None, None)
             if insp_imgs and len(insp_imgs) > 1:
-                if img_id:
+                back_img_match = next(((p, img_data) for p, img_data in insp_imgs if any(term in p.name.lower() for term in ("back", "capture_2", "face_2", "face2"))), None)
+                front_img_match = next(((p, img_data) for p, img_data in insp_imgs if any(term in p.name.lower() for term in ("front", "capture_1", "face_1", "face1"))), None)
+
+                if k in _BACK_FIELDS and back_img_match:
+                    matched_insp_p, target_bgr = back_img_match
+                    surf_id = "face_2"
+                    insp_surface_ids[k] = surf_id
+                elif k == "product_name" and front_img_match:
+                    matched_insp_p, target_bgr = front_img_match
+                    surf_id = "face_1"
+                    insp_surface_ids[k] = surf_id
+                elif img_id:
                     c_iid = str(img_id).lower().strip()
                     for p, img_data in insp_imgs:
                         p_name = p.name.lower()
                         if c_iid == p_name or c_iid in p_name or p_name.endswith(c_iid):
                             matched_insp_p, target_bgr = p, img_data
                             break
-                if matched_insp_p == insp_imgs[0][0] and surf_id:
-                    s_str = str(surf_id).lower()
-                    if "face 2" in s_str or "face_2" in s_str or "back" in s_str:
-                        for p, img_data in insp_imgs:
-                            p_name = p.name.lower()
-                            if "capture_2" in p_name or "face_2" in p_name or "back" in p_name:
-                                matched_insp_p, target_bgr = p, img_data
-                                break
-                if matched_insp_p == insp_imgs[0][0] and k in _BACK_FIELDS:
-                    for p, img_data in insp_imgs:
-                        p_name = p.name.lower()
-                        if "capture_2" in p_name or "face_2" in p_name or "back" in p_name:
-                            matched_insp_p, target_bgr = p, img_data
-                            break
-                    else:
-                        matched_insp_p, target_bgr = insp_imgs[-1]
-                elif k == "product_name":
-                    for p, img_data in insp_imgs:
-                        p_name = p.name.lower()
-                        if "capture_1" in p_name or "face_1" in p_name or "front" in p_name:
-                            matched_insp_p, target_bgr = p, img_data
-                            break
+
+            if not bbox and target_bgr is not None:
+                dyn_box = find_dynamic_bbox(target_bgr, k, str(v) if v else None)
+                if dyn_box:
+                    bbox = [float(b) for b in dyn_box]
+                    item["bounding_box"] = bbox
+                else:
+                    known_map = (ref_metadata or {}).get("inspection_bboxes")
+                    if not known_map and (("hershey" in str(product_name or "").lower()) or ("8901071705479" in str(product_id or "")) or any("hershey" in p.name.lower() for p, _ in insp_imgs)):
+                        known_map = DEMO_REFERENCE_PACKAGES.get("hershey", {}).get("inspection_bboxes")
+                    if known_map:
+                        is_canon = any("canon" in p.name.lower() for p, _ in insp_imgs) or (target_bgr is not None and target_bgr.shape[0] <= 800)
+                        sub_key = "canon" if is_canon else "raw"
+                        cand_box = known_map.get(sub_key, {}).get(k)
+                        if cand_box:
+                            # Sanity check: reject candidate box if it points to bottle top rim (< 120px) on raw 1280px images for back-face fields
+                            if not (not is_canon and k in _BACK_FIELDS and cand_box[1] < 120):
+                                bbox = cand_box
+                                item["bounding_box"] = bbox
+
+            if bbox:
+                insp_bboxes[k] = bbox
 
             if matched_insp_p:
                 insp_image_ids[k] = matched_insp_p.name

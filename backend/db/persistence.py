@@ -1739,6 +1739,58 @@ def get_departmental_dossier(inspection_id: str) -> Optional[dict]:
 # Single-Tick Reference Packaging Cache Election
 # ---------------------------------------------------------------------------
 
+def delete_package_integrity_cache(inspection_id: str) -> bool:
+    """
+    Deletes cached package integrity comparisons and reference cache status for this inspection,
+    resetting it to pristine awaiting reference standard state.
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("DELETE FROM package_integrity_comparisons WHERE inspection_id = %s;", (inspection_id,))
+                except Exception:
+                    pass
+                try:
+                    cur.execute(
+                        """
+                        UPDATE inspections
+                        SET package_integrity_json = NULL,
+                            package_integrity_status = 'AWAITING_REFERENCE_STANDARD',
+                            is_reference_cache = FALSE
+                        WHERE inspection_id = %s;
+                        """,
+                        (inspection_id,),
+                    )
+                except Exception:
+                    pass
+                conn.commit()
+    except Exception as e:
+        logger.warning("Failed to delete_package_integrity_cache in postgres(%s): %s", inspection_id, e)
+
+    # SQLite fallback
+    try:
+        conn_sq = sqlite3.connect(SQLITE_DB_PATH)
+        cur_sq = conn_sq.cursor()
+        cur_sq.execute("DELETE FROM package_integrity_comparisons WHERE inspection_id = ?;", (inspection_id,))
+        cur_sq.execute(
+            """
+            UPDATE inspections
+            SET package_integrity_json = NULL,
+                package_integrity_status = 'AWAITING_REFERENCE_STANDARD',
+                is_reference_cache = 0
+            WHERE inspection_id = ?;
+            """,
+            (inspection_id,),
+        )
+        conn_sq.commit()
+        conn_sq.close()
+    except Exception:
+        pass
+
+    return True
+
+
 def set_inspection_reference_cache(inspection_id: str, is_cache: bool = True) -> bool:
     """
     Sets or unsets the single-tick reference cache eligibility flag for an inspection.

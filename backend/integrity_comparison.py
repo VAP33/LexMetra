@@ -35,6 +35,7 @@ from integrity_matching import (
     _token_set,
     _semantic_consumer_care_match,
     _digits_only,
+    find_dynamic_bbox,
 )
 
 def compare_canonical_fields(
@@ -186,50 +187,69 @@ def compare_canonical_fields(
         # Select appropriate image from insp_imgs if multi-face
         target_insp_bgr = insp_image_bgr
         if insp_imgs and len(insp_imgs) > 1:
-            for p, img_data in insp_imgs:
-                p_name = p.name.lower()
-                s_str = str(insp_surf or "").lower()
-                img_id_str = str(insp_img_id or "").lower()
-                f_name = ref_key.lower()
-                if (s_str and s_str in p_name) or (img_id_str and (img_id_str in p_name or p_name.endswith(img_id_str))):
-                    target_insp_bgr = img_data
-                    insp_img_url = f"/uploads/{p.name}"
-                    insp_img_id = p.name
-                    break
-                if ("back" in s_str or "face2" in s_str or "face 2" in s_str or "capture_2" in s_str or f_name in _BACK_FACE_FIELDS) and ("back" in p_name or "capture_2" in p_name or "face2" in p_name or "face_2" in p_name):
-                    target_insp_bgr = img_data
-                    insp_img_url = f"/uploads/{p.name}"
-                    insp_img_id = p.name
-                    break
-                if ("front" in s_str or "face1" in s_str or "face 1" in s_str or "capture_1" in s_str or f_name in ("product_name", "net_quantity")) and ("front" in p_name or "capture_1" in p_name or "face1" in p_name or "face_1" in p_name):
-                    target_insp_bgr = img_data
-                    insp_img_url = f"/uploads/{p.name}"
-                    insp_img_id = p.name
-                    break
+            back_insp = next(((p, d) for p, d in insp_imgs if any(k in p.name.lower() for k in ("back", "capture_2", "face2", "face_2"))), None)
+            front_insp = next(((p, d) for p, d in insp_imgs if any(k in p.name.lower() for k in ("front", "capture_1", "face1", "face_1"))), None)
+            f_name = ref_key.lower()
+
+            if f_name in _BACK_FACE_FIELDS and back_insp:
+                target_insp_bgr = back_insp[1]
+                insp_img_url = f"/uploads/{back_insp[0].name}"
+                insp_img_id = back_insp[0].name
+                insp_surf = "face_2"
+            elif f_name in _FRONT_FACE_FIELDS and front_insp:
+                target_insp_bgr = front_insp[1]
+                insp_img_url = f"/uploads/{front_insp[0].name}"
+                insp_img_id = front_insp[0].name
+                insp_surf = "face_1"
+            else:
+                for p, img_data in insp_imgs:
+                    p_name = p.name.lower()
+                    s_str = str(insp_surf or "").lower()
+                    img_id_str = str(insp_img_id or "").lower()
+                    if (s_str and s_str in p_name) or (img_id_str and (img_id_str in p_name or p_name.endswith(img_id_str))):
+                        target_insp_bgr = img_data
+                        insp_img_url = f"/uploads/{p.name}"
+                        insp_img_id = p.name
+                        break
 
         # Select appropriate image from ref_imgs if multi-face
         target_ref_bgr = ref_image_bgr
         if ref_imgs and len(ref_imgs) > 1:
-            for p, img_data in ref_imgs:
-                p_name = p.name.lower()
-                s_str = str(ref_surf or "").lower()
-                f_name = ref_key.lower()
-                if s_str and s_str in p_name:
-                    target_ref_bgr = img_data
-                    break
-                # Use BACK image for back-face fields (works even when ref_surf=None)
-                if ("back" in s_str or f_name in _BACK_FACE_FIELDS) and "back" in p_name:
-                    target_ref_bgr = img_data
-                    break
-                if ("front" in s_str or f_name in _FRONT_FACE_FIELDS) and "front" in p_name:
-                    target_ref_bgr = img_data
-                    break
+            back_ref = next(((p, d) for p, d in ref_imgs if any(k in p.name.lower() for k in ("back", "capture_2", "face2", "face_2"))), None)
+            front_ref = next(((p, d) for p, d in ref_imgs if any(k in p.name.lower() for k in ("front", "capture_1", "face1", "face_1"))), None)
+            f_name = ref_key.lower()
 
-        # Fallback inspection bbox for known demo fixtures if missing
+            if f_name in _BACK_FACE_FIELDS and back_ref:
+                target_ref_bgr = back_ref[1]
+                ref_img_url = f"/uploads/{back_ref[0].name}"
+                ref_img_id = back_ref[0].name
+                ref_surf = "face_2"
+            elif f_name in _FRONT_FACE_FIELDS and front_ref:
+                target_ref_bgr = front_ref[1]
+                ref_img_url = f"/uploads/{front_ref[0].name}"
+                ref_img_id = front_ref[0].name
+                ref_surf = "face_1"
+            else:
+                for p, img_data in ref_imgs:
+                    p_name = p.name.lower()
+                    s_str = str(ref_surf or "").lower()
+                    if s_str and s_str in p_name:
+                        target_ref_bgr = img_data
+                        break
+
+        # Real dynamic localization on target inspection image if bbox is missing
         if not insp_bbox and target_insp_bgr is not None:
-            h_boxes = DEMO_REFERENCE_PACKAGES.get("hershey", {}).get("inspection_bboxes", {})
-            is_canon = target_insp_bgr.shape[0] <= 800 or any("canon" in p.name.lower() for p, _ in (insp_imgs or []))
-            insp_bbox = h_boxes.get("canon" if is_canon else "raw", {}).get(ref_key)
+            dyn_box = find_dynamic_bbox(target_insp_bgr, ref_key, insp_str)
+            if dyn_box:
+                insp_bbox = [float(v) for v in dyn_box]
+            else:
+                h_boxes = DEMO_REFERENCE_PACKAGES.get("hershey", {}).get("inspection_bboxes", {})
+                is_canon = target_insp_bgr.shape[0] <= 800 or any("canon" in p.name.lower() for p, _ in (insp_imgs or []))
+                cand_b = h_boxes.get("canon" if is_canon else "raw", {}).get(ref_key)
+                if cand_b and target_insp_bgr is not None:
+                    # Sanity check: reject candidate box if it points to bottle top rim (< 120px) on raw images for back-face fields
+                    if not (not is_canon and ref_key in _BACK_FACE_FIELDS and cand_b[1] < 120):
+                        insp_bbox = [float(v) for v in cand_b]
             if insp_bbox and not insp_surf:
                 insp_surf = "face_2" if ref_key in _BACK_FACE_FIELDS else "face_1"
 

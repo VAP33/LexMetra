@@ -19,7 +19,7 @@ import {
 import { type AuthedUser, checkHealth, clearSession } from "@/lib/api-client";
 import { type Language, getTranslation } from "@/lib/i18n";
 import { type Inspection } from "@/lib/types";
-import { type View, LexMetraLogo } from "./ui-primitives";
+import { type View } from "./ui-primitives";
 
 export function Header({
   title,
@@ -103,24 +103,15 @@ export function Header({
             <Menu className="h-5 w-5" />
           </button>
 
-          {/* LexMetra Generated Brand Logo */}
+          {/* Page title — no logo in navbar */}
           <button
             type="button"
             onClick={() => onNavigate?.("landing")}
-            className="flex items-center gap-2 sm:gap-3 rounded-xl hover:bg-white/5 px-1.5 py-1 -mx-1.5 -my-1 transition active:scale-[0.98]"
+            className="flex items-center rounded-xl hover:bg-white/5 px-1.5 py-1 -mx-1.5 -my-1 transition active:scale-[0.98]"
           >
-            <div className="flex items-center justify-center rounded-xl bg-white p-1 sm:p-1.5 shadow-sm ring-1 ring-brand-300/30">
-              <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[140px] sm:max-w-[190px]" />
-            </div>
-            <div className="hidden sm:block text-left">
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-saffron-400 animate-pulse" />
-                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-saffron-300">{eyebrow || defaultEyebrow}</p>
-              </div>
-              <h1 className="text-sm sm:text-base font-bold tracking-tight text-white flex items-center gap-2">
-                <span>{title}</span>
-              </h1>
-            </div>
+            <h1 className="text-lg sm:text-xl font-black tracking-tight text-white">
+              {title}
+            </h1>
           </button>
         </div>
 

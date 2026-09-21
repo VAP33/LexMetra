@@ -16,7 +16,7 @@ import {
   Globe,
 } from "lucide-react";
 
-import { LexMetraLogo } from "./inspection-app";
+
 
 interface LandingPageProps {
   onStartScan: () => void;
@@ -62,18 +62,10 @@ export function LandingPage({
       <header className="border-b border-brand-900/40 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white sticky top-0 z-50 shadow-md">
         <div className="h-1.5 w-full tricolor-stripe" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[76px] py-2 flex items-center justify-between flex-wrap gap-3">
-          {/* Left Corner Logo */}
+          {/* Left Corner — page title only, no logo in navbar */}
           <div className="flex items-center gap-3.5">
-            <div className="rounded-2xl bg-white p-1 sm:p-1.5 shadow-md ring-2 ring-brand-300/30">
-              <LexMetraLogo className="h-7 sm:h-9 w-auto max-w-[130px] sm:max-w-[180px]" />
-            </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-base font-black tracking-widest text-white">LEXMETRA</span>
-              </div>
-              <p className="text-[11px] font-semibold text-brand-200 tracking-wider uppercase">
-                Legal Metrology Division · Govt of India
-              </p>
+              <span className="text-base font-black tracking-widest text-white">LEXMETRA</span>
             </div>
           </div>
 

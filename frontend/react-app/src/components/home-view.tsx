@@ -322,22 +322,23 @@ export function HomeView({
         onNavigate={onNavigate}
       />
       <main className="mx-auto max-w-7xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
-        {/* Government Officer Operational Header */}
+        {/* Dashboard Hero — LexMetra logo + page context */}
         <section className="flex flex-col justify-between gap-4 rounded-2xl border border-border/80 bg-card p-6 shadow-sm sm:flex-row sm:items-center">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="rounded-md bg-brand-soft px-2 py-0.5 text-[10px] font-bold text-brand uppercase tracking-wider">
-                {dt.govDca}
-              </span>
-              <span className="text-xs text-muted-foreground">·</span>
-              <span className="text-xs font-semibold text-muted-foreground">{dt.enforcementUnit}</span>
+          <div className="flex items-center gap-5">
+            <img
+              src="/lexmetra-logo-new.png"
+              alt="LexMetra"
+              className="h-20 w-auto object-contain shrink-0"
+              draggable={false}
+            />
+            <div>
+              <h2 className="text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
+                {dt.fieldOperations}
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {dt.fieldSub}
+              </p>
             </div>
-            <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
-              {dt.fieldOperations}
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {dt.fieldSub}
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">

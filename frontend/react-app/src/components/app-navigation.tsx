@@ -128,19 +128,18 @@ export function DesktopRail({ view, onNavigate, lang = "en", role }: { view: Vie
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200 bg-white px-4 py-5 md:flex shadow-sm">
       <div className="h-1.5 w-full tricolor-stripe mb-4 rounded-full" />
 
-      {/* LexMetra Sidebar Card */}
+      {/* LexMetra Sidebar Logo */}
       <button
         type="button"
         onClick={() => onNavigate("landing")}
-        className="mb-6 w-full rounded-2xl border border-slate-200 bg-gradient-to-b from-brand-50/40 to-white p-3.5 shadow-xs hover:border-brand-300 hover:shadow-sm transition-all active:scale-[0.98]"
+        className="mb-6 w-full rounded-2xl border border-slate-200 bg-white p-3 shadow-xs hover:border-brand-300 hover:shadow-sm transition-all active:scale-[0.98] flex items-center justify-center"
       >
-        <div className="text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            <p className="text-sm font-black tracking-widest text-brand-900">LEXMETRA</p>
-            <span className="rounded bg-saffron-soft border border-saffron/40 px-1.5 py-0.5 text-[9px] font-extrabold text-saffron-700">LM AI</span>
-          </div>
-          <p className="text-[10px] font-bold uppercase tracking-[.06em] text-govgreen mt-0.5">Legal Metrology Directorate</p>
-        </div>
+        <img
+          src="/lexmetra-logo-new.png"
+          alt="LexMetra"
+          className="h-16 w-auto object-contain"
+          draggable={false}
+        />
       </button>
 
       <nav className="space-y-1">

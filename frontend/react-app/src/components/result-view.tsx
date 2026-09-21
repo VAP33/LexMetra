@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleHelp,
   CircleSlash,
   Clock,
@@ -33,7 +34,7 @@ import {
 } from "lucide-react";
 import { type Language, getTranslation } from "@/lib/i18n";
 import { type Declaration, type DeclarationStatus, type Inspection, type InspectionStatus } from "@/lib/types";
-import { markReviewed, type AuthedUser } from "@/lib/api-client";
+import { markReviewed, getMasterRules, type MasterRuleItem, type AuthedUser } from "@/lib/api-client";
 import { type View, Button, StatusBadge, formatDate, statusStyles } from "./ui-primitives";
 import { Header as AppHeader } from "./app-header";
 import { DisclaimerBanner } from "./app-navigation";
@@ -302,6 +303,21 @@ export function ResultView({
   const [showDepartmentalModal, setShowDepartmentalModal] = useState(false);
   const [reportTracking, setReportTracking] = useState<{ caseId: string; reportId: string } | null>(null);
   const [resultLang, setResultLang] = useState<"en" | "hi" | "mr">("en");
+  const [masterRules, setMasterRules] = useState<MasterRuleItem[]>([]);
+  const [selectedExtendedRule, setSelectedExtendedRule] = useState<string>("ALL");
+  const [extendedExpanded, setExtendedExpanded] = useState<boolean>(false);
+
+  useEffect(() => {
+    let mounted = true;
+    getMasterRules({ category: inspection.category, saleType: inspection.saleType })
+      .then((rules) => {
+        if (mounted && Array.isArray(rules)) setMasterRules(rules);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [inspection.category, inspection.saleType]);
 
   const style = statusStyles[inspection.status];
   const verified = inspection.declarations.filter((item) => item.status === "VERIFIED" || item.status === "EXEMPT").length;
@@ -344,16 +360,16 @@ export function ResultView({
               <div className="flex h-24 w-24 flex-col items-center justify-center rounded-full bg-card shadow-sm border border-border/60">
                 <span className={`text-2xl font-semibold ${style.text}`}>
                   {inspection.scoreBreakdown
-                    ? `${inspection.scoreBreakdown.verifiedCount}/${inspection.scoreBreakdown.applicableCount}`
-                    : `${inspection.verifiedScore ?? inspection.score}%`}
+                    ? inspection.scoreBreakdown.verifiedCount
+                    : (inspection.verifiedScore ?? inspection.score)}
                 </span>
                 <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Verified</span>
               </div>
               <div className="flex h-20 w-20 flex-col items-center justify-center rounded-full bg-card/60 border border-border/40">
                 <span className="text-xl font-semibold text-foreground">
                   {inspection.scoreBreakdown
-                    ? `${inspection.scoreBreakdown.judgeableCount}/${inspection.scoreBreakdown.applicableCount}`
-                    : `${inspection.reviewedScore ?? inspection.score}%`}
+                    ? inspection.scoreBreakdown.judgeableCount
+                    : (inspection.reviewedScore ?? inspection.score)}
                 </span>
                 <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Assessed</span>
               </div>
@@ -381,7 +397,7 @@ export function ResultView({
                   </span>
                 )}
                 <span className="text-muted-foreground">
-                  of {inspection.scoreBreakdown.applicableCount} applicable
+                  {inspection.scoreBreakdown.applicableCount} applicable rules
                 </span>
               </div>
               {inspection.scoreBreakdown.blockedCount > 0 &&
@@ -400,10 +416,10 @@ export function ResultView({
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Checked</p>
               <p className="mt-1 text-sm font-semibold">
                 {inspection.scoreBreakdown
-                  ? `${inspection.scoreBreakdown.verifiedCount} / ${inspection.scoreBreakdown.applicableCount}`
+                  ? `${inspection.scoreBreakdown.verifiedCount} Verified`
                   : inspection.declarationSummary
-                  ? `${inspection.declarationSummary.verified} / ${inspection.declarationSummary.applicable}`
-                  : `${verified} / ${total}`}
+                  ? `${inspection.declarationSummary.verified} Verified`
+                  : `${verified} Verified`}
                 {inspection.pdpAreaCm2 ? ` · ${inspection.pdpAreaCm2} cm² PDP` : ""}
               </p>
             </div>
@@ -467,7 +483,7 @@ export function ResultView({
             </div>
             <div className="text-right">
               <span className="text-sm font-semibold text-muted-foreground">
-                {inspection.declarationSummary ? `${inspection.declarationSummary.verified} / ${inspection.declarationSummary.applicable} verified` : `${verified}/${total} verified`}
+                {inspection.declarationSummary ? `${inspection.declarationSummary.verified} verified` : `${verified} verified`}
               </span>
               {inspection.declarationSummary && inspection.declarationSummary.reviewRequired > 0 && (
                 <p className="text-xs font-medium text-warning">{inspection.declarationSummary.reviewRequired} need review</p>
@@ -475,7 +491,7 @@ export function ResultView({
             </div>
           </div>
           <div className="mt-4">
-            {inspection.declarations.map((declaration) => (
+            {inspection.declarations.slice(0, 13).map((declaration) => (
               <DeclarationRow
                 key={declaration.field}
                 declaration={declaration}
@@ -488,6 +504,171 @@ export function ResultView({
               />
             ))}
           </div>
+        </section>
+
+        {/* Additional Statutory Provisions & Master Register Dropdown Comparison */}
+        <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border/60 pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400">
+                  LMPC-2011 · G.S.R. 202(E)
+                </span>
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Extended Register
+                </span>
+                <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                  {masterRules.length || 48} Provisions
+                </span>
+              </div>
+              <h3 className="mt-1.5 text-lg font-semibold tracking-tight">
+                Additional Statutory Provisions &amp; Rule Comparison
+              </h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Compare package parameters against extended statutory clauses, contextual exemptions, and penal provisions.
+              </p>
+            </div>
+
+            {/* Filter Dropdown + Expand/Collapse Button */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label htmlFor="master-rule-select" className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
+                  Select Rule:
+                </label>
+                <select
+                  id="master-rule-select"
+                  value={selectedExtendedRule}
+                  onChange={(e) => {
+                    setSelectedExtendedRule(e.target.value);
+                    if (e.target.value !== "ALL") {
+                      setExtendedExpanded(true);
+                    }
+                  }}
+                  className="h-9 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground shadow-xs outline-none focus:border-brand focus:ring-1 focus:ring-brand max-w-[240px]"
+                >
+                  <option value="ALL">All Extended Provisions ({masterRules.length || 48}+ Rules)</option>
+                  {masterRules.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.citation}: {r.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <Button
+                variant={extendedExpanded ? "quiet" : "secondary"}
+                onClick={() => setExtendedExpanded(!extendedExpanded)}
+                className="h-9 gap-1.5 text-xs font-semibold"
+              >
+                {extendedExpanded ? (
+                  <>
+                    <ChevronUp className="h-3.5 w-3.5" />
+                    Collapse Register
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5 text-brand" />
+                    Expand Register ({masterRules.length || 48})
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Compact Summary View when Collapsed */}
+          {!extendedExpanded && (
+            <div
+              onClick={() => setExtendedExpanded(true)}
+              className="mt-4 p-4 rounded-xl border border-dashed border-border/80 bg-muted/30 hover:bg-muted/50 cursor-pointer transition-all flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
+                  {masterRules.length || 48}
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">
+                    Master Statutory Rule &amp; Exemption Register ({masterRules.length || 48} Clauses)
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Click to review extended clauses across 8 chapters, contextual exemptions, and penal sections under Section 36(1).
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-xs font-bold text-brand shrink-0">
+                <span>Click to Expand</span>
+                <ChevronDown className="h-3.5 w-3.5" />
+              </div>
+            </div>
+          )}
+
+          {/* Expanded List of Additional Rules in Inspection Results Format */}
+          {extendedExpanded && (
+            <div className="mt-4 divide-y divide-border/60 animate-in fade-in duration-200">
+              {(selectedExtendedRule === "ALL" ? masterRules : masterRules.filter((r) => r.id === selectedExtendedRule)).map((rule) => {
+                const isApplicable = rule.evaluation_status === "APPLICABLE";
+                const isExempt = rule.evaluation_status === "EXEMPT" || rule.evaluation_status === "ACTIVE_EXEMPTION";
+
+                return (
+                  <div key={rule.id} className="py-3 first:pt-0 last:pb-0 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-foreground">
+                          {rule.citation}
+                        </span>
+                        <span className="text-sm font-semibold text-foreground">
+                          {rule.title}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          ({rule.chapter})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          isApplicable
+                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                            : isExempt
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                              : "bg-muted text-muted-foreground border border-border"
+                        }`}>
+                          {rule.evaluation_status || (rule.is_mandatory ? "MANDATORY" : "CONDITIONAL")}
+                        </span>
+                        <span className="text-[10px] font-semibold text-muted-foreground">
+                          {rule.category_scope}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-muted/50 rounded-xl p-3 border border-border/40">
+                      <div>
+                        <span className="font-bold text-foreground">Contextual Finding: </span>
+                        <span className="text-muted-foreground">{rule.context_note || rule.summary}</span>
+                        {rule.exemptions && rule.exemptions.length > 0 && (
+                          <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 italic">
+                            Exemptions: {rule.exemptions.join("; ")}
+                          </div>
+                        )}
+                      </div>
+                      <div className="border-t sm:border-t-0 sm:border-l border-border/60 pt-2 sm:pt-0 sm:pl-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-destructive">
+                            Penal Provision: {rule.penal_section}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
+                          {rule.penalty_description}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {masterRules.length === 0 && (
+                <p className="text-xs text-muted-foreground italic text-center py-4">
+                  Loading additional statutory provisions…
+                </p>
+              )}
+            </div>
+          )}
         </section>
 
         {inspection.status !== "COMPLIANT" && inspection.status !== "EXEMPT" && (

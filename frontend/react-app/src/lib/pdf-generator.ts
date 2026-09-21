@@ -41,36 +41,28 @@ export async function exportElementAsPdf(
   clone.querySelectorAll(".print-hidden").forEach((n) => (n as HTMLElement).remove());
   document.body.appendChild(clone);
 
-  onProgress?.({ stage: "Rendering pages…", pct: 15 });
+  onProgress?.({ stage: "Preparing and loading document assets…", pct: 10 });
 
-  let canvas: HTMLCanvasElement;
-  try {
-    canvas = await html2canvas(clone, {
-      scale: 2,            // 2× for retina-quality text
-      useCORS: true,       // allow cross-origin images
-      allowTaint: true,
-      backgroundColor: "#ffffff",
-      logging: false,
-      windowWidth: 1024,
-    });
-  } finally {
-    document.body.removeChild(clone);
-  }
-
-  onProgress?.({ stage: "Building PDF…", pct: 65 });
+  // Ensure all images in the clone have finished loading before capturing
+  const imgs = Array.from(clone.querySelectorAll("img"));
+  await Promise.all(
+    imgs.map((img) => {
+      if (img.complete) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        setTimeout(resolve, 2500);
+      });
+    })
+  );
 
   // A4 in mm
   const A4_W = 210;
   const A4_H = 297;
-  const MARGIN = 10; // mm
+  const MARGIN = 8; // mm
 
   const pageW = A4_W - MARGIN * 2;
-  const imgW = canvas.width;
-  const imgH = canvas.height;
-
-  // mm per pixel
-  const mmPerPx = pageW / imgW;
-  const totalHeightMm = imgH * mmPerPx;
+  const pageContentH = A4_H - MARGIN * 2;
 
   const pdf = new jsPDF({
     orientation: "portrait",
@@ -79,28 +71,77 @@ export async function exportElementAsPdf(
     compress: true,
   });
 
-  const pageContentH = A4_H - MARGIN * 2;
-  const pagesCount = Math.ceil(totalHeightMm / pageContentH);
+  const pageNodes = Array.from(clone.querySelectorAll<HTMLElement>("[data-report-page]"));
 
-  for (let p = 0; p < pagesCount; p++) {
-    if (p > 0) pdf.addPage();
+  try {
+    if (pageNodes.length > 0) {
+      for (let p = 0; p < pageNodes.length; p++) {
+        onProgress?.({
+          stage: `Composing certified page ${p + 1} of ${pageNodes.length}…`,
+          pct: 20 + Math.round((p / pageNodes.length) * 70),
+        });
 
-    // Crop canvas slice for this page
-    const srcYPx = Math.round((p * pageContentH) / mmPerPx);
-    const srcHPx = Math.min(Math.round(pageContentH / mmPerPx), imgH - srcYPx);
+        const pageEl = pageNodes[p];
+        const pageCanvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: "#ffffff",
+          logging: false,
+          windowWidth: 1024,
+        });
 
-    const pageCanvas = document.createElement("canvas");
-    pageCanvas.width = imgW;
-    pageCanvas.height = srcHPx;
-    const ctx = pageCanvas.getContext("2d")!;
-    ctx.drawImage(canvas, 0, srcYPx, imgW, srcHPx, 0, 0, imgW, srcHPx);
+        if (p > 0) pdf.addPage();
 
-    const dataUrl = pageCanvas.toDataURL("image/jpeg", 0.92);
-    const imgHMm = srcHPx * mmPerPx;
+        const imgW = pageCanvas.width;
+        const imgH = pageCanvas.height;
 
-    pdf.addImage(dataUrl, "JPEG", MARGIN, MARGIN, pageW, imgHMm);
+        // Fit page cleanly within A4 printable area preserving aspect ratio
+        const scale = Math.min(pageW / imgW, pageContentH / imgH);
+        const renderW = imgW * scale;
+        const renderH = imgH * scale;
+        const posX = MARGIN + (pageW - renderW) / 2;
+        const posY = MARGIN;
 
-    onProgress?.({ stage: `Composing page ${p + 1} of ${pagesCount}…`, pct: 65 + Math.round(((p + 1) / pagesCount) * 25) });
+        const dataUrl = pageCanvas.toDataURL("image/jpeg", 0.95);
+        pdf.addImage(dataUrl, "JPEG", posX, posY, renderW, renderH, undefined, "FAST");
+      }
+    } else {
+      // Fallback: render continuous canvas if no page markers exist
+      onProgress?.({ stage: "Rendering full dossier…", pct: 30 });
+      const canvas = await html2canvas(clone, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        windowWidth: 1024,
+      });
+
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+      const mmPerPx = pageW / imgW;
+      const totalHeightMm = imgH * mmPerPx;
+      const pagesCount = Math.ceil(totalHeightMm / pageContentH);
+
+      for (let p = 0; p < pagesCount; p++) {
+        if (p > 0) pdf.addPage();
+        const srcYPx = Math.round((p * pageContentH) / mmPerPx);
+        const srcHPx = Math.min(Math.round(pageContentH / mmPerPx), imgH - srcYPx);
+
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = imgW;
+        pageCanvas.height = srcHPx;
+        const ctx = pageCanvas.getContext("2d")!;
+        ctx.drawImage(canvas, 0, srcYPx, imgW, srcHPx, 0, 0, imgW, srcHPx);
+
+        const dataUrl = pageCanvas.toDataURL("image/jpeg", 0.92);
+        const imgHMm = srcHPx * mmPerPx;
+        pdf.addImage(dataUrl, "JPEG", MARGIN, MARGIN, pageW, imgHMm);
+      }
+    }
+  } finally {
+    document.body.removeChild(clone);
   }
 
   onProgress?.({ stage: "Opening PDF in new tab…", pct: 95 });

@@ -129,110 +129,11 @@ export function InspectionRow({ inspection, onOpen, lang }: { inspection: Inspec
 
 export function LexMetraLogo({ className = "h-8 sm:h-9 w-auto" }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 440 100"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+    <img
+      src="/lexmetra-logo-new.png"
+      alt="LexMetra"
       className={className}
-      aria-label="LexMetra Statutory Compliance Platform"
-    >
-      <defs>
-        {/* Deep Royal Navy to Midnight Blue Shield Gradient */}
-        <linearGradient id="shieldGradLM" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#1E3A8A" />
-          <stop offset="45%" stopColor="#0F172A" />
-          <stop offset="100%" stopColor="#1D4ED8" />
-        </linearGradient>
-        {/* Rich Lustrous Gold for Scales of Justice */}
-        <linearGradient id="goldScalesLM" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#F59E0B" />
-          <stop offset="100%" stopColor="#B45309" />
-        </linearGradient>
-        {/* Indian National Tricolor */}
-        <linearGradient id="tricolorBadgeLM" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#FF671F" />
-          <stop offset="48%" stopColor="#FFFFFF" />
-          <stop offset="52%" stopColor="#046A38" />
-          <stop offset="100%" stopColor="#046A38" />
-        </linearGradient>
-      </defs>
-
-      {/* Emblem Icon (Left) */}
-      <g transform="translate(10, 10)">
-        {/* Outer Shield with Crisp High-Contrast Outline */}
-        <path
-          d="M40 2 L74 19 L74 57 L40 78 L6 57 L6 19 Z"
-          fill="url(#shieldGradLM)"
-          stroke="#2563EB"
-          strokeWidth="2.5"
-          strokeLinejoin="round"
-        />
-
-        {/* Vernier Caliper / Metric Scale Grid Marks */}
-        <line x1="14" y1="26" x2="22" y2="26" stroke="#93C5FD" strokeWidth="1.8" strokeLinecap="round" />
-        <line x1="14" y1="34" x2="25" y2="34" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" />
-        <line x1="14" y1="42" x2="22" y2="42" stroke="#93C5FD" strokeWidth="1.8" strokeLinecap="round" />
-        <line x1="14" y1="50" x2="25" y2="50" stroke="#10B981" strokeWidth="2.2" strokeLinecap="round" />
-
-        {/* Scales of Justice Central Pillar */}
-        <path d="M40 14 L40 64" stroke="#F8FAFC" strokeWidth="2.8" strokeLinecap="round" />
-        <path d="M24 24 L56 24" stroke="url(#goldScalesLM)" strokeWidth="3.2" strokeLinecap="round" />
-        
-        {/* Left Scale Pan */}
-        <path d="M24 24 L19 40 L29 40 Z" fill="none" stroke="#E2E8F0" strokeWidth="1.4" />
-        <path d="M17 40 Q24 47 31 40" fill="none" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" />
-
-        {/* Right Scale Pan */}
-        <path d="M56 24 L51 40 L61 40 Z" fill="none" stroke="#E2E8F0" strokeWidth="1.4" />
-        <path d="M49 40 Q56 47 63 40" fill="none" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" />
-
-        {/* Central Pivot Jewel */}
-        <circle cx="40" cy="24" r="3.8" fill="#38BDF8" stroke="#0F172A" strokeWidth="1.5" />
-
-        {/* Indian National Tricolor Ribbon Base */}
-        <rect x="20" y="67" width="40" height="4" rx="2" fill="url(#tricolorBadgeLM)" stroke="#0F172A" strokeWidth="0.5" />
-      </g>
-
-      {/* Brand Typography: Deep Navy for 'LEX' and Royal Blue for 'METRA' — Maximum Contrast on White */}
-      <text
-        x="100"
-        y="46"
-        fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-        fontSize="34"
-        fontWeight="900"
-        letterSpacing="3"
-        fill="#0F172A"
-      >
-        LEX<tspan fill="#2563EB">METRA</tspan>
-      </text>
-
-      {/* Official Gov Regulatory Seal Badge */}
-      <rect x="314" y="21" width="86" height="26" rx="6" fill="#EFF6FF" stroke="#2563EB" strokeWidth="1.5" />
-      <text
-        x="357"
-        y="38"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        fontSize="11"
-        fontWeight="800"
-        fill="#1D4ED8"
-        textAnchor="middle"
-        letterSpacing="1"
-      >
-        GOV · IND
-      </text>
-
-      {/* High-Contrast Subtitle (Deep Slate / Forest Green for white background) */}
-      <text
-        x="102"
-        y="69"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        fontSize="10"
-        fontWeight="800"
-        letterSpacing="2.2"
-        fill="#047857"
-      >
-        LEGAL METROLOGY STATUTORY COMPLIANCE
-      </text>
-    </svg>
+      draggable={false}
+    />
   );
 }

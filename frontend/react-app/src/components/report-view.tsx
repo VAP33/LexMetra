@@ -22,6 +22,7 @@ import {
   getDepartmentalCrossVerification,
   downloadOrOpenInspectionReportPdf,
   getMasterRules,
+  API_BASE,
   type IntegrityReportData,
   type DepartmentalRegulatoryDossierData,
   type MasterRuleItem,
@@ -32,6 +33,34 @@ import { exportElementAsPdf } from "@/lib/pdf-generator";
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+export function resolveMediaSrc(src?: string): string | undefined {
+  if (!src) return undefined;
+  if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:") || src.startsWith("blob:")) return src;
+  if (src.startsWith("/9j") || src.startsWith("iVBORw0KGgo") || (src.length > 200 && !src.includes(" ") && !src.includes("\n"))) {
+    const isPng = src.startsWith("iVBORw0KGgo");
+    return `data:image/${isPng ? "png" : "jpeg"};base64,${src}`;
+  }
+  const cleanPath = src.startsWith("/uploads/") || src.startsWith("uploads/")
+    ? (src.startsWith("/") ? src : `/${src}`)
+    : src.startsWith("/") ? src : `/uploads/${src}`;
+  return `${API_BASE}${cleanPath}`;
+}
+
+export function findIntegrityCrop(
+  fieldComparisons: any[] | undefined,
+  keys: string[]
+): string | undefined {
+  if (!fieldComparisons || fieldComparisons.length === 0) return undefined;
+  const match = fieldComparisons.find((fc) => {
+    const k = (fc.field_key || fc.field || fc.field_name || "").toLowerCase().replace(/[\s_\-\/\(\)]/g, "");
+    return keys.some((target) => {
+      const cleanTarget = target.toLowerCase().replace(/[\s_\-\/\(\)]/g, "");
+      return k === cleanTarget || k.includes(cleanTarget) || cleanTarget.includes(k);
+    });
+  });
+  return match?.inspection_crop_base64 || match?.inspection_crop;
+}
 
 function fieldLabel(field: string): string {
   return field
@@ -132,20 +161,42 @@ function TableHeader({ cols }: { cols: string[] }) {
 
 function ReportEvidenceCrop({
   imageSrc,
+  cropBase64,
   bbox,
   polygon,
   label,
 }: {
   imageSrc?: string;
+  cropBase64?: string;
   bbox?: { x: number; y: number; width: number; height: number };
   polygon?: [number, number][];
   label: string;
 }) {
+  const resolvedCrop = resolveMediaSrc(cropBase64);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [rendered, setRendered] = React.useState(false);
 
+  // If high-resolution pre-extracted evidence crop is already available, render directly
+  if (resolvedCrop) {
+    return (
+      <div className="relative inline-block overflow-hidden rounded border border-slate-300 bg-slate-950 shadow-xs">
+        <img
+          src={resolvedCrop}
+          alt={label}
+          crossOrigin="anonymous"
+          className="block h-[56px] w-[130px] object-contain bg-slate-950"
+        />
+        <span className="absolute bottom-0 left-0 right-0 bg-slate-900/85 px-1 py-0.5 text-center text-[8px] font-mono text-emerald-400 truncate">
+          {label}
+        </span>
+      </div>
+    );
+  }
+
+  const resolvedImageSrc = resolveMediaSrc(imageSrc);
+
   React.useEffect(() => {
-    if (!imageSrc || !bbox || bbox.width <= 0 || bbox.height <= 0) return;
+    if (!resolvedImageSrc || !bbox || bbox.width <= 0 || bbox.height <= 0) return;
     let active = true;
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -197,13 +248,13 @@ function ReportEvidenceCrop({
       if (!active) return;
       setRendered(false);
     };
-    img.src = imageSrc;
+    img.src = resolvedImageSrc;
     return () => { active = false; };
-  }, [imageSrc, bbox, polygon]);
+  }, [resolvedImageSrc, bbox, polygon]);
 
-  if (!imageSrc || !bbox || bbox.width <= 0) {
+  if (!resolvedImageSrc || !bbox || bbox.width <= 0) {
     return (
-      <div className="h-[60px] w-[130px] rounded border border-dashed border-slate-300 bg-slate-100 flex items-center justify-center text-[9px] text-slate-400 italic">
+      <div className="h-[56px] w-[130px] rounded border border-dashed border-slate-300 bg-slate-100 flex items-center justify-center text-[9px] text-slate-400 italic">
         No BBox
       </div>
     );
@@ -396,7 +447,7 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
           {/* ═══════════════════════════════════════════════════════════════ */}
           {/* PAGE 1 — Header · Verdict · Metadata · All Declarations        */}
           {/* ═══════════════════════════════════════════════════════════════ */}
-          <div className="p-6 sm:p-10 space-y-5">
+          <div data-report-page="1" className="p-6 sm:p-10 space-y-5">
 
             {/* Document header with Official Brand & Prominent Live QR Code */}
             <div className="flex flex-col sm:flex-row items-center justify-between border-b-2 border-slate-900 pb-4 gap-4">
@@ -487,132 +538,31 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
               ))}
             </div>
 
-            {/* Section 1: All Declarations */}
+            {/* Section 1: Core 13 Statutory Rules & Localized Evidence */}
             <div className="print-avoid-break">
-              <SectionTitle n={1} title="Extracted Legal Metrology Declarations (Fused Across All Package Surfaces)" />
-              <div className="rounded-xl border border-slate-200 overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <TableHeader cols={["Statutory Field", "Extracted Value", "Evidence / Localized Section", "Rule Ref.", "Status", "Notes / Reason"]} />
-                  <tbody className="divide-y divide-slate-100">
-                    {allDecls.length > 0 ? allDecls.map((d, i) => {
-                      const evRegion = (inspection.evidence || []).find(
-                        (e) => e.label.toLowerCase() === d.field.toLowerCase() ||
-                               (d.canonicalField && e.label.toLowerCase() === d.canonicalField.toLowerCase()) ||
-                               e.label.toLowerCase().includes(d.field.toLowerCase()) ||
-                               d.field.toLowerCase().includes(e.label.toLowerCase())
-                      );
-                      const evSurface = (evRegion?.surfaceType && inspection.surfaces?.find(
-                        (s) => s.surfaceType.toLowerCase() === evRegion.surfaceType?.toLowerCase() ||
-                               s.surfaceId.toLowerCase() === evRegion.surfaceType?.toLowerCase() ||
-                               s.faceLabel?.toLowerCase() === evRegion.surfaceType?.toLowerCase()
-                      )) || inspection.surfaces?.[0];
-
-                      const cropImgSrc = evSurface?.canonicalImageUrl || evSurface?.imageUrl || inspection.canonicalImage || inspection.image;
-                      const cropBbox = d.evidenceBboxPx || evRegion?.bboxPx;
-                      const cropPolygon = d.polygonPx || evRegion?.polygonPx;
-
-                      return (
-                        <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                          <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{fieldLabel(d.field)}</td>
-                          <td className="px-3 py-2 text-slate-700 max-w-[200px] break-words">{d.value || <span className="text-slate-400 italic">Not observed</span>}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">
-                            <ReportEvidenceCrop
-                              imageSrc={cropImgSrc}
-                              bbox={cropBbox}
-                              polygon={cropPolygon}
-                              label={fieldLabel(d.field)}
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-slate-500 whitespace-nowrap font-mono">{d.ruleId || "—"}</td>
-                          <td className={`px-3 py-2 whitespace-nowrap ${statusColor(d.status)}`}>{statusLabel(d.status)}</td>
-                          <td className="px-3 py-2 text-slate-500 text-[10px] max-w-[160px] break-words">
-                            {d.reason || (d.missingEvidence?.length ? `Blocked on: ${d.missingEvidence.join(", ")}` : "")}
-                          </td>
-                        </tr>
-                      );
-                    }) : (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-4 text-center text-slate-400 italic text-xs">No declarations extracted</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Section 1B: LMPC Master Statutory Rule & Exemption Register */}
-            <div className="print-avoid-break">
-              <SectionTitle n="1B" title="LMPC-2011 Master Statutory Rule & Exemption Register (G.S.R. 202(E))" />
-              <p className="text-xs text-slate-500 mb-2">
-                Statutory codification under the Legal Metrology (Packaged Commodities) Rules, 2011 and Legal Metrology Act, 2009.
-                Contextual exemptions evaluated dynamically for this package category, sale type, and container specification.
+              <SectionTitle n={1} title="Statutory Rule-by-Rule Compliance Findings (The 13 Core LMPC Rules)" />
+              <p className="text-xs text-slate-500 mb-2.5">
+                Core mandatory statutory declarations evaluated under Rule 6 and Second Schedule of the Legal Metrology (Packaged Commodities) Rules, 2011.
               </p>
-              <div className="rounded-xl border border-slate-200 overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <TableHeader cols={["Statutory Citation", "Chapter / Rule Title", "Category Scope", "Applicability / Exemption", "Contextual Analysis & Conditions", "Penal Section"]} />
-                  <tbody className="divide-y divide-slate-100">
-                    {masterRules.length > 0 ? masterRules.map((r, i) => (
-                      <tr key={r.id || i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                        <td className="px-3 py-2 font-mono font-bold text-slate-800 whitespace-nowrap">{r.citation}</td>
-                        <td className="px-3 py-2 text-slate-800 font-semibold max-w-[170px] break-words">
-                          <div>{r.title}</div>
-                          <div className="text-[10px] text-slate-500 font-normal">{r.chapter}</div>
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.category_scope}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            r.evaluation_status === "APPLICABLE"
-                              ? "bg-blue-100 text-blue-800"
-                              : r.evaluation_status === "EXEMPT" || r.evaluation_status === "ACTIVE_EXEMPTION"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-slate-100 text-slate-600"
-                          }`}>
-                            {r.evaluation_status || (r.is_mandatory ? "MANDATORY" : "CONDITIONAL")}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 text-[10px] max-w-[240px] break-words">
-                          <div className="font-medium text-slate-700">{r.context_note || r.summary}</div>
-                          {r.exemptions?.length > 0 && (
-                            <div className="text-slate-500 mt-0.5 italic">
-                              Exemptions: {r.exemptions.join("; ")}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[10px] text-rose-700 whitespace-nowrap">
-                          <div>{r.penal_section}</div>
-                          <div className="text-[9px] text-slate-500 font-sans max-w-[130px] break-words">{r.penalty_description}</div>
-                        </td>
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-4 text-center text-slate-400 italic text-xs">Loading statutory master rules…</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Section 2: Rule-by-rule compliance */}
-            <div className="print-avoid-break">
-              <SectionTitle n={2} title="Statutory Rule-by-Rule Compliance Findings (LMPC Rules, 2011)" />
-              <div className="rounded-xl border border-slate-200 overflow-x-auto">
+              <div className="rounded-xl border border-slate-200 overflow-x-auto shadow-xs">
                 <table className="w-full text-left text-xs border-collapse">
                   <TableHeader cols={["Rule Clause", "Requirement", "Observed Value", "Status", "Evidence / Localized Section", "Statutory Requirement"]} />
                   <tbody className="divide-y divide-slate-100">
                     {[
-                      { rule: "Rule 6(1)(a)", req: "Manufacturer / Packer Name & Address", decl: mfgDecl, req_text: "Full name and complete address of manufacturer/packer/importer." },
-                      { rule: "Rule 6(1)(a)", req: "Marketer / Distributor Name & Address", decl: allDecls.find(d => d.field.toLowerCase().includes("marketer") || d.canonicalField?.toLowerCase() === "marketer_name_address"), req_text: "Full name and address of marketer where distinct from manufacturer." },
-                      { rule: "Rule 6(1)(b)", req: "Common / Generic Name of Commodity", decl: allDecls.find(d => d.field.toLowerCase().includes("product") || d.field.toLowerCase().includes("name") || d.canonicalField?.toLowerCase() === "common_name"), req_text: "Common or generic name of commodity must be declared." },
-                      { rule: "Rule 6(1)(c)", req: "Net Quantity (weight/volume/number)", decl: allDecls.find(d => d.field.toLowerCase().includes("net") || d.field.toLowerCase().includes("quantity") || d.canonicalField?.toLowerCase() === "net_quantity"), req_text: "Net quantity in standard metric units." },
-                      { rule: "Rule 5 / Sch II", req: "Standard Pack Size Compliance", decl: allDecls.find(d => d.field.toLowerCase().includes("standard") || d.field.toLowerCase().includes("pack_size") || d.field.toLowerCase().includes("pack size") || d.canonicalField?.toLowerCase() === "standard_pack_size"), req_text: "Pack size complies with Second Schedule standard packaging specifications." },
-                      { rule: "Rule 6(1)(d)", req: "Month and Year of Manufacture / Packing", decl: allDecls.find(d => d.field.toLowerCase().includes("mfg") || d.field.toLowerCase().includes("manufacture") || d.canonicalField?.toLowerCase() === "mfg_date"), req_text: "MM/YYYY or Month-Year format." },
-                      { rule: "Rule 6(1)(e)", req: "Maximum Retail Price (MRP) incl. all taxes", decl: allDecls.find(d => d.field.toLowerCase().includes("mrp") || d.field.toLowerCase().includes("price") || d.canonicalField?.toLowerCase() === "mrp"), req_text: "MRP as 'M.R.P. ₹ XX.XX (Inclusive of all taxes)'." },
-                      { rule: "Rule 6(1)(da)", req: "Unit Sale Price (USP)", decl: allDecls.find(d => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit_sale") || d.canonicalField?.toLowerCase() === "unit_sale_price"), req_text: "Price per standard unit (per gram, per ml, etc.)." },
-                      { rule: "Rule 6(1)(f)", req: "Consumer Care Contact", decl: careDecl, req_text: "Telephone number or email of consumer care." },
-                      { rule: "Rule 6(1)(g)", req: "Country of Origin (Imported Goods)", decl: allDecls.find(d => d.field.toLowerCase().includes("country") || d.field.toLowerCase().includes("origin") || d.canonicalField?.toLowerCase() === "country_of_origin"), req_text: "Country of origin required for imported goods." },
-                    ].map(({ rule, req, decl, req_text }, i) => {
-                      // Resolve source surface image for this declaration
+                      { rule: "Rule 6(1)(a)", req: "Manufacturer / Packer Name & Address", decl: mfgDecl, req_text: "Full name and complete address of manufacturer/packer/importer.", keys: ["manufacturer", "packer", "mfg_address", "mfg_name"] },
+                      { rule: "Rule 6(1)(a)", req: "Marketer / Distributor Name & Address", decl: allDecls.find(d => d.field.toLowerCase().includes("marketer") || d.canonicalField?.toLowerCase() === "marketer_name_address"), req_text: "Full name and address of marketer where distinct from manufacturer.", keys: ["marketer", "distributor", "manufacturer"] },
+                      { rule: "Rule 6(1)(b)", req: "Common / Generic Name of Commodity", decl: allDecls.find(d => d.field.toLowerCase().includes("product") || d.field.toLowerCase().includes("name") || d.canonicalField?.toLowerCase() === "common_name"), req_text: "Common or generic name of commodity must be declared.", keys: ["product_identity", "product_name", "common_name", "generic_name", "commodity"] },
+                      { rule: "Rule 6(1)(c)", req: "Net Quantity (weight/volume/number)", decl: allDecls.find(d => d.field.toLowerCase().includes("net") || d.field.toLowerCase().includes("quantity") || d.canonicalField?.toLowerCase() === "net_quantity"), req_text: "Net quantity in standard metric units.", keys: ["net_quantity", "net_qty", "net_weight", "net_volume", "quantity", "180g"] },
+                      { rule: "Rule 5 / Sch II", req: "Standard Pack Size Compliance", decl: allDecls.find(d => d.field.toLowerCase().includes("standard") || d.field.toLowerCase().includes("pack_size") || d.field.toLowerCase().includes("pack size") || d.canonicalField?.toLowerCase() === "standard_pack_size"), req_text: "Pack size complies with Second Schedule standard packaging specifications.", keys: ["standard_pack_size", "pack_size"] },
+                      { rule: "Rule 6(1)(d)", req: "Month and Year of Manufacture / Packing", decl: allDecls.find(d => d.field.toLowerCase().includes("mfg") || d.field.toLowerCase().includes("manufacture") || d.canonicalField?.toLowerCase() === "mfg_date"), req_text: "MM/YYYY or Month-Year format.", keys: ["mfg_date", "date_of_manufacture", "manufacture", "mfd", "packing_date"] },
+                      { rule: "Rule 6(1)(d)", req: "Expiry / Best Before / Use By Date", decl: allDecls.find(d => d.field.toLowerCase().includes("expiry") || d.field.toLowerCase().includes("best_before") || d.field.toLowerCase().includes("use_by") || d.canonicalField?.toLowerCase() === "best_before_use_by"), req_text: "Best before or use by date declaration for perishable or consumer commodities.", keys: ["expiry_date", "best_before", "use_by", "expiry", "best before date"] },
+                      { rule: "Rule 6(1)(e)", req: "Maximum Retail Price (MRP) incl. all taxes", decl: allDecls.find(d => d.field.toLowerCase().includes("mrp") || d.field.toLowerCase().includes("price") || d.canonicalField?.toLowerCase() === "mrp"), req_text: "MRP as 'M.R.P. ₹ XX.XX (Inclusive of all taxes)'.", keys: ["mrp", "retail_price", "price", "maximum retail price"] },
+                      { rule: "Rule 6(1)(da)", req: "Unit Sale Price (USP)", decl: allDecls.find(d => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit_sale") || d.canonicalField?.toLowerCase() === "unit_sale_price"), req_text: "Price per standard unit (per gram, per ml, etc.).", keys: ["unit_sale_price", "usp", "unit sale price", "unit_price"] },
+                      { rule: "Rule 6(1)(f)", req: "Consumer Care Contact Details", decl: careDecl, req_text: "Telephone number or email of consumer care.", keys: ["consumer_care", "care", "customer_care", "contact", "consumer care"] },
+                      { rule: "Rule 6(1)(g)", req: "Country of Origin (Imported Goods)", decl: allDecls.find(d => d.field.toLowerCase().includes("country") || d.field.toLowerCase().includes("origin") || d.canonicalField?.toLowerCase() === "country_of_origin"), req_text: "Country of origin required for imported goods.", keys: ["country_of_origin", "origin", "country"] },
+                      { rule: "Rule 6(1)(h)", req: "Barcode / GTIN Verification", decl: barcodeDecl || allDecls.find(d => d.field.toLowerCase().includes("barcode") || d.field.toLowerCase().includes("gtin") || d.canonicalField?.toLowerCase() === "barcode"), req_text: "Statutory readable barcode / GTIN encoding verified.", keys: ["barcode", "gtin", "barcode / gtin", "ean"] },
+                      { rule: "Rule 6(1)(i)", req: "FSSAI License & Statutory Registration", decl: fssaiDecl || allDecls.find(d => d.field.toLowerCase().includes("fssai") || d.canonicalField?.toLowerCase() === "fssai_license_number"), req_text: "14-digit statutory license or registration number on package.", keys: ["fssai", "license", "lic_no", "fssai_license", "fssai license"] },
+                    ].map(({ rule, req, decl, req_text, keys }, i) => {
                       const surfaceId = decl?.provenance?.surfaceId;
                       const surfaceType = decl?.provenance?.surfaceType;
                       const matchedSurf = inspection.surfaces?.find(
@@ -622,9 +572,10 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                       );
                       const cropImgSrc = matchedSurf?.imageUrl || matchedSurf?.canonicalImageUrl || inspection.image;
                       const bbox = decl?.evidenceBboxPx || decl?.valueBboxPx || decl?.canonicalBboxPx;
+                      const directCrop = (decl as any)?.evidenceCropBase64 || (decl as any)?.evidenceCrop || findIntegrityCrop(integrityData?.field_comparisons, keys);
 
                       return (
-                        <tr key={rule} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <tr key={rule + i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                           <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">{rule}</td>
                           <td className="px-3 py-2 font-semibold text-slate-800">{req}</td>
                           <td className="px-3 py-2 text-slate-700 max-w-[140px] break-words">{decl?.value || <span className="italic text-slate-400">Not Observed</span>}</td>
@@ -634,6 +585,7 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                           <td className="px-3 py-2">
                             <ReportEvidenceCrop
                               imageSrc={cropImgSrc}
+                              cropBase64={directCrop}
                               bbox={bbox}
                               polygon={decl?.polygonPx || decl?.canonicalPolygonPx}
                               label={decl?.field || req}
@@ -652,11 +604,11 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
           {/* ═══════════════════════════════════════════════════════════════ */}
           {/* PAGE 2 — Package Integrity · Cross-Departmental Verification   */}
           {/* ═══════════════════════════════════════════════════════════════ */}
-          <div className="print-page-break p-6 sm:p-10 space-y-5">
+          <div data-report-page="2" className="print-page-break p-6 sm:p-10 space-y-5">
 
-            {/* Section 3: Package Integrity */}
+            {/* Section 2: Package Integrity */}
             <div className="print-avoid-break">
-              <SectionTitle n={3} title="Package Integrity Cross-Verification (Reference vs. Inspected)" />
+              <SectionTitle n={2} title="Package Integrity Cross-Verification (Reference vs. Inspected)" />
               {integrityData ? (
                 <div className="space-y-3">
                   {(() => {
@@ -798,9 +750,9 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
               )}
             </div>
 
-            {/* Section 4: Cross-Departmental Regulatory Verification */}
+            {/* Section 3: Cross-Departmental Regulatory Verification */}
             <div className="print-avoid-break">
-              <SectionTitle n={4} title="Cross-Departmental Regulatory Verification (FSSAI / BIS / CDSCO / LMPC)" />
+              <SectionTitle n={3} title="Cross-Departmental Regulatory Verification (FSSAI / BIS / CDSCO / LMPC)" />
               {dossier ? (
                 <div className="space-y-3">
                   <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -860,15 +812,16 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
           {/* ═══════════════════════════════════════════════════════════════ */}
           {/* PAGE 3 — Evidence Images · Contacts · Disclaimer · Sign-off    */}
           {/* ═══════════════════════════════════════════════════════════════ */}
-          <div className="print-page-break p-6 sm:p-10 space-y-5">
+          <div data-report-page="3" className="print-page-break p-6 sm:p-10 space-y-5">
 
-            {/* Section 5: Evidence surface images */}
+            {/* Section 4: Evidence surface images */}
             <div>
-              <SectionTitle n={5} title="Photographic Evidence — Authoritative Visual Inspection Surfaces" />
+              <SectionTitle n={4} title="Photographic Evidence — Authoritative Visual Inspection Surfaces" />
               {surfaces.length > 0 ? (
                 <div className={`grid grid-cols-1 ${surfaces.length === 3 ? "md:grid-cols-3" : "sm:grid-cols-2"} gap-4`}>
                   {surfaces.map((surf, idx) => {
-                    const imgUrl = (surf as any).canonicalImageUrl || (surf as any).imageUrl || inspection.image;
+                    const rawImgUrl = (surf as any).canonicalImageUrl || (surf as any).imageUrl || inspection.image;
+                    const imgUrl = resolveMediaSrc(rawImgUrl);
                     const isPanelViolation = isViolation;
 
                     return (
@@ -878,15 +831,16 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                           {(surf as any).faceLabel || (surf as any).surfaceType || `Face ${idx + 1}`} — {isPanelViolation ? "Violations Detected" : "Compliant"}
                         </div>
                         {/* Image: exact original source, preserving aspect ratio */}
-                        <div className="flex items-center justify-center bg-slate-950 w-full" style={{ minHeight: "180px", maxHeight: "280px" }}>
+                        <div className="flex items-center justify-center bg-slate-100 dark:bg-slate-900 border-b border-slate-200 w-full p-2" style={{ minHeight: "180px", maxHeight: "280px" }}>
                           {imgUrl ? (
                             <img
                               src={imgUrl}
                               alt={(surf as any).faceLabel || `Surface ${idx + 1}`}
+                              crossOrigin="anonymous"
                               style={{
                                 display: "block",
                                 maxWidth: "100%",
-                                maxHeight: "280px",
+                                maxHeight: "260px",
                                 width: "auto",
                                 height: "auto",
                                 objectFit: "contain",
@@ -924,6 +878,7 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {allDecls.filter((d: any) => d.evidenceCropBase64 || d.evidenceCrop || d.boundingBox || d.bbox).slice(0, 6).map((d: any, idx) => {
                     const cropB64 = d.evidenceCropBase64 || d.evidenceCrop;
+                    const resolvedCrop = resolveMediaSrc(cropB64);
                     const bbox = d.boundingBox || d.bbox;
                     const bboxStr = Array.isArray(bbox) ? `[${bbox.map((v: number) => Math.round(v)).join(", ")}]` : null;
 
@@ -940,10 +895,11 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
 
                         {/* Aspect ratio preserved crop preview */}
                         <div className="flex items-center justify-center bg-slate-900 rounded-lg p-2 overflow-hidden" style={{ minHeight: "90px", maxHeight: "140px" }}>
-                          {cropB64 ? (
+                          {resolvedCrop ? (
                             <img
-                              src={cropB64.startsWith("data:") ? cropB64 : `data:image/jpeg;base64,${cropB64}`}
+                              src={resolvedCrop}
                               alt={d.field}
+                              crossOrigin="anonymous"
                               style={{
                                 display: "block",
                                 maxWidth: "100%",
@@ -983,62 +939,69 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {intFields.filter((f) => f.reference_crop || f.inspection_crop).slice(0, 4).map((f, fIdx) => (
-                      <div key={fIdx} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
-                        <div className="font-bold text-slate-800 flex items-center justify-between">
-                          <span>{fieldLabel(f.field_name)}</span>
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                            f.comparison_status === "CONSISTENT" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                          }`}>
-                            {f.comparison_status || "EVALUATED"}
-                          </span>
-                        </div>
+                    {intFields.filter((f) => f.reference_crop || f.inspection_crop || f.reference_crop_base64 || f.inspection_crop_base64).slice(0, 4).map((f, fIdx) => {
+                      const refCrop = resolveMediaSrc(f.reference_crop_base64 || f.reference_crop);
+                      const inspCrop = resolveMediaSrc(f.inspection_crop_base64 || f.inspection_crop);
 
-                        <div className="grid grid-cols-2 gap-2 text-center">
-                          {/* Reference Standard */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-semibold text-slate-600">Reference Standard</span>
-                            <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
-                              {f.reference_crop ? (
-                                <img
-                                  src={f.reference_crop.startsWith("data:") ? f.reference_crop : `data:image/jpeg;base64,${f.reference_crop}`}
-                                  alt="Reference"
-                                  style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
-                                />
-                              ) : (
-                                <span className="text-slate-400 text-[9px]">Text Standard</span>
-                              )}
-                            </div>
-                            <div className="text-[10px] font-mono text-slate-700 truncate">{f.reference_value || "—"}</div>
+                      return (
+                        <div key={fIdx} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                          <div className="font-bold text-slate-800 flex items-center justify-between">
+                            <span>{fieldLabel(f.field_name)}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              f.comparison_status === "CONSISTENT" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {f.comparison_status || "EVALUATED"}
+                            </span>
                           </div>
 
-                          {/* Inspected Specimen */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-semibold text-slate-600">Inspected Specimen</span>
-                            <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
-                              {f.inspection_crop ? (
-                                <img
-                                  src={f.inspection_crop.startsWith("data:") ? f.inspection_crop : `data:image/jpeg;base64,${f.inspection_crop}`}
-                                  alt="Inspected"
-                                  style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
-                                />
-                              ) : (
-                                <span className="text-slate-400 text-[9px]">Captured Inscription</span>
-                              )}
+                          <div className="grid grid-cols-2 gap-2 text-center">
+                            {/* Reference Standard */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-semibold text-slate-600">Reference Standard</span>
+                              <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
+                                {refCrop ? (
+                                  <img
+                                    src={refCrop}
+                                    alt="Reference"
+                                    crossOrigin="anonymous"
+                                    style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
+                                  />
+                                ) : (
+                                  <span className="text-slate-400 text-[9px]">Text Standard</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-700 truncate">{f.reference_value || "—"}</div>
                             </div>
-                            <div className="text-[10px] font-mono text-slate-700 truncate">{f.inspection_value || "—"}</div>
+
+                            {/* Inspected Specimen */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-semibold text-slate-600">Inspected Specimen</span>
+                              <div className="flex items-center justify-center bg-slate-900 rounded p-1.5" style={{ minHeight: "75px", maxHeight: "110px" }}>
+                                {inspCrop ? (
+                                  <img
+                                    src={inspCrop}
+                                    alt="Inspected"
+                                    crossOrigin="anonymous"
+                                    style={{ maxWidth: "100%", maxHeight: "100px", width: "auto", height: "auto", objectFit: "contain" }}
+                                  />
+                                ) : (
+                                  <span className="text-slate-400 text-[9px]">Captured Inscription</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-700 truncate">{f.inspection_value || "—"}</div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Section 6: Consumer & Manufacturer contact */}
+            {/* Section 5: Consumer & Manufacturer contact */}
             <div className="print-avoid-break">
-              <SectionTitle n={6} title="Statutory Communications — Manufacturer &amp; Consumer Care Contact" />
+              <SectionTitle n={5} title="Statutory Communications — Manufacturer &amp; Consumer Care Contact" />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Manufacturer */}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
