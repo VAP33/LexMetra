@@ -343,8 +343,14 @@ def parse_batch_code(text: str, label_prefix: Optional[str] = None) -> Optional[
         or re.match(r"^\d{1,2}[-\s][A-Za-z]{3,9}[-\s]\d{2,4}$", code_text)
     ):
         return None
-    # Do not treat pure monetary amounts as batch codes
-    if re.match(r"^(?:₹|rs)?\s*\d+(?:\.\d{2})?$", code_text, re.I):
+    # Do not treat pure monetary amounts or prices with /- as batch codes
+    if re.match(r"^(?:₹|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?(?:\s*/\s*[-–])?$", code_text, re.I):
+        return None
+    # Do not treat unit sale prices / rates (e.g. 2.80/g, ₹2.80/g, Rs 2.80/g, 1.20/ml) as batch codes
+    if re.search(r"(?:₹|rs\.?|=|/)?\s*\d+(?:\.\d{1,2})?\s*/\s*(?:g|kg|gm|gms|grams?|ml|l|cm|m|pc|pcs|unit|units|nos?)\b", code_text, re.I):
+        return None
+    # Do not treat price/tax/mrp labels as batch codes
+    if re.search(r"\b(?:mrp|price|taxes?|rate|incl)\b", text, re.I):
         return None
     # Do not treat declaration label keywords (e.g. "USP", "MRP", "EXP") as batch codes
     reserved_keywords = {"mrp", "usp", "mfg", "mfd", "exp", "expiry", "batch", "lot", "net", "qty", "pkd", "pkg", "date"}
@@ -356,7 +362,12 @@ def parse_batch_code(text: str, label_prefix: Optional[str] = None) -> Optional[
     if (
         re.search(r"\b(?:tel|phone|ph|call|toll|free|care|contact|whatsapp|helpline|query)\b", text, re.I)
         or code_text.startswith(("+91", "91 ", "91-", "1800", "1860"))
-        or (len(digits_clean) in (10, 11, 12) and (digits_clean.startswith(("91", "1800", "1860", "080", "022", "011", "044", "033", "040", "020")) or " " in code_text.strip()))
+        or (
+            not re.search(r"[a-zA-Z]", code_text[:3])
+            and len(digits_clean) in (10, 11, 12)
+            and not re.search(r"\d{1,2}:\d{2}", code_text)
+            and digits_clean.startswith(("91", "1800", "1860", "080", "022", "011", "044", "033", "040", "020"))
+        )
     ):
         return None
 

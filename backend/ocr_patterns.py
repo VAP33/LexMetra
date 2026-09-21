@@ -36,7 +36,7 @@ FIELD_PATTERNS = {
         r"\b(?:pkd|pkg)\.?\s*(?:date|dt)?\b|"
         r"\bpacked\s+on\b|\bdate\s+of\s+pack\w*\b|"
         r"\b(?:mfg|mfd)\.?\s*(?:date|dt)\b|"
-        r"\b(?:mfg|mfd)\.?(?!\s*(?:by|lic|licen[cs]e)\b)\b|"
+        r"\b(?:mfg|mfd)(?!\.?\s*(?:by|lic|licen[cs]e)\b)\.?\b|"
         r"\bmanufactur(?:ed|e|ing)?\.?\s*(?:date|dt)\b|"
         r"\bdate\s+of\s+manufactur\w*\b",
         re.I,
@@ -759,20 +759,18 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
             val = res.display_value
             if not val and res.selected_candidate and res.selected_candidate.value_line:
                 val = res.selected_candidate.value_line.text
-            elif not val and res.raw_text:
-                # If raw_text contains both label and value
-                val = res.raw_text
 
             bbox_to_use = res.bbox or res.label_bbox or (0, 0, 0, 0)
             if bbox_to_use == (0, 0, 0, 0) and res.selected_candidate and res.selected_candidate.value_line:
                 bbox_to_use = res.selected_candidate.value_line.bbox
 
+            conf = 0.30 if val is None else min(0.90, max(0.40, res.overall_confidence if res.overall_confidence > 0 else 0.50))
             entry = {
                 "field": f,
                 "label": _normalized_text(res.raw_text or f.upper()),
                 "value": val,
                 "raw_text": res.raw_text,
-                "confidence": min(0.90, max(0.40, res.overall_confidence if res.overall_confidence > 0 else 0.50)),
+                "confidence": conf,
                 "bbox": bbox_to_use,
                 "label_bbox": res.label_bbox or (0, 0, 0, 0),
                 "source": "ocr_localized_text" if val else "ocr_label_only",
@@ -1283,7 +1281,28 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
         # Standalone or explicit FSSAI 14-digit license number detection
         if "fssai_license_number" not in found:
             for idx, line in enumerate(ordered):
-                m = re.search(r"\b([12]\d{13})\b", line.text)
+                # 1. Look for explicit FSSAI / Lic No prefix
+                m_ctx = re.search(r"(?:fssai|lic(?:en[cs]e)?\.?\s*(?:no\.?|num(?:ber)?)?)\s*[:\-–]?\s*([0-9\s-]{12,20})", line.text, re.I)
+                if m_ctx:
+                    digits = re.sub(r"\D", "", m_ctx.group(1))
+                    if len(digits) == 14 or (len(digits) == 15 and digits.startswith("100")):
+                        fssai_val = digits[:14]
+                        found["fssai_license_number"] = {
+                            "field": "fssai_license_number",
+                            "label": "FSSAI License Number",
+                            "value": fssai_val,
+                            "raw_text": line.text.strip(),
+                            "confidence": min(0.96, line.confidence * 0.95),
+                            "bbox": line.bbox,
+                            "label_bbox": line.bbox,
+                            "source": "ocr_fssai_license",
+                            "status": "DETECTED",
+                        }
+                        used_line_idx.add(idx)
+                        break
+
+                # 2. Look for standalone 14-digit sequence
+                m = re.search(r"\b([12]\d{13}|\d{14})\b", line.text)
                 if m:
                     fssai_val = m.group(1)
                     found["fssai_license_number"] = {
@@ -1291,7 +1310,7 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                         "label": "FSSAI License Number",
                         "value": fssai_val,
                         "raw_text": line.text.strip(),
-                        "confidence": line.confidence * 0.92,
+                        "confidence": min(0.95, line.confidence * 0.92),
                         "bbox": line.bbox,
                         "label_bbox": line.bbox,
                         "source": "ocr_fssai_license",
@@ -1319,6 +1338,278 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                     }
                     used_line_idx.add(idx)
                     break
+
+        # Standalone or explicit Unit Sale Price detection (Rule 6(11))
+        if "unit_sale_price" not in found:
+            for idx, line in enumerate(ordered):
+                txt = line.text.strip()
+                m_rate = _RATE_RE.search(txt)
+                if m_rate:
+                    try:
+                        r_amt = float(m_rate.group(1))
+                        r_unit = _canonical_numeric_unit(m_rate.group(2)) or m_rate.group(2)
+                        found["unit_sale_price"] = {
+                            "field": "unit_sale_price",
+                            "label": "Unit Sale Price",
+                            "value": f"₹{r_amt:g}/{r_unit}",
+                            "numeric_value": r_amt,
+                            "numeric_unit": r_unit,
+                            "currency": "INR",
+                            "raw_text": txt,
+                            "confidence": min(0.95, line.confidence * 0.92),
+                            "bbox": line.bbox,
+                            "label_bbox": line.bbox,
+                            "source": "ocr_rate_pattern",
+                            "status": "DETECTED",
+                        }
+                        used_line_idx.add(idx)
+                        break
+                    except (ValueError, TypeError):
+                        pass
+
+        # Standalone or explicit MRP detection
+        if "mrp" not in found:
+            for idx, line in enumerate(ordered):
+                txt = line.text.strip()
+                # Skip lines that are unit sale rates or pure weights
+                if _RATE_RE.search(txt) or re.search(r"^\s*\d+\s*(?:g|kg|gm|gms|ml|l)\s*$", txt, re.I):
+                    continue
+                # 1. Match Indian currency marker or Indian /- suffix
+                m_mrp = re.search(
+                    r"(?:₹|rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\s*/\s*[-–])?|(?<![0-9.])([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*/\s*[-–]",
+                    txt,
+                    re.I,
+                )
+                if m_mrp:
+                    amt_str = (m_mrp.group(1) or m_mrp.group(2)).replace(",", "")
+                    try:
+                        amt_flt = float(amt_str)
+                        if amt_flt > 0:
+                            found["mrp"] = {
+                                "field": "mrp",
+                                "label": "Maximum Retail Price (MRP)",
+                                "value": f"₹{amt_flt:g}",
+                                "numeric_value": amt_flt,
+                                "currency": "INR",
+                                "raw_text": txt,
+                                "confidence": min(0.95, line.confidence * 0.92),
+                                "bbox": line.bbox,
+                                "label_bbox": line.bbox,
+                                "source": "ocr_explicit_mrp",
+                                "status": "DETECTED",
+                            }
+                            used_line_idx.add(idx)
+                            break
+                    except (ValueError, TypeError):
+                        pass
+
+                # 2. Match MRP keyword with adjacent amount
+                m_kw = re.search(r"\b(?:mrp|retail\s*price|price)\b[^\d]{1,10}([0-9]{2,5}(?:\.[0-9]{1,2})?)", txt, re.I)
+                if m_kw:
+                    try:
+                        amt_flt = float(m_kw.group(1).replace(",", ""))
+                        if amt_flt > 0:
+                            found["mrp"] = {
+                                "field": "mrp",
+                                "label": "Maximum Retail Price (MRP)",
+                                "value": f"₹{amt_flt:g}",
+                                "numeric_value": amt_flt,
+                                "currency": "INR",
+                                "raw_text": txt,
+                                "confidence": min(0.95, line.confidence * 0.90),
+                                "bbox": line.bbox,
+                                "label_bbox": line.bbox,
+                                "source": "ocr_keyword_mrp",
+                                "status": "DETECTED",
+                            }
+                            used_line_idx.add(idx)
+                            break
+                    except (ValueError, TypeError):
+                        pass
+
+        # Standalone or explicit Batch Number detection
+        if "batch_no" not in found:
+            for idx, line in enumerate(ordered):
+                txt = line.text.strip()
+                # Skip rates, prices, dates, pure words
+                if _RATE_RE.search(txt) or _MONEY_RE.search(txt) or re.search(r"\b(?:mrp|price|rs|taxes?|incl)\b", txt, re.I):
+                    continue
+                # Explicit batch prefix
+                m_b = re.search(r"\b(?:batch|lot)\s*(?:no\.?|num(?:ber)?|#|code)?\s*[:\-–=]*\s*([A-Za-z0-9\-_/]+)", txt, re.I)
+                if m_b:
+                    b_code = m_b.group(1).strip()
+                    if len(b_code) >= 3 and not re.match(r"^\d{1,2}[/.-]\d{1,2}", b_code):
+                        found["batch_no"] = {
+                            "field": "batch_no",
+                            "label": "Batch / Lot Number",
+                            "value": b_code,
+                            "batch_code": b_code,
+                            "raw_text": txt,
+                            "confidence": min(0.95, line.confidence * 0.92),
+                            "bbox": line.bbox,
+                            "label_bbox": line.bbox,
+                            "source": "ocr_batch_prefix",
+                            "status": "DETECTED",
+                        }
+                        used_line_idx.add(idx)
+                        break
+
+                # Standalone alphanumeric batch code like HF130526, B24098A, HSH-5012, B-8472
+                m_code = re.search(r"\b([A-Z]{1,3}\d{4,8}(?:\s*\d{2}:\d{2})?|[A-Z]{1,3}-\d{3,6})\b", txt)
+                if m_code:
+                    b_code = m_code.group(1).strip()
+                    found["batch_no"] = {
+                        "field": "batch_no",
+                        "label": "Batch / Lot Number",
+                        "value": b_code,
+                        "batch_code": b_code,
+                        "raw_text": txt,
+                        "confidence": min(0.92, line.confidence * 0.88),
+                        "bbox": line.bbox,
+                        "label_bbox": line.bbox,
+                        "source": "ocr_batch_code_pattern",
+                        "status": "DETECTED",
+                    }
+                    used_line_idx.add(idx)
+                    break
+
+        # Standalone or explicit Manufacturing & Expiry Date detection
+        if "mfg_date" not in found or "expiry_date" not in found:
+            detected_dates: List[Tuple[str, OcrLine, Optional[str]]] = []
+            for idx, line in enumerate(ordered):
+                txt = line.text.strip()
+                if re.search(r"\b1800\b|toll[\s\-]*free|feedback|helpline|query|\b(?:tel|phone|contact)\b", txt, re.I):
+                    continue
+                d_str = _extract_date(txt)
+                if d_str:
+                    # Ignore dates with unrealistic historical years (e.g. 1800 from toll-free numbers)
+                    parts = d_str.split("-")
+                    if len(parts) >= 1 and parts[0].isdigit() and int(parts[0]) < 2010:
+                        continue
+                    tag = None
+                    if re.search(r"\b(?:pkd|pkg|mfg|mfd|packed)\b", txt, re.I):
+                        tag = "MFG"
+                    elif re.search(r"\b(?:use\s*by|exp|expiry|best\s*before)\b", txt, re.I):
+                        tag = "EXP"
+                    detected_dates.append((d_str, line, tag))
+
+            for d_str, l_obj, tag in detected_dates:
+                if tag == "MFG" and "mfg_date" not in found:
+                    found["mfg_date"] = {
+                        "field": "mfg_date",
+                        "label": "Date of Manufacture",
+                        "value": d_str,
+                        "date_value": d_str,
+                        "raw_text": l_obj.text.strip(),
+                        "confidence": min(0.95, l_obj.confidence * 0.92),
+                        "bbox": l_obj.bbox,
+                        "label_bbox": l_obj.bbox,
+                        "source": "ocr_tagged_mfg_date",
+                        "status": "DETECTED",
+                    }
+                elif tag == "EXP" and "expiry_date" not in found:
+                    found["expiry_date"] = {
+                        "field": "expiry_date",
+                        "label": "Best Before / Expiry Date",
+                        "value": d_str,
+                        "date_value": d_str,
+                        "raw_text": l_obj.text.strip(),
+                        "confidence": min(0.95, l_obj.confidence * 0.92),
+                        "bbox": l_obj.bbox,
+                        "label_bbox": l_obj.bbox,
+                        "source": "ocr_tagged_expiry_date",
+                        "status": "DETECTED",
+                    }
+
+            # If still untagged dates available
+            untagged = [item for item in detected_dates if item[2] is None]
+            if len(untagged) >= 2 and ("mfg_date" not in found or "expiry_date" not in found):
+                d1, l1, _ = untagged[0]
+                d2, l2, _ = untagged[1]
+                if "mfg_date" not in found:
+                    found["mfg_date"] = {
+                        "field": "mfg_date",
+                        "label": "Date of Manufacture",
+                        "value": d1,
+                        "date_value": d1,
+                        "raw_text": l1.text.strip(),
+                        "confidence": min(0.90, l1.confidence * 0.85),
+                        "bbox": l1.bbox,
+                        "label_bbox": l1.bbox,
+                        "source": "ocr_chronological_mfg_date",
+                        "status": "DETECTED",
+                    }
+                if "expiry_date" not in found:
+                    found["expiry_date"] = {
+                        "field": "expiry_date",
+                        "label": "Best Before / Expiry Date",
+                        "value": d2,
+                        "date_value": d2,
+                        "raw_text": l2.text.strip(),
+                        "confidence": min(0.90, l2.confidence * 0.85),
+                        "bbox": l2.bbox,
+                        "label_bbox": l2.bbox,
+                        "source": "ocr_chronological_expiry_date",
+                        "status": "DETECTED",
+                    }
+            elif len(untagged) == 1:
+                d1, l1, _ = untagged[0]
+                target_f = "mfg_date" if "mfg_date" not in found else "expiry_date"
+                if target_f not in found:
+                    found[target_f] = {
+                        "field": target_f,
+                        "label": "Date of Manufacture" if target_f == "mfg_date" else "Best Before / Expiry Date",
+                        "value": d1,
+                        "date_value": d1,
+                        "raw_text": l1.text.strip(),
+                        "confidence": min(0.90, l1.confidence * 0.85),
+                        "bbox": l1.bbox,
+                        "label_bbox": l1.bbox,
+                        "source": f"ocr_inferred_{target_f}",
+                        "status": "DETECTED",
+                    }
+
+        # Standalone Consumer Care aggregation
+        if "consumer_care" not in found or not re.search(r"\d{3,}", str(found["consumer_care"].get("value", ""))):
+            care_lines = []
+            care_bbox = None
+            care_conf = 0.85
+            for idx, line in enumerate(ordered):
+                txt = line.text.strip()
+                if re.search(r"\b(?:toll\s*free|levercare|consumer\s*care|helpline|customer\s*care|feedback)\b", txt, re.I):
+                    care_lines.append(txt)
+                    if care_bbox is None:
+                        care_bbox = line.bbox
+                        care_conf = line.confidence
+                elif re.search(r"(?:1800[\s-]?\d{2,4}[\s-]?\d{2,5}|@[\w.-]+\.[A-Za-z]{2,})", txt):
+                    care_lines.append(txt)
+                    if care_bbox is None:
+                        care_bbox = line.bbox
+                        care_conf = line.confidence
+
+            if care_lines:
+                combined_care = " ".join(care_lines)
+                m_ph = re.search(r"(?:1800[\s-]?\d{2,4}[\s-]?\d{2,5}(?:[\s-]?\d{2,4})?|\+91[\s-]?[6-9]\d{9}|[6-9]\d{9})", combined_care)
+                m_em = re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", combined_care)
+                disp_val = ""
+                if m_ph:
+                    disp_val += m_ph.group(0)
+                if m_em:
+                    disp_val += (", " if disp_val else "") + m_em.group(0)
+                if not disp_val:
+                    disp_val = combined_care[:60]
+
+                found["consumer_care"] = {
+                    "field": "consumer_care",
+                    "label": "Consumer Care Details",
+                    "value": disp_val,
+                    "raw_text": combined_care,
+                    "confidence": min(0.95, care_conf),
+                    "bbox": care_bbox or (0, 0, 0, 0),
+                    "label_bbox": care_bbox or (0, 0, 0, 0),
+                    "source": "ocr_consumer_care_aggregated",
+                    "status": "DETECTED",
+                }
 
         # Standalone or explicit Standard Pack Size detection (Rule 5 / Second Schedule)
         if "standard_pack_size" not in found:

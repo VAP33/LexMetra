@@ -696,18 +696,102 @@ def _save_disk_cache():
 
 _load_disk_cache()
 
+def _process_single_ref_image(args: Tuple[int, Path, np.ndarray]) -> Dict[str, Any]:
+    idx, p, bgr = args
+    surface_id = f"face_{idx + 1}"
+    from ocr_extraction import run_ocr, classify_fields
+    from PIL import Image
+    import geometry
+    import barcode_decode
+
+    img_decls: Dict[str, Any] = {}
+    img_bboxes: Dict[str, List[int]] = {}
+    img_confs: Dict[str, float] = {}
+    img_crops: Dict[str, str] = {}
+    img_surface_ids: Dict[str, str] = {}
+    img_image_ids: Dict[str, str] = {}
+
+    # 1. Surface normalization
+    try:
+        norm_res = geometry.normalize_package_surface(bgr, source_name=p.name)
+        canon_bgr = norm_res.canonical_image
+    except Exception:
+        canon_bgr = bgr
+
+    # 2. Barcode decoding
+    try:
+        sym_res = barcode_decode.decode_symbols(bgr, image_id=p.name, allow_hri_fallback=True)
+        if sym_res and sym_res.symbols:
+            for sym in sym_res.symbols:
+                if sym.payload:
+                    img_decls["barcode"] = sym.payload
+                    img_confs["barcode"] = 0.98
+                    img_surface_ids["barcode"] = surface_id
+                    img_image_ids["barcode"] = p.name
+                    if sym.bbox:
+                        bb = [int(round(float(c))) for c in sym.bbox[:4]]
+                        img_bboxes["barcode"] = bb
+                        crop_b64 = _make_evidence_crop(bgr, bb)
+                        if crop_b64:
+                            img_crops["barcode"] = crop_b64
+                    break
+    except Exception as bexc:
+        logger.debug("Barcode decode in ref pipeline failed for %s: %s", p.name, bexc)
+
+    # 3. OCR on canonical surface
+    pil_img = Image.fromarray(cv2.cvtColor(canon_bgr, cv2.COLOR_BGR2RGB))
+    lines = run_ocr(pil_img, face_idx=idx + 1)
+    if not lines:
+        raw_pil = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+        lines = run_ocr(raw_pil, face_idx=idx + 1)
+
+    classified = classify_fields(lines)
+    for k, v in classified.items():
+        if isinstance(v, dict) and v.get("value"):
+            norm_k = k.lower().strip()
+            if norm_k == "mfg_date":
+                norm_k = "manufacturing_date"
+            elif norm_k in ("batch_no", "lot_no", "lot_number", "batch_code"):
+                norm_k = "batch_number"
+            elif norm_k == "common_name":
+                norm_k = "product_name"
+
+            c_val = float(v.get("confidence") or 0.85)
+            img_decls[norm_k] = v["value"]
+            img_confs[norm_k] = c_val
+            img_surface_ids[norm_k] = surface_id
+            img_image_ids[norm_k] = p.name
+            if v.get("bbox"):
+                bb = [int(round(float(c))) for c in v["bbox"][:4]]
+                img_bboxes[norm_k] = bb
+                crop_b64 = _make_evidence_crop(canon_bgr, bb)
+                if crop_b64:
+                    img_crops[norm_k] = crop_b64
+
+    return {
+        "idx": idx,
+        "decls": img_decls,
+        "bboxes": img_bboxes,
+        "confs": img_confs,
+        "crops": img_crops,
+        "surface_ids": img_surface_ids,
+        "image_ids": img_image_ids,
+    }
+
+
 def process_reference_images_through_pipeline(
     ref_imgs: List[Tuple[Path, np.ndarray]],
 ) -> Tuple[Dict[str, Any], Dict[str, List[int]], Dict[str, float], Dict[str, str], Dict[str, str], Dict[str, str]]:
     """
     Executes the authoritative OCR and field extraction pipeline on reference images,
     extracting real, localized bounding boxes and crops across all reference surfaces.
-    Results are cached by SHA-256 image hashes.
+    Results are cached by SHA-256 image hashes. Runs parallel threads across surfaces.
     """
     if not ref_imgs:
         return {}, {}, {}, {}, {}, {}
 
     import hashlib
+    import concurrent.futures
     hashes = []
     for p, bgr in ref_imgs:
         try:
@@ -723,11 +807,6 @@ def process_reference_images_through_pipeline(
         c_decls, c_bboxes, c_confs, c_crops, c_surfs, c_imgs = _REF_PIPELINE_CACHE[cache_key]
         return dict(c_decls), dict(c_bboxes), dict(c_confs), dict(c_crops), dict(c_surfs), dict(c_imgs)
 
-    from ocr_extraction import run_ocr, classify_fields
-    from PIL import Image
-    import geometry
-    import barcode_decode
-
     ref_decls: Dict[str, Any] = {}
     ref_bboxes: Dict[str, List[int]] = {}
     ref_confs: Dict[str, float] = {}
@@ -735,66 +814,26 @@ def process_reference_images_through_pipeline(
     ref_surface_ids: Dict[str, str] = {}
     ref_image_ids: Dict[str, str] = {}
 
-    for idx, (p, bgr) in enumerate(ref_imgs):
-        surface_id = f"face_{idx + 1}"
+    tasks = [(idx, p, bgr) for idx, (p, bgr) in enumerate(ref_imgs)]
+    results: List[Dict[str, Any]] = []
+    if len(tasks) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(tasks))) as pool:
+            results = list(pool.map(_process_single_ref_image, tasks))
+    else:
+        results = [_process_single_ref_image(tasks[0])]
 
-        # 1. Surface normalization
-        try:
-            norm_res = geometry.normalize_package_surface(bgr, source_name=p.name)
-            canon_bgr = norm_res.canonical_image
-        except Exception:
-            canon_bgr = bgr
-
-        # 2. Barcode decoding
-        try:
-            sym_res = barcode_decode.decode_symbols(bgr, image_id=p.name, allow_hri_fallback=True)
-            if sym_res and sym_res.symbols:
-                for sym in sym_res.symbols:
-                    if sym.payload and "barcode" not in ref_decls:
-                        ref_decls["barcode"] = sym.payload
-                        ref_confs["barcode"] = 0.98
-                        ref_surface_ids["barcode"] = surface_id
-                        ref_image_ids["barcode"] = p.name
-                        if sym.bbox:
-                            bb = [int(round(float(c))) for c in sym.bbox[:4]]
-                            ref_bboxes["barcode"] = bb
-                            crop_b64 = _make_evidence_crop(bgr, bb)
-                            if crop_b64:
-                                ref_crops["barcode"] = crop_b64
-                        break
-        except Exception as bexc:
-            logger.debug("Barcode decode in ref pipeline failed for %s: %s", p.name, bexc)
-
-        # 3. OCR on canonical surface
-        pil_img = Image.fromarray(cv2.cvtColor(canon_bgr, cv2.COLOR_BGR2RGB))
-        lines = run_ocr(pil_img, face_idx=idx + 1)
-        if not lines:
-            raw_pil = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-            lines = run_ocr(raw_pil, face_idx=idx + 1)
-
-        classified = classify_fields(lines)
-        for k, v in classified.items():
-            if isinstance(v, dict) and v.get("value"):
-                norm_k = k.lower().strip()
-                if norm_k == "mfg_date":
-                    norm_k = "manufacturing_date"
-                elif norm_k in ("batch_no", "lot_no", "lot_number", "batch_code"):
-                    norm_k = "batch_number"
-                elif norm_k == "common_name":
-                    norm_k = "product_name"
-
-                c_val = float(v.get("confidence") or 0.85)
-                if norm_k not in ref_decls or c_val > ref_confs.get(norm_k, 0.0):
-                    ref_decls[norm_k] = v["value"]
-                    ref_confs[norm_k] = c_val
-                    ref_surface_ids[norm_k] = surface_id
-                    ref_image_ids[norm_k] = p.name
-                    if v.get("bbox"):
-                        bb = [int(round(float(c))) for c in v["bbox"][:4]]
-                        ref_bboxes[norm_k] = bb
-                        crop_b64 = _make_evidence_crop(canon_bgr, bb)
-                        if crop_b64:
-                            ref_crops[norm_k] = crop_b64
+    for res in sorted(results, key=lambda x: x["idx"]):
+        for norm_k, val in res["decls"].items():
+            c_val = res["confs"].get(norm_k, 0.85)
+            if norm_k not in ref_decls or c_val > ref_confs.get(norm_k, 0.0):
+                ref_decls[norm_k] = val
+                ref_confs[norm_k] = c_val
+                ref_surface_ids[norm_k] = res["surface_ids"].get(norm_k, f"face_{res['idx'] + 1}")
+                ref_image_ids[norm_k] = res["image_ids"].get(norm_k, "")
+                if norm_k in res["bboxes"]:
+                    ref_bboxes[norm_k] = res["bboxes"][norm_k]
+                if norm_k in res["crops"]:
+                    ref_crops[norm_k] = res["crops"][norm_k]
 
     # If product_name is on Face 1 (front face) and wasn't isolated on Face 2
     if "product_name" not in ref_decls and len(ref_imgs) > 0:

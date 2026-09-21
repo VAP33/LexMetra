@@ -290,17 +290,17 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
 
     # Build the prompt for declaration extraction
     prompt = (
-        "You are an OCR extraction system for Legal Metrology packaged commodity inspection. "
-        "Extract all text visible in this image with their bounding boxes. "
-        "Return ONLY a complete JSON array where each element has: "
-        "{\"text\": \"<extracted text>\", \"x\": <int>, \"y\": <int>, \"w\": <int>, \"h\": <int>} "
-        f"x,y,w,h are integer pixels in this exact {rgb_image.width}x{rgb_image.height} image, "
-        "with (0,0) at the top-left. Never use a normalized 0-1000 coordinate system. "
-        "Include all readable text, "
-        "especially: MRP, Net Quantity, Manufacturing Date, Expiry Date, Batch Number, "
-        "Manufacturer name, Unit Sale Price, Product Name/Common Name, Country of Origin. "
-        "Do not invent or infer values not present in the image. "
-        "If a field is not visible, omit it entirely."
+        "You are an expert OCR extraction system for Legal Metrology packaged commodity inspection. "
+        "Detect and transcribe all printed text lines visible on this packaging surface with their bounding boxes. "
+        "Return ONLY a JSON array of objects with: "
+        "{\"text\": \"<exact printed text>\", \"box_2d\": [ymin, xmin, ymax, xmax]} "
+        "where ymin, xmin, ymax, xmax are normalized integer coordinates on a 0-1000 scale. "
+        "Include all readable statutory declarations: Maximum Retail Price (MRP), Net Quantity, "
+        "Date of Manufacture (PKD/MFD), Expiry Date (Use By/Best Before), Batch Number, "
+        "Manufacturer Name & Address, Marketer Name & Address, Unit Sale Price (USP), "
+        "Standard Pack Size, Consumer Care/Helpline, FSSAI License Number, Product Name/Identity, "
+        "Country of Origin, Barcode/GTIN numbers. "
+        "Do not invent values. If a field is not present, omit it."
     )
 
     response = None
@@ -331,13 +331,12 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     if not text:
         return []
 
-    # Parse the JSON array response
+    # Parse the JSON array response with truncated JSON recovery
+    readings = []
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
     try:
-        # Do not repair a partial response.  Salvaging a prefix silently drops
-        # declarations, which is worse than using the deterministic fallback.
-        cleaned = text.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
         readings = json.loads(cleaned)
     except (json.JSONDecodeError, ValueError) as e:
         print(f"[!] [GEMINI OCR PARSE ERROR] JSON decode failed: {e}", flush=True)
@@ -351,34 +350,49 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     for reading in readings:
         if not isinstance(reading, dict):
             continue
-        txt = str(reading.get("text", reading.get("label", ""))).strip()
-        if not txt:
+        raw_t = reading.get("text")
+        raw_l = reading.get("label")
+        if raw_t and str(raw_t).strip() and str(raw_t).strip().lower() != "text":
+            txt = str(raw_t).strip()
+        elif raw_l and str(raw_l).strip():
+            txt = str(raw_l).strip()
+        elif raw_t:
+            txt = str(raw_t).strip()
+        else:
             continue
 
         # Check if box_2d or bbox array is provided [ymin, xmin, ymax, xmax]
-        box = reading.get("box_2d") or reading.get("bbox")
+        box = reading.get("box_2d") or reading.get("bbox") or reading.get("box")
         if isinstance(box, (list, tuple)) and len(box) == 4:
             try:
                 ymin, xmin, ymax, xmax = (float(v) for v in box)
-                # Check if normalized 0-1000
-                if max(ymin, xmin, ymax, xmax) <= 1000:
-                    x = int(xmin * rgb_image.width / 1000)
-                    y = int(ymin * rgb_image.height / 1000)
-                    w = int((xmax - xmin) * rgb_image.width / 1000)
-                    h = int((ymax - ymin) * rgb_image.height / 1000)
+                if max(ymin, xmin, ymax, xmax) <= 1.05:
+                    x = int(round(xmin * rgb_image.width))
+                    y = int(round(ymin * rgb_image.height))
+                    w = int(round((xmax - xmin) * rgb_image.width))
+                    h = int(round((ymax - ymin) * rgb_image.height))
+                elif max(ymin, xmin, ymax, xmax) <= 1000:
+                    x = int(round(xmin * rgb_image.width / 1000.0))
+                    y = int(round(ymin * rgb_image.height / 1000.0))
+                    w = int(round((xmax - xmin) * rgb_image.width / 1000.0))
+                    h = int(round((ymax - ymin) * rgb_image.height / 1000.0))
                 else:
-                    x = int(xmin)
-                    y = int(ymin)
-                    w = int(xmax - xmin)
-                    h = int(ymax - ymin)
+                    x = int(round(xmin))
+                    y = int(round(ymin))
+                    w = int(round(xmax - xmin))
+                    h = int(round(ymax - ymin))
             except (ValueError, TypeError):
                 continue
         else:
             try:
-                x = int(reading.get("x", reading.get("left", 0)))
-                y = int(reading.get("y", reading.get("top", 0)))
-                w = int(reading.get("w", reading.get("width", 0)))
-                h = int(reading.get("h", reading.get("height", 0)))
+                x = float(reading.get("x", reading.get("left", reading.get("x1", 0))))
+                y = float(reading.get("y", reading.get("top", reading.get("y1", 0))))
+                if "x2" in reading and "y2" in reading:
+                    w = float(reading["x2"]) - x
+                    h = float(reading["y2"]) - y
+                else:
+                    w = float(reading.get("w", reading.get("width", 0)))
+                    h = float(reading.get("h", reading.get("height", 0)))
             except (KeyError, TypeError, ValueError):
                 continue
 
@@ -388,35 +402,17 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
             if y + h > rgb_image.height and y < h <= rgb_image.height:
                 h = h - y
 
-            # Detect if coordinates are normalized to 0-1000
-            if max(x, y, w, h) <= 1000 and (x + w > rgb_image.width or y + h > rgb_image.height):
-                if rgb_image.width != 1000 or rgb_image.height != 1000:
-                    x = int(x * rgb_image.width / 1000)
-                    y = int(y * rgb_image.height / 1000)
-                    w = int(w * rgb_image.width / 1000)
-                    h = int(h * rgb_image.height / 1000)
-
-        # Clip slightly out-of-bounds coords to image boundaries
-        if x < 0:
-            x = 0
-        if y < 0:
-            y = 0
-        if x + w > rgb_image.width:
-            w = max(1, rgb_image.width - x)
-        if y + h > rgb_image.height:
-            h = max(1, rgb_image.height - y)
-
-        if w <= 0 or h <= 0 or x >= rgb_image.width or y >= rgb_image.height:
+        # A box is evidence. Reject malformed/off-image geometry rather than
+        # clipping it into an apparently plausible but wrong overlay.
+        if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > rgb_image.width or y + h > rgb_image.height:
             continue
 
         lines.append(
             OcrLine(
                 text=txt,
                 bbox=(int(x), int(y), int(w), int(h)),
-                # The API does not provide line confidence; this is deliberately
-                # below definitive evidence and is later localized independently.
                 confidence=0.72,
-                fusion_state="SINGLE_SOURCE",  # Single reading from Gemini
+                fusion_state="SINGLE_SOURCE",
                 alternatives=(),
                 region_id=None,
             )
