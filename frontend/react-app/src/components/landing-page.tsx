@@ -292,9 +292,19 @@ export function LandingPage({
             <span className="truncate max-w-[280px] sm:max-w-none">{t.directorate}</span>
           </div>
 
+          {/* Large Blue LexMetra Brand Logo */}
+          <div className="pt-1">
+            <img
+              src="/lexmetra-blue-logo.png"
+              alt="LexMetra"
+              className="h-12 sm:h-16 md:h-20 lg:h-22 w-auto max-w-[240px] sm:max-w-[320px] md:max-w-[380px] object-contain drop-shadow-sm transition-all select-none"
+              draggable={false}
+            />
+          </div>
+
           {/* Heading */}
           <div className="space-y-3 sm:space-y-4">
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-brand-950 leading-[1.14]">
+            <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-brand-950 leading-[1.15]">
               {t.titleMain} <br className="hidden sm:inline" />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-saffron-600 via-brand-700 to-govgreen">
                 {t.titleHighlight}
