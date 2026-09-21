@@ -28,7 +28,14 @@ import {
 function resolveMediaSrc(src?: string) {
   if (!src) return undefined;
   if (src.startsWith("http") || src.startsWith("data:") || src.startsWith("blob:")) return src;
-  return `${API_BASE}${src.startsWith("/") ? "" : "/"}${src}`;
+  if (src.startsWith("/9j") || src.startsWith("iVBORw0KGgo") || (src.length > 200 && !src.includes(" ") && !src.includes("\n"))) {
+    const isPng = src.startsWith("iVBORw0KGgo");
+    return `data:image/${isPng ? "png" : "jpeg"};base64,${src}`;
+  }
+  const cleanPath = src.startsWith("/uploads/") || src.startsWith("uploads/")
+    ? (src.startsWith("/") ? src : `/${src}`)
+    : src.startsWith("/") ? src : `/uploads/${src}`;
+  return `${API_BASE}${cleanPath}`;
 }
 
 // ===========================================================================
@@ -401,7 +408,7 @@ export function PackageIntegrityCard({
     try {
       const res = await comparePackageIntegrity(inspectionId, selectedFiles, uploadRefType);
       setData(res);
-      setIsSaved(true);
+      setIsSaved(false);
       if (onSave) {
         onSave(res);
       }
@@ -875,25 +882,25 @@ export function PackageIntegrityCard({
               disabled={saving}
               className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-1.5 text-xs font-bold transition shadow-xs ${
                 isSaved
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : "border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand"
+                  ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : "border-border bg-card text-foreground hover:bg-muted"
               }`}
               title="Save package integrity verification so it is permanently preserved in the inspection docket and report"
             >
               {saving ? (
                 <>
-                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" />
                   Saving…
                 </>
               ) : isSaved ? (
                 <>
-                  <Check className="h-3.5 w-3.5" />
-                  Saved to Report
+                  <Check className="h-3.5 w-3.5 text-emerald-500 stroke-[2.5]" />
+                  Saved
                 </>
               ) : (
                 <>
-                  <Save className="h-3.5 w-3.5" />
-                  Save Integrity Audit
+                  <Save className="h-3.5 w-3.5 text-muted-foreground" />
+                  Save
                 </>
               )}
             </button>
@@ -1075,7 +1082,7 @@ export function PackageIntegrityCard({
                           <span>Left: Original BBox</span>
                           {item.inspection_bbox && (
                             <span className="font-mono text-[9px] text-muted-foreground">
-                              [{item.inspection_bbox.slice(0, 2).join(",")}]
+                              [{item.inspection_bbox.slice(0, 2).map((n) => Math.round(Number(n))).join(", ")}]
                             </span>
                           )}
                         </div>
@@ -1112,7 +1119,7 @@ export function PackageIntegrityCard({
                           <span>Right: Ref Field BBox</span>
                           {item.reference_bbox && (
                             <span className="font-mono text-[9px] text-muted-foreground">
-                              [{item.reference_bbox.slice(0, 2).join(",")}]
+                              [{item.reference_bbox.slice(0, 2).map((n) => Math.round(Number(n))).join(", ")}]
                             </span>
                           )}
                         </div>
@@ -1412,26 +1419,26 @@ export function PackageIntegrityCard({
           type="button"
           onClick={handleSaveIntegrity}
           disabled={saving || !data}
-          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs ${
+          className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-bold transition shadow-xs ${
             isSaved
-              ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : "bg-brand text-white hover:bg-brand/90"
+              ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+              : "border-border bg-card hover:bg-muted text-foreground"
           }`}
         >
           {saving ? (
             <>
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              Saving to Record…
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" />
+              Saving…
             </>
           ) : isSaved ? (
             <>
-              <Check className="h-3.5 w-3.5" />
-              Saved to Inspection &amp; Report
+              <Check className="h-3.5 w-3.5 text-emerald-500 stroke-[2.5]" />
+              Saved
             </>
           ) : (
             <>
-              <Save className="h-3.5 w-3.5" />
-              Save Integrity Audit to Report
+              <Save className="h-3.5 w-3.5 text-muted-foreground" />
+              Save
             </>
           )}
         </button>

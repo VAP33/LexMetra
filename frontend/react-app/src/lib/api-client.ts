@@ -164,6 +164,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const headers = new Headers(init?.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (init?.body && typeof init.body === "string" && !headers.has("Content-Type")) {
+    const trimmed = init.body.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      headers.set("Content-Type", "application/json");
+    }
+  }
 
   let response: Response;
   try {
@@ -1007,6 +1013,7 @@ export async function toggleReferenceCache(
 ): Promise<{ status: string; inspection_id: string; is_reference_cache: boolean }> {
   return request(`/inspections/${inspectionId}/toggle-reference-cache`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ is_cache: isCache }),
   });
 }

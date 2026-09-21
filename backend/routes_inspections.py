@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, status, Response, Request
+from fastapi import APIRouter, HTTPException, Depends, status, Response, Request, Body
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
@@ -149,6 +149,9 @@ def _is_stale_package_integrity(pi_record: Optional[Dict[str, Any]]) -> bool:
         # Missing inspection crop despite bbox being present
         if c.get("inspection_bbox") and not c.get("inspection_crop_base64"):
             return True
+        # Missing inspection crop on key statutory fields
+        if c.get("field_key") in ("mrp", "barcode", "fssai_license_number") and not c.get("inspection_crop_base64"):
+            return True
     return False
 
 
@@ -222,6 +225,10 @@ def get_inspection_integrity(
 ):
     persisted = db.get_latest_package_integrity_comparison(inspection_id)
     if persisted and not force_refresh and not _is_stale_package_integrity(persisted):
+        if not persisted.get("status"):
+            persisted["status"] = persisted.get("comparison_status")
+        if not persisted.get("comparison_status"):
+            persisted["comparison_status"] = persisted.get("status")
         return persisted
 
     detail = db.get_inspection_detail(inspection_id)
@@ -344,7 +351,7 @@ class ToggleReferenceCacheRequest(BaseModel):
 @router.post("/integrity/{inspection_id}/toggle-reference-cache")
 def toggle_inspection_reference_cache(
     inspection_id: str,
-    payload: Optional[ToggleReferenceCacheRequest] = None,
+    payload: Any = Body(None),
     current_user: auth.CurrentUser = Depends(auth.require_scan_access),
 ):
     """
@@ -356,7 +363,22 @@ def toggle_inspection_reference_cache(
         raise HTTPException(status_code=404, detail="Inspection not found.")
 
     current_state = bool(detail.get("is_reference_cache", False))
-    target_state = payload.is_cache if (payload and payload.is_cache is not None) else not current_state
+    target_state = None
+    if payload is not None:
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception:
+                payload = {}
+        if isinstance(payload, dict):
+            target_state = payload.get("is_cache")
+        elif hasattr(payload, "is_cache"):
+            target_state = payload.is_cache
+
+    if target_state is None:
+        target_state = not current_state
+    else:
+        target_state = bool(target_state)
 
     db.set_inspection_reference_cache(inspection_id, is_cache=target_state)
     detail["is_reference_cache"] = target_state

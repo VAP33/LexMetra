@@ -73,19 +73,20 @@ async def compare_package_integrity(
     declarations = insp_data.get("declarations") or []
 
     all_insp_paths = []
-    if primary_img_path:
-        all_insp_paths.append(str(primary_img_path))
+    # Prioritize canonical rectified surface images (so bboxes align with rectified coordinates)
     for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
         if isinstance(s, dict):
             sp = (
-                s.get("original_image_path")
-                or s.get("canonical_image_path")
+                s.get("canonical_image_path")
+                or s.get("original_image_path")
                 or s.get("image_url")
                 or s.get("image_path")
                 or s.get("image_id")
             )
             if sp and str(sp) not in all_insp_paths:
                 all_insp_paths.append(str(sp))
+    if primary_img_path and str(primary_img_path) not in all_insp_paths:
+        all_insp_paths.append(str(primary_img_path))
     for c in (detail.get("captures") or insp_data.get("captures") or []):
         if isinstance(c, dict):
             cp = c.get("image_id")

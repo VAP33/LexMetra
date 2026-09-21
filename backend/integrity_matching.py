@@ -68,14 +68,31 @@ def _make_evidence_crop(
             return None
         ih, iw = image_bgr.shape[:2]
         if isinstance(bbox, dict):
-            x = int(round(float(bbox.get("x", 0))))
-            y = int(round(float(bbox.get("y", 0))))
-            w = int(round(float(bbox.get("width", bbox.get("w", 0)))))
-            h = int(round(float(bbox.get("height", bbox.get("h", 0)))))
+            raw_x = float(bbox.get("x", 0))
+            raw_y = float(bbox.get("y", 0))
+            raw_w = float(bbox.get("width", bbox.get("w", 0)))
+            raw_h = float(bbox.get("height", bbox.get("h", 0)))
         elif isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-            x, y, w, h = [int(round(float(v))) for v in bbox[:4]]
+            raw_x, raw_y, raw_w, raw_h = [float(v) for v in bbox[:4]]
         else:
             return None
+
+        # Convert normalized coordinates (0.0 to 1.05) to pixel coordinates
+        if max(raw_x, raw_y, raw_w, raw_h) <= 1.05:
+            raw_x *= iw
+            raw_y *= ih
+            raw_w *= iw
+            raw_h *= ih
+
+        # Handle [x1, y1, x2, y2] format where 3rd and 4th values are end coordinates
+        if raw_w > raw_x and raw_h > raw_y and (raw_x + raw_w > iw or raw_y + raw_h > ih):
+            raw_w = raw_w - raw_x
+            raw_h = raw_h - raw_y
+
+        x = int(round(raw_x))
+        y = int(round(raw_y))
+        w = int(round(raw_w))
+        h = int(round(raw_h))
 
         if w <= 0 or h <= 0:
             return None
@@ -289,7 +306,9 @@ class IntegrityReport:
 
 
 # Reference images directory containing real multi-face reference packs
-WORKSPACE_REFERENCE_DIR = Path(__file__).resolve().parent.parent / "Reference Images"
+WORKSPACE_REFERENCE_DIR = Path(__file__).resolve().parent.parent / "dataset" / "Reference Images"
+if not WORKSPACE_REFERENCE_DIR.exists():
+    WORKSPACE_REFERENCE_DIR = Path(__file__).resolve().parent.parent / "Reference Images"
 
 # Seed known reference packaging data for deterministic demo
 DEMO_REFERENCE_PACKAGES: Dict[str, Dict[str, Any]] = {
@@ -307,53 +326,9 @@ DEMO_REFERENCE_PACKAGES: Dict[str, Dict[str, Any]] = {
             "expiry_date": "12/2027",
             "batch_number": "B-8472",
             "manufacturer_name": "Hindustan Unilever Limited",
-            "marketer_name": "Hindustan Unilever Limited",
             "consumer_care": "1800-10-22-221, lever.care@unilever.com",
             "fssai_license_number": "10012022000258",
             "barcode": "8901030018591",
-            "product_name": "BRU Instant Coffee",
-        },
-        "bboxes": {
-            "product_name": [100, 200, 600, 300],
-            "mrp": [200, 700, 400, 120],
-            "net_quantity": [220, 620, 360, 80],
-            "unit_sale_price": [200, 700, 400, 120],
-            "manufacturing_date": [200, 700, 400, 120],
-            "expiry_date": [200, 700, 400, 120],
-            "batch_number": [200, 700, 400, 120],
-            "manufacturer_name": [150, 400, 500, 150],
-            "marketer_name": [150, 400, 500, 150],
-            "consumer_care": [150, 550, 500, 100],
-            "fssai_license_number": [150, 350, 500, 80],
-            "barcode": [150, 800, 500, 200],
-        },
-        "image_files": {
-            "product_name": "BRU FRONT REFERENCE.png",
-            "mrp": "BRU BACK REFERENCE.png",
-            "net_quantity": "BRU BACK REFERENCE.png",
-            "unit_sale_price": "BRU BACK REFERENCE.png",
-            "manufacturing_date": "BRU BACK REFERENCE.png",
-            "expiry_date": "BRU BACK REFERENCE.png",
-            "batch_number": "BRU BACK REFERENCE.png",
-            "manufacturer_name": "BRU BACK REFERENCE.png",
-            "marketer_name": "BRU BACK REFERENCE.png",
-            "consumer_care": "BRU BACK REFERENCE.png",
-            "fssai_license_number": "BRU BACK REFERENCE.png",
-            "barcode": "BRU BACK REFERENCE.png",
-        },
-        "surface_ids": {
-            "product_name": "face_1",
-            "mrp": "face_2",
-            "net_quantity": "face_2",
-            "unit_sale_price": "face_2",
-            "manufacturing_date": "face_2",
-            "expiry_date": "face_2",
-            "batch_number": "face_2",
-            "manufacturer_name": "face_2",
-            "marketer_name": "face_2",
-            "consumer_care": "face_2",
-            "fssai_license_number": "face_2",
-            "barcode": "face_2",
         },
     },
     "hershey": {
@@ -370,53 +345,63 @@ DEMO_REFERENCE_PACKAGES: Dict[str, Dict[str, Any]] = {
             "expiry_date": "06/2027",
             "batch_number": "HSH-5012",
             "manufacturer_name": "Hershey India Private Limited",
-            "marketer_name": "Hershey India Private Limited",
             "consumer_care": "1800-425-2882, consumercare@hersheys.com",
             "fssai_license_number": "10012026000226",
             "barcode": "8901071705479",
-            "product_name": "HERSHEY'S SYRUP",
         },
         "bboxes": {
-            "product_name": [220, 520, 550, 240],
-            "mrp": [645, 840, 95, 20],
-            "net_quantity": [432, 776, 83, 21],
-            "unit_sale_price": [680, 840, 65, 20],
-            "manufacturing_date": [650, 800, 110, 20],
-            "expiry_date": [700, 800, 100, 20],
-            "batch_number": [650, 820, 110, 20],
-            "manufacturer_name": [147, 546, 688, 45],
-            "marketer_name": [139, 587, 713, 49],
-            "consumer_care": [161, 738, 340, 14],
-            "fssai_license_number": [147, 572, 404, 12],
-            "barcode": [250, 240, 450, 150],
+            "product_name": [208, 918, 505, 242],
+            "barcode": [302, 764, 257, 106],
+            "manufacturer_name": [124, 982, 358, 67],
+            "fssai_license_number": [246, 1191, 144, 25],
+            "consumer_care": [145, 1352, 344, 30],
+            "net_quantity": [372, 1399, 83, 45],
+            "mrp": [200, 1480, 480, 160],
+            "unit_sale_price": [200, 1480, 480, 160],
+            "batch_number": [200, 1480, 480, 160],
+            "manufacturing_date": [200, 1480, 480, 160],
+            "expiry_date": [200, 1480, 480, 160],
         },
-        "image_files": {
+        "faces": {
             "product_name": "Hershey's REFERENCE FRONT.png",
-            "mrp": "Hershey's REFERENCE BACK.png",
+            "barcode": "Hershey's REFERENCE BACK.png",
+            "manufacturer_name": "Hershey's REFERENCE BACK.png",
+            "fssai_license_number": "Hershey's REFERENCE BACK.png",
+            "consumer_care": "Hershey's REFERENCE BACK.png",
             "net_quantity": "Hershey's REFERENCE BACK.png",
+            "mrp": "Hershey's REFERENCE BACK.png",
             "unit_sale_price": "Hershey's REFERENCE BACK.png",
+            "batch_number": "Hershey's REFERENCE BACK.png",
             "manufacturing_date": "Hershey's REFERENCE BACK.png",
             "expiry_date": "Hershey's REFERENCE BACK.png",
-            "batch_number": "Hershey's REFERENCE BACK.png",
-            "manufacturer_name": "Hershey's REFERENCE BACK.png",
-            "marketer_name": "Hershey's REFERENCE BACK.png",
-            "consumer_care": "Hershey's REFERENCE BACK.png",
-            "fssai_license_number": "Hershey's REFERENCE BACK.png",
-            "barcode": "Hershey's REFERENCE BACK.png",
         },
-        "surface_ids": {
-            "product_name": "face_1",
-            "mrp": "face_2",
-            "net_quantity": "face_2",
-            "unit_sale_price": "face_2",
-            "manufacturing_date": "face_2",
-            "expiry_date": "face_2",
-            "batch_number": "face_2",
-            "manufacturer_name": "face_2",
-            "marketer_name": "face_2",
-            "consumer_care": "face_2",
-            "fssai_license_number": "face_2",
-            "barcode": "face_2",
+        "inspection_bboxes": {
+            "canon": {
+                "product_name": [100, 680, 380, 180],
+                "barcode": [165, 0, 220, 30],
+                "fssai_license_number": [185, 96, 130, 20],
+                "mrp": [123, 424, 89, 34],
+                "unit_sale_price": [230, 428, 129, 36],
+                "batch_number": [132, 385, 205, 35],
+                "manufacturing_date": [120, 347, 105, 33],
+                "expiry_date": [255, 360, 111, 32],
+                "manufacturer_name": [151, 75, 156, 25],
+                "net_quantity": [213, 262, 57, 26],
+                "consumer_care": [35, 177, 278, 68],
+            },
+            "raw": {
+                "product_name": [100, 680, 380, 180],
+                "barcode": [190, 415, 202, 31],
+                "fssai_license_number": [228, 538, 94, 26],
+                "mrp": [150, 882, 200, 42],
+                "unit_sale_price": [150, 882, 200, 42],
+                "batch_number": [155, 852, 178, 38],
+                "manufacturing_date": [143, 820, 214, 36],
+                "expiry_date": [143, 820, 214, 36],
+                "manufacturer_name": [50, 507, 274, 75],
+                "net_quantity": [223, 728, 58, 36],
+                "consumer_care": [45, 620, 279, 119],
+            },
         },
     },
     "vaseline": {
@@ -956,17 +941,19 @@ def corroborate_unit_sale_price(
     return agrees, printed_amt, round(expected_usp, 2), note
 
 
+_OCR_LETTER_TO_DIGIT_TABLE = str.maketrans("OoIiLlSsBb", "0011115588")
+
+
 def _fssai_normalize(s: Any) -> str:
-    """FSSAI is a 14-digit (or 10-digit old) license -- only digits matter."""
-    return _digits_only(s)
+    """FSSAI is a 14-digit (or 10-digit old) license -- only digits matter, mapping common OCR letter substitutions."""
+    cleaned = str(s or "").translate(_OCR_LETTER_TO_DIGIT_TABLE)
+    return _digits_only(cleaned)
 
 
 def _barcode_normalize(s: Any) -> str:
-    """GTIN/EAN/UPC -- optical glyph translation and digit extraction."""
-    if not s:
-        return ""
-    st = str(s).translate(str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "|": "1", "S": "5", "s": "5", "B": "8"}))
-    return _digits_only(st)
+    """GTIN/EAN/UPC -- only digits matter, mapping common OCR letter substitutions."""
+    cleaned = str(s or "").translate(_OCR_LETTER_TO_DIGIT_TABLE)
+    return _digits_only(cleaned)
 
 
 def _is_manufacturer_match(ref_str: Any, insp_str: Any) -> Tuple[bool, str]:
