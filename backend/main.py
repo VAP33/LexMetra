@@ -128,10 +128,14 @@ _frontend_env = os.environ.get("FRONTEND_URL", "").strip()
 if _frontend_env and _frontend_env not in _cors_origins:
     _cors_origins.append(_frontend_env)
 
+_default_cors_regex = (
+    r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|.*\.vercel\.app)(?::\d+)?$"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins if not os.environ.get("ALLOW_ALL_CORS") else ["*"],
-    allow_origin_regex=os.environ.get("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app"),
+    allow_origin_regex=os.environ.get("CORS_ORIGIN_REGEX", _default_cors_regex),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

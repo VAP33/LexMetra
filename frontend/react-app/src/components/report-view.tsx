@@ -1,4 +1,5 @@
 import { Header as AppHeader } from "./app-header";
+import { type Language } from "@/lib/i18n";
 import React, { useEffect, useState } from "react";
 import {
   AlertTriangle,
@@ -274,7 +275,7 @@ function ReportEvidenceCrop({
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ReportView({ inspection, onBack }: { inspection: Inspection; onBack: () => void }) {
+export function ReportView({ inspection, onBack, lang = "en", onLanguageChange }: { inspection: Inspection; onBack: () => void; lang?: Language; onLanguageChange?: (l: Language) => void }) {
   const [pdfState, setPdfState] = useState<"idle" | "generating" | "done">("idle");
   const [pdfProgress, setPdfProgress] = useState<{ stage: string; pct: number } | null>(null);
   const [integrityData, setIntegrityData] = useState<IntegrityReportData | null>(inspection.packageIntegrity || null);
@@ -386,7 +387,11 @@ export function ReportView({ inspection, onBack }: { inspection: Inspection; onB
         }
       `}</style>
 
-      <AppHeader title="Official Statutory Inspection Report" />
+      <AppHeader
+        title={lang === "hi" ? "आधिकारिक वैधानिक निरीक्षण रिपोर्ट" : lang === "mr" ? "अधिकृत वैधानिक तपासणी अहवाल" : "Official Statutory Inspection Report"}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+      />
       <main className="mx-auto max-w-5xl px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8">
 
         {/* Action bar */}

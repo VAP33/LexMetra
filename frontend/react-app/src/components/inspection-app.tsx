@@ -66,15 +66,11 @@ export function InspectionApp() {
     return defaultOfficer;
   });
 
-  // Initialize view from URL hash or stored credentials
+  // Initialize view from URL hash or default to landing page
   const [view, setView] = useState<View>(() => {
     const hashRoute = parseRouteHash();
-    if (hashRoute) return hashRoute.view;
-    const u = getStoredToken() ? getStoredUser() : null;
-    if (u?.role === "customer" || u?.role === "consumer") return "customer";
-    if (u?.role === "authority") return "authority";
-    if (u?.role === "admin" || u?.role === "senior_inspector") return "seniorRegional";
-    return "home";
+    if (hashRoute && hashRoute.view !== "home") return hashRoute.view;
+    return "landing";
   });
 
   const [lang, setLang] = useState<Language>(() => {

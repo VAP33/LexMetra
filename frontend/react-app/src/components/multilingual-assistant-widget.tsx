@@ -360,10 +360,10 @@ export function MultilingualAssistantWidget({
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="flex h-14 items-center gap-2.5 rounded-full border-2 border-black bg-white px-5 text-black shadow-2xl transition-all hover:scale-105 hover:bg-black hover:text-white active:scale-95 group"
+          aria-label="Open LexMetra AI Assistant"
+          className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-full border-2 border-slate-900 bg-white text-slate-900 shadow-2xl transition-all hover:scale-110 hover:bg-slate-900 hover:text-white active:scale-95 group touch-manipulation cursor-pointer"
         >
-          <Sparkles className="h-5 w-5 text-black group-hover:text-white transition-colors" />
-          <span className="text-xs font-black uppercase tracking-wider">LexMetra AI</span>
+          <Sparkles className="h-6 w-6 sm:h-7 sm:w-7 text-slate-900 group-hover:text-saffron-400 transition-colors" />
         </button>
       ) : (
         <div

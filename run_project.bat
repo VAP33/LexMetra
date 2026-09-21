@@ -81,8 +81,8 @@ echo.
 echo [2/3] Checking FastAPI Backend Service (Port 8000)...
 netstat -ano | findstr ":8000 " >nul 2>&1
 if errorlevel 1 (
-    echo [!] Backend not running on port 8000. Launching with Paddle + Generic modes...
-    start "LexMetra Backend - Paddle + Generic Engine" cmd /k "cd /d %~dp0backend && set EVIDENCE_LOCALIZER_MODE=paddle&& set REGULATORY_ENGINE_MODE=generic&& set LMPC_ENABLE_PADDLEOCR=true&& set ENABLE_LOCALIZATION_YOLO=false&& python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload"
+    echo [!] Backend not running on port 8000. Launching on 0.0.0.0 with Paddle + Generic modes...
+    start "LexMetra Backend - Paddle + Generic Engine" cmd /k "cd /d %~dp0backend && set EVIDENCE_LOCALIZER_MODE=paddle&& set REGULATORY_ENGINE_MODE=generic&& set LMPC_ENABLE_PADDLEOCR=true&& set ENABLE_LOCALIZATION_YOLO=false&& python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     timeout /t 4 /nobreak >nul
     echo [OK] FastAPI Backend process initiated.
 ) else (
@@ -96,21 +96,29 @@ echo.
 echo [3/3] Checking React Frontend Dev Server (Port 5173)...
 netstat -ano | findstr ":5173 " >nul 2>&1
 if errorlevel 1 (
-    echo [!] Frontend not running on port 5173. Launching Vite dev server...
-    start "LexMetra Frontend - React Vite" cmd /k "cd /d %~dp0frontend\react-app && npm run dev"
+    echo [!] Frontend not running on port 5173. Launching Vite dev server (host 0.0.0.0)...
+    start "LexMetra Frontend - React Vite" cmd /k "cd /d %~dp0frontend\react-app && npm run dev -- --host 0.0.0.0"
     timeout /t 3 /nobreak >nul
     echo [OK] React Frontend process initiated.
 ) else (
     echo [OK] React Frontend is already active on port 5173.
 )
 
+set "LOCAL_IP="
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4 Address"') do (
+    if not defined LOCAL_IP for /f "tokens=1" %%b in ("%%a") do set "LOCAL_IP=%%b"
+)
+
 echo.
 echo ===============================================================================
 echo                     ALL LEXMETRA SERVICES ARE ONLINE!
 echo ===============================================================================
-echo  Application Web UI : http://localhost:5173
-echo  FastAPI Docs / API : http://localhost:8000/docs
-echo  Health Endpoint    : http://localhost:8000/health
+echo  Laptop Access (Local) : http://localhost:5173
+if defined LOCAL_IP (
+echo  Mobile Phone Access   : http://%LOCAL_IP%:5173  [Connect phone to same Wi-Fi]
+)
+echo  FastAPI Docs / API    : http://localhost:8000/docs
+echo  Health Endpoint       : http://localhost:8000/health
 echo.
 echo  Default Inspector Credentials:
 echo    Username : admin

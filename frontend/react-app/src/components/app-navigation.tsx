@@ -137,7 +137,7 @@ export function DesktopRail({ view, onNavigate, lang = "en", role }: { view: Vie
         <img
           src="/lexmetra-logo-new.png"
           alt="LexMetra"
-          className="w-full h-auto object-contain"
+          className="w-4/5 mx-auto h-auto object-contain"
           draggable={false}
         />
       </button>

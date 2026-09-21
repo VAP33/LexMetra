@@ -28,10 +28,14 @@ export function ScanDetailsView({
   images,
   onSubmit,
   onBack,
+  lang = "en",
+  onLanguageChange,
 }: {
   images: string[];
   onSubmit: (details: ScanDetails) => void;
   onBack: () => void;
+  lang?: Language;
+  onLanguageChange?: (l: Language) => void;
 }) {
   const [productId, setProductId] = useState("");
   const [saleType, setSaleType] = useState<ScanDetails["saleType"]>("retail");
@@ -128,7 +132,11 @@ export function ScanDetailsView({
 
   return (
     <>
-      <AppHeader title="Confirm details" />
+      <AppHeader
+        title={lang === "hi" ? "विवरण की पुष्टि करें" : lang === "mr" ? "तपशील पुष्टी करा" : "Confirm details"}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+      />
       <main className="mx-auto max-w-2xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
         <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />Retake photos

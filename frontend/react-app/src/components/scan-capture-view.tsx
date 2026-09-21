@@ -30,6 +30,7 @@ export function ScanView({
 }) {
   const t = getTranslation(lang);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mobileCameraInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -405,14 +406,24 @@ export function ScanView({
                 <p className="mt-1 text-xs leading-5 text-slate-300">
                   {t.positionPackageInside}
                 </p>
-                <Button
-                  variant="primary"
-                  className="mt-4 bg-brand hover:bg-brand-800 text-white font-bold px-5 shadow-lg ring-2 ring-brand-400/30"
-                  onClick={startCamera}
-                >
-                  <Camera className="h-4 w-4 mr-1.5" />
-                  {t.enableCamera}
-                </Button>
+                <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-2">
+                  <Button
+                    variant="primary"
+                    className="w-full sm:w-auto bg-brand hover:bg-brand-800 text-white font-bold px-4 py-2 shadow-lg ring-2 ring-brand-400/30 text-xs"
+                    onClick={startCamera}
+                  >
+                    <Camera className="h-4 w-4 mr-1.5" />
+                    {t.enableCamera}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => mobileCameraInputRef.current?.click()}
+                    className="w-full sm:w-auto rounded-xl bg-saffron-600 hover:bg-saffron-700 text-white font-bold px-4 py-2 text-xs shadow-md transition flex items-center justify-center gap-1.5"
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span>Take Photo (Phone Camera)</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -428,9 +439,18 @@ export function ScanView({
             </div>
           )}
           {cameraError && (
-            <div className="mx-auto mt-3 flex items-center gap-2 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs font-semibold text-amber-900 shadow-xs">
-              <CameraOff className="h-4 w-4 text-amber-600 shrink-0" />
-              <span>{t.cameraUnavailable}</span>
+            <div className="mx-auto mt-3 flex items-center justify-between gap-2 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs font-semibold text-amber-900 shadow-xs max-w-md">
+              <div className="flex items-center gap-2">
+                <CameraOff className="h-4 w-4 text-amber-600 shrink-0" />
+                <span>WebRTC direct feed blocked. Tap shutter to use phone camera:</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => mobileCameraInputRef.current?.click()}
+                className="shrink-0 rounded-lg bg-amber-600 text-white px-2.5 py-1 text-[11px] font-bold shadow-xs hover:bg-amber-700"
+              >
+                Open Camera
+              </button>
             </div>
           )}
 
@@ -475,9 +495,15 @@ export function ScanView({
           </button>
           <button
             type="button"
-            onClick={capture}
+            onClick={() => {
+              if (cameraActive) {
+                capture();
+              } else {
+                mobileCameraInputRef.current?.click();
+              }
+            }}
             aria-label="Capture inspection image"
-            disabled={!cameraActive || captured.length >= 6}
+            disabled={captured.length >= 6}
             className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-brand-100 bg-brand text-white shadow-xl hover:bg-brand-800 active:scale-95 disabled:opacity-40 transition-all"
           >
             <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/60 bg-white/10">
@@ -505,7 +531,10 @@ export function ScanView({
             </span>
           </button>
         </div>
+        {/* Desktop file picker / gallery */}
         <input ref={inputRef} type="file" accept="image/*" multiple onChange={handleFile} className="hidden" />
+        {/* Mobile direct camera capture (triggers native camera app on phone) */}
+        <input ref={mobileCameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
       </div>
     </div>
   );

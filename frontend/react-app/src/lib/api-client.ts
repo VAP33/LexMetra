@@ -6,12 +6,21 @@
 // at build time); defaults to the local dev backend from SETUP.md.
 import type { ScanDetails } from "./types";
 
-export const API_BASE: string =
-  (typeof import.meta !== "undefined" &&
-    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL) ||
-  (typeof window !== "undefined" && window.location?.hostname
-    ? `${window.location.protocol}//${window.location.hostname}:8000`
-    : "http://localhost:8000");
+function getApiBase(): string {
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const { protocol, hostname } = window.location;
+    const envUrl = (import.meta as unknown as { env?: Record<string, string> })?.env?.VITE_API_BASE_URL;
+    if (envUrl && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
+      return envUrl;
+    }
+    // When accessing from a mobile phone or laptop on LAN (e.g. 192.168.x.x:5173),
+    // point API requests directly to port 8000 on that same laptop hostname:
+    return `${protocol}//${hostname}:8000`;
+  }
+  return "http://localhost:8000";
+}
+
+export const API_BASE: string = getApiBase();
 
 export function resolveImageUrl(url?: string | null): string | undefined {
   if (!url) return undefined;

@@ -290,6 +290,8 @@ export function ResultView({
   onOpenReport,
   onNew,
   onInspectionUpdated,
+  lang = "en",
+  onLanguageChange,
 }: {
   inspection: Inspection;
   onSave: () => void;
@@ -297,6 +299,8 @@ export function ResultView({
   onOpenReport: () => void;
   onNew: () => void;
   onInspectionUpdated?: (updated: Inspection) => void;
+  lang?: Language;
+  onLanguageChange?: (l: Language) => void;
 }) {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showIntegrityModal, setShowIntegrityModal] = useState(false);
@@ -345,7 +349,11 @@ export function ResultView({
 
   return (
     <>
-      <AppHeader title="Inspection result" />
+      <AppHeader
+        title={lang === "hi" ? "निरीक्षण परिणाम" : lang === "mr" ? "तपासणी निकाल" : "Inspection result"}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+      />
       <main className="mx-auto max-w-5xl space-y-5 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-10">
         <button type="button" onClick={onNew} className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />New inspection</button>
 

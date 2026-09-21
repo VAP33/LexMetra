@@ -103,13 +103,19 @@ export function Header({
             <Menu className="h-5 w-5" />
           </button>
 
-          {/* Page title — no logo in navbar */}
+          {/* Page title with new logo */}
           <button
             type="button"
             onClick={() => onNavigate?.("landing")}
-            className="flex items-center rounded-xl hover:bg-white/5 px-1.5 py-1 -mx-1.5 -my-1 transition active:scale-[0.98]"
+            className="flex items-center gap-2 sm:gap-2.5 rounded-xl hover:bg-white/5 px-1.5 py-1 -mx-1.5 -my-1 transition active:scale-[0.98]"
           >
-            <h1 className="text-lg sm:text-xl font-black tracking-tight text-white">
+            <img
+              src="/lexmetra-white-logo.png"
+              alt="LexMetra"
+              className="h-7 sm:h-9 w-auto object-contain shrink-0"
+              draggable={false}
+            />
+            <h1 className="text-sm sm:text-lg font-black tracking-tight text-white line-clamp-1">
               {title}
             </h1>
           </button>

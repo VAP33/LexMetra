@@ -127,10 +127,17 @@ export function InspectionRow({ inspection, onOpen, lang }: { inspection: Inspec
   );
 }
 
-export function LexMetraLogo({ className = "h-8 sm:h-9 w-auto" }: { className?: string }) {
+export function LexMetraLogo({
+  className = "h-8 sm:h-9 w-auto",
+  variant = "default",
+}: {
+  className?: string;
+  variant?: "white" | "blue" | "default";
+}) {
+  const src = variant === "white" ? "/lexmetra-white-logo.png" : "/lexmetra-blue-logo.png";
   return (
     <img
-      src="/lexmetra-logo-new.png"
+      src={src}
       alt="LexMetra"
       className={className}
       draggable={false}
