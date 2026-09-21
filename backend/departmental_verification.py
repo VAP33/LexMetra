@@ -507,9 +507,9 @@ def evaluate_lmpc_baseline(
     """Legal Metrology is the primary mandatory regulator for all pre-packaged commodities."""
     return DepartmentVerificationResult(
         department_code="LMPC",
-        department_name="Legal Metrology Division (Dept. of Consumer Affairs)",
+        department_name="Legal Metrology Division",
         governing_act="Legal Metrology Act, 2009 & Packaged Commodities Rules, 2011",
-        ministry="Ministry of Consumer Affairs, Food & Public Distribution",
+        ministry="Statutory Metrology Authority",
         is_applicable=True,
         applicability_reason="Primary statutory baseline for all pre-packaged commodities sold in India.",
         identifier_name="Product EAN-13 / GTIN Barcode & Manufacturer Registration",
@@ -517,7 +517,7 @@ def evaluate_lmpc_baseline(
         product_gtin=product_gtin,
         verification_status=STATUS_LIVE,
         official_portal_url="https://consumeraffairs.nic.in/acts-and-rules/legal-metrology",
-        source_tag="DIRECTORATE OF LEGAL METROLOGY (GOI)",
+        source_tag="DIRECTORATE OF LEGAL METROLOGY",
         is_demo_data=False,
         jurisdiction="All India (Central & State Directorates)",
         explanation="Mandatory packaging declarations (MRP, USP, Net Quantity, Dates, Manufacturer) evaluated under Rule 6.",
@@ -587,7 +587,7 @@ def evaluate_bis_departmental(
         department_code="BIS",
         department_name="Bureau of Indian Standards",
         governing_act="Bureau of Indian Standards Act, 2016",
-        ministry="Ministry of Consumer Affairs, Food & Public Distribution",
+        ministry="Bureau of Standards Authority",
         is_applicable=is_applicable,
         applicability_reason=(
             "Mandatory Compulsory Registration Scheme (CRS) for electronic items."
@@ -683,7 +683,7 @@ def generate_departmental_regulatory_dossier(
     return DepartmentalRegulatoryDossier(
         inspection_id=inspection_id,
         commodity=commodity,
-        primary_regulator="Legal Metrology Division, Department of Consumer Affairs (Govt. of India)",
+        primary_regulator="Legal Metrology Division · Statutory Packaging Authority",
         departments=departments,
         summary=summary,
     )

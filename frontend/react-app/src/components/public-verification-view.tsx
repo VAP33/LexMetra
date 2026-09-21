@@ -86,7 +86,7 @@ export function PublicVerificationView({ inspectionId, onClose }: PublicVerifica
             STATUTORY COMPLIANCE DOCKET VERIFICATION
           </h1>
           <p className="text-xs text-slate-300 mt-1 max-w-lg">
-            Government of India &bull; Department of Consumer Affairs &bull; Legal Metrology (Packaged Commodities) Rules, 2011
+            Statutory Legal Metrology Division &bull; Packaging Compliance Authority &bull; Legal Metrology (Packaged Commodities) Rules, 2011
           </p>
         </div>
 
@@ -122,7 +122,7 @@ export function PublicVerificationView({ inspectionId, onClose }: PublicVerifica
                 <div className="space-y-1 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm text-foreground">
-                      GOVERNMENT DIGITAL SEAL AFFIRMED
+                      STATUTORY DIGITAL SEAL AFFIRMED
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
                       AUTHENTIC

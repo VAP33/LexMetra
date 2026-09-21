@@ -10,7 +10,7 @@ metadata:
   effectiveFrom: "2011-04-01"
   effectiveTo: null
   jurisdiction: "IN"
-  authority: "Department of Consumer Affairs, Government of India"
+  authority: "Legal Metrology Statutory Division"
   legalInstrument: "Legal Metrology (Packaged Commodities) Rules, 2011"
   legalCitation: "G.S.R. 202(E), 7th March 2011"
   companionAct: "Legal Metrology Act, 2009 (Act 1 of 2010)"

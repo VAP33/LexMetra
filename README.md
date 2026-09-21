@@ -1,7 +1,6 @@
 # LexMetra — Legal Metrology Compliance Inspection Platform
 > **Statutory Packaged-Commodity Verification & Enforcement System**  
-> *Aligned with the Legal Metrology Act, 2009 & Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC Rules)*  
-> *Department of Consumer Affairs, Ministry of Consumer Affairs, Food & Public Distribution, Government of India*
+> *Statutory Legal Metrology Compliance Authority*
 
 ---
 
@@ -269,4 +268,4 @@ All verification parameters in LexMetra are grounded in published Indian statuto
 
 ## 7. License & Rights
 
-Published for statutory use under the guidelines of the Department of Consumer Affairs, Government of India. All rights reserved.
+Published for statutory packaging compliance operations. All rights reserved.

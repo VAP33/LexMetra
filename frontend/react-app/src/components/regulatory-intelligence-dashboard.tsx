@@ -135,10 +135,10 @@ export function RegulatoryIntelligenceDashboard({ onBack }: { onBack?: () => voi
     // Generate simulated file for fast demo verification
     const blob = new Blob(
       [
-        "LEGAL METROLOGY DIVISION, GOVERNMENT OF INDIA\n" +
+        "LEGAL METROLOGY STATUTORY REGULATORY DIVISION\n" +
         "NOTIFICATION\n" +
         "New Delhi, the 12th September, 2026\n" +
-        "G.S.R. 892(E).—In exercise of the powers conferred by section 52 of the Legal Metrology Act, 2009 (1 of 2010), the Central Government hereby makes the following rules further to amend the Legal Metrology (Packaged Commodities) Rules, 2011...\n" +
+        "G.S.R. 892(E).—In exercise of the powers conferred by section 52 of the Legal Metrology Act, 2009 (1 of 2010), the Statutory Authority hereby makes the following rules further to amend the Legal Metrology (Packaged Commodities) Rules, 2011...\n" +
         "1. Rule 6(12): Machine-readable dynamic QR codes shall be displayed on e-commerce cartons.\n" +
         "2. Rule 6(11): Minimum font height of Unit Sale Price (USP) shall be at least 50% of MRP font height.\n" +
         "3. Rule 26(a): Exemption clause III for fortified foods below 10g is hereby repealed."

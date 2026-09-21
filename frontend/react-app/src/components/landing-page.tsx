@@ -81,7 +81,7 @@ export function LandingPage({
 
   const t = {
     en: {
-      directorate: "Legal Metrology Division · Ministry of Consumer Affairs, Food & Public Distribution",
+      directorate: "Legal Metrology Compliance · Statutory Packaged Commodities Authority",
       titleMain: "Automated Legal Metrology",
       titleHighlight: "Compliance & Enforcement",
       subtitle:
@@ -103,10 +103,10 @@ export function LandingPage({
       cap2Desc: "Deterministic arithmetic cross-check of MRP vs Net Qty with 0% tolerance.",
       cap3Title: "Official Audit PDF",
       cap3Desc: "Tamper-proof dockets with localized bounding-box crops and court-admissible proof.",
-      footerCopy: "© 2026 LexMetra · Legal Metrology Division, Government of India",
+      footerCopy: "© 2026 LexMetra · Automated Statutory Compliance Platform",
     },
     hi: {
-      directorate: "विधिक मापविज्ञान प्रभाग · उपभोक्ता मामले, खाद्य एवं सार्वजनिक वितरण मंत्रालय",
+      directorate: "विधिक मापविज्ञान प्रभाग · वैधानिक पैकेज्ड कमोडिटीज प्राधिकरण",
       titleMain: "स्वचालित विधिक मापविज्ञान",
       titleHighlight: "अनुपालन एवं प्रवर्तन",
       subtitle:
@@ -128,10 +128,10 @@ export function LandingPage({
       cap2Desc: "एमआरपी और शुद्ध मात्रा का सटीक गणितीय सत्यापन।",
       cap3Title: "आधिकारिक पीडीएफ डॉकेट",
       cap3Desc: "साक्ष्य मानचित्र एवं विधिक रिपोर्ट के साथ निर्यात योग्य डॉकेट।",
-      footerCopy: "© 2026 लेक्समेट्रा · विधिक मापविज्ञान प्रभाग, भारत सरकार",
+      footerCopy: "© 2026 लेक्समेट्रा · स्वचालित वैधानिक अनुपालन प्रणाली",
     },
     mr: {
-      directorate: "कायदेशीर मापनशास्त्र विभाग · ग्राहक व्यवहार, अन्न व सार्वजनिक वितरण मंत्रालय",
+      directorate: "कायदेशीर मापनशास्त्र विभाग · वैधानिक पॅकेज्ड कमोडिटीज प्राधिकरण",
       titleMain: "स्वयंचलित कायदेशीर मापनशास्त्र",
       titleHighlight: "अनुपालन व अंमलबजावणी",
       subtitle:
@@ -153,10 +153,10 @@ export function LandingPage({
       cap2Desc: "एमआरपी आणि निव्वळ प्रमाण यांचे तंतोतंत गणितीय परीक्षण.",
       cap3Title: "अधिकृत पीडीएफ डॉकेट",
       cap3Desc: "पुरावे नकाशे व पुराव्यासह न्यायालयीन मान्य अहवाल.",
-      footerCopy: "© 2026 लेक्समेट्रा · कायदेशीर मापनशास्त्र विभाग, भारत सरकार",
+      footerCopy: "© 2026 लेक्समेट्रा · स्वयंचलित वैधानिक अनुपालन प्रणाली",
     },
   }[lang] || {
-    directorate: "Legal Metrology Division · Government of India",
+    directorate: "Legal Metrology Division · Statutory Compliance Platform",
     titleMain: "Automated Legal Metrology",
     titleHighlight: "Compliance & Enforcement",
     subtitle: "AI-powered statutory package inspection platform.",
@@ -177,7 +177,7 @@ export function LandingPage({
     cap2Desc: "Deterministic arithmetic cross-check with 0% error tolerance.",
     cap3Title: "Official Audit PDF",
     cap3Desc: "Tamper-proof legal dockets with localized bounding-box crops.",
-    footerCopy: "© 2026 LexMetra · Legal Metrology Division, Government of India",
+    footerCopy: "© 2026 LexMetra · Automated Statutory Compliance Platform",
   };
 
   return (
@@ -204,7 +204,7 @@ export function LandingPage({
                   LEXMETRA
                 </span>
                 <span className="text-[10px] sm:text-[11px] font-medium text-slate-300 leading-tight mt-0.5">
-                  Legal Metrology Division · Govt of India
+                  Legal Metrology Compliance &amp; Inspection Platform
                 </span>
               </div>
             </button>

@@ -233,7 +233,7 @@ export function DepartmentalCrossVerificationCard({
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Ministry of Consumer Affairs, Food & Public Distribution • LMPC Rules, 2011
+              Legal Metrology Compliance Authority • LMPC Rules, 2011
             </p>
             <p className="text-foreground leading-relaxed">
               Mandatory statutory baseline for all pre-packaged consumer commodities. Governs MRP, Net Quantity, Dates, and Manufacturer declarations.
@@ -353,7 +353,7 @@ export function DepartmentalCrossVerificationCard({
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Ministry of Consumer Affairs • BIS Act, 2016
+              Bureau of Indian Standards Authority • BIS Act, 2016
             </p>
             <p className="text-muted-foreground leading-relaxed">
               Mandatory ISI/CRS certification applies to electricals, electronics, and notified industrial goods.

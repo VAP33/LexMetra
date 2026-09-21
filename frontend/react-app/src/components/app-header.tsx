@@ -84,10 +84,10 @@ export function Header({
 
   const defaultEyebrow =
     lang === "hi"
-      ? "भारत सरकार · विधिक मापविज्ञान प्रभाग"
+      ? "विधिक मापविज्ञान प्रभाग · वैधानिक अनुपालन"
       : lang === "mr"
-      ? "भारत सरकार · कायदेशीर मापनशास्त्र विभाग"
-      : "GOVT OF INDIA · LEGAL METROLOGY DIVISION";
+      ? "कायदेशीर मापनशास्त्र विभाग · वैधानिक अनुपालन"
+      : "STATUTORY COMPLIANCE · LEGAL METROLOGY DIVISION";
 
   return (
     <header className="sticky top-0 z-30 border-b border-brand-900/60 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white shadow-md">

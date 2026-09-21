@@ -637,7 +637,7 @@ export function CustomerDashboard({
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="space-y-1">
                   <span className="rounded-full bg-emerald-200 text-emerald-900 px-3 py-0.5 text-[10px] font-extrabold uppercase tracking-wider">
-                    Government of India Official Grievance Channel
+                    Official Statutory Consumer Grievance Channel
                   </span>
                   <h3 className="text-xl font-bold text-emerald-950">National Consumer Helpline (NCH 1915)</h3>
                   <p className="text-xs text-emerald-800 font-medium">

@@ -1,7 +1,7 @@
 # LexMetra — Migration Guide & Comprehensive Changelog
 
 **Project**: LexMetra Legal Metrology & Multi-Regulatory AI Compliance Platform  
-**Target Authority**: Department of Consumer Affairs (DCA), Ministry of Consumer Affairs, Food & Public Distribution, Govt. of India  
+**Target Authority**: Legal Metrology Division & Statutory Compliance Authority  
 **Date**: September 2026  
 **Status**: Production-Ready / SIH 2026 Grand Finale  
 
@@ -30,7 +30,7 @@ This document contains the complete record of all files created, modified, refac
 | 2 | `frontend/react-app/src/components/CustomerDashboard.tsx` | React Component | **Dedicated Citizen Protection & Grievance Portal** (`Consumer Suvidha`). Contains 1-click package verification, Unit Sale Price (USP) calculator, NCH 1915 grievance filing modal, and Jago Grahak Jago rights hub. |
 | 3 | `frontend/react-app/src/components/LandingPage.tsx` | React Component | **Public Landing & Authentication Portal**. Offers animated visual preview of the 4-stage inspection pipeline and clear separation between "Citizen Portal" and "Officer Sign In". |
 | 4 | `frontend/react-app/src/components/SeniorRegionalDashboard.tsx` | React Component | **Directorate & Senior Regional Intelligence Dashboard**. Features state-wise violation heatmaps, non-compliance clustering, industry risk tickers, and zonal enforcement dockets. |
-| 5 | `frontend/react-app/public/dca-logo.png` | Static Asset | **Official Department of Consumer Affairs (Govt. of India) Emblem & Logo**, displayed in header bars, navigation rails, and PDF reports. |
+| 5 | `frontend/react-app/public/dca-logo.png` | Static Asset | **Official Statutory Emblem & Logo**, displayed in header bars, navigation rails, and PDF reports. |
 | 6 | `frontend/react-app/src/assets/dca-logo.png` | Asset | Source image copy for bundling. |
 | 7 | `MIGRATION_AND_CHANGELOG.md` | Markdown Documentation | Complete file-by-file migration guide and architectural documentation. |
 

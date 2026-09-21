@@ -55,9 +55,9 @@ const dashboardTranslations: Record<
   }
 > = {
   en: {
-    govDca: "Government of India · Legal Metrology",
-    enforcementUnit: "Enforcement Unit: Zone 4 Surveillance",
-    fieldOperations: "Legal Metrology Field Operations",
+    govDca: "Statutory Legal Metrology Division",
+    enforcementUnit: "Enforcement Directorate · Unit 4 Monitoring",
+    fieldOperations: "Compliance Command & Operations",
     fieldSub: "Statutory verification under Legal Metrology (Packaged Commodities) Rules, 2011 & FSSAI Standards",
     newScan: "New Scan",
     regionalIntel: "Regional Intel",
@@ -106,9 +106,9 @@ const dashboardTranslations: Record<
     citizenDesc: "Public scan & report",
   },
   hi: {
-    govDca: "भारत सरकार · विधिक मापविज्ञान प्रभाग",
+    govDca: "विधिक मापविज्ञान प्रभाग",
     enforcementUnit: "प्रवर्तन इकाई: जोन 4 निगरानी",
-    fieldOperations: "विधिक मापविज्ञान क्षेत्रीय संचालन",
+    fieldOperations: "अनुपालन संचालन एवं विधिक आसूचना",
     fieldSub: "विधिक मापविज्ञान (पैक की गई वस्तुएं) नियम, 2011 एवं FSSAI मानकों के तहत वैधानिक सत्यापन",
     newScan: "नई जांच (स्कैन)",
     regionalIntel: "क्षेत्रीय आसूचना",
@@ -157,9 +157,9 @@ const dashboardTranslations: Record<
     citizenDesc: "सार्वजनिक स्कैन व रिपोर्ट",
   },
   mr: {
-    govDca: "भारत सरकार · कायदेशीर मापनशास्त्र विभाग",
+    govDca: "कायदेशीर मापनशास्त्र विभाग",
     enforcementUnit: "अंमलबजावणी कक्ष: विभाग 4 देखरेख",
-    fieldOperations: "कायदेशीर मापनशास्त्र क्षेत्रीय कामकाज",
+    fieldOperations: "अनुपालन कामकाज व वैधानिक गुप्तचर",
     fieldSub: "कायदेशीर मापनशास्त्र (पॅकबंद वस्तू) नियम, 2011 आणि FSSAI मानकांनुसार वैधानिक पडताळणी",
     newScan: "नवीन स्कॅन",
     regionalIntel: "प्रादेशिक माहिती",
@@ -322,44 +322,56 @@ export function HomeView({
         onNavigate={onNavigate}
       />
       <main className="mx-auto max-w-7xl space-y-6 px-4 pb-28 pt-6 sm:px-6 md:pb-10 lg:px-8 lg:pt-8">
-        {/* Dashboard Hero — LexMetra logo + page context */}
-        <section className="flex flex-col justify-between gap-4 rounded-2xl border border-border/80 bg-card p-6 shadow-sm sm:flex-row sm:items-center">
-          <div className="flex items-center gap-5">
-            <img
-              src="/lexmetra-logo-new.png"
-              alt="LexMetra"
-              className="h-20 w-auto object-contain shrink-0"
-              draggable={false}
-            />
-            <div>
-              <h2 className="text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
-                {dt.fieldOperations}
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {dt.fieldSub}
-              </p>
+        {/* Dashboard Hero — Refined, Executive Command Center (No Logo as requested) */}
+        <section className="flex flex-col justify-between gap-5 rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xs sm:flex-row sm:items-center">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700 tracking-wide uppercase font-mono">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                Live Command Console
+              </span>
+              <span className="text-xs text-slate-400">·</span>
+              <span className="text-xs font-semibold text-slate-500">Legal Metrology Compliance Hub</span>
             </div>
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
+              {dt.fieldOperations}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 max-w-2xl font-normal leading-relaxed">
+              {dt.fieldSub}
+            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Button onClick={() => onNavigate("scan")} variant="primary" className="shadow-sm">
-              <ScanLine className="h-4 w-4" />
-              {dt.newScan}
-            </Button>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigate("scan")}
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm px-5 py-2.5 shadow-md transition active:scale-95 touch-manipulation cursor-pointer"
+            >
+              <ScanLine className="h-4 w-4 text-saffron-400" />
+              <span>{dt.newScan}</span>
+            </button>
             {(() => {
               const r = (user?.role || "").toLowerCase();
               const isSenior = r === "senior_inspector" || r === "admin" || r === "authority";
               if (!isSenior) return null;
               return (
                 <>
-                  <Button onClick={() => onNavigate("seniorRegional")} variant="secondary">
-                    <Globe className="h-4 w-4" />
-                    {dt.regionalIntel}
-                  </Button>
-                  <Button onClick={() => onNavigate("authority")} variant="secondary">
-                    <ShieldCheck className="h-4 w-4" />
-                    {dt.authorityDockets}
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("seniorRegional")}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-3.5 py-2.5 shadow-2xs transition active:scale-95 touch-manipulation cursor-pointer"
+                  >
+                    <Globe className="h-4 w-4 text-slate-500" />
+                    <span>{dt.regionalIntel}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("authority")}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-3.5 py-2.5 shadow-2xs transition active:scale-95 touch-manipulation cursor-pointer"
+                  >
+                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                    <span>{dt.authorityDockets}</span>
+                  </button>
                 </>
               );
             })()}
@@ -369,39 +381,39 @@ export function HomeView({
         {error && <ErrorBanner message={error} onRetry={onRetry} onLogout={onLogout} />}
 
         {/* Dynamic Multilingual AI Analysis Block */}
-        <section className="rounded-2xl border border-brand/30 bg-gradient-to-br from-brand/5 via-card to-card p-5 sm:p-6 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3 mb-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand text-white shadow-xs">
-                <Sparkles className="h-4 w-4" />
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900 text-white shadow-xs">
+                <Sparkles className="h-4 w-4 text-saffron-400" />
               </div>
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-brand">{aiSummary.badge}</span>
-                <h3 className="text-sm font-bold text-foreground">{aiSummary.headline}</h3>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 font-mono">{aiSummary.badge}</span>
+                <h3 className="text-sm font-bold text-slate-900">{aiSummary.headline}</h3>
               </div>
             </div>
 
             {/* Language Selector (EN / HI / MR) */}
             {onSetLang && (
-              <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold shadow-xs">
+              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
                 <button
                   type="button"
                   onClick={() => onSetLang("en")}
-                  className={`rounded-md px-3 py-1.5 transition ${lang === "en" ? "bg-brand text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
+                  className={`rounded-md px-3 py-1.5 transition touch-manipulation cursor-pointer ${lang === "en" ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200" : "text-slate-600 hover:text-slate-900 font-semibold"}`}
                 >
                   English
                 </button>
                 <button
                   type="button"
                   onClick={() => onSetLang("hi")}
-                  className={`rounded-md px-3 py-1.5 transition ${lang === "hi" ? "bg-brand text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
+                  className={`rounded-md px-3 py-1.5 transition touch-manipulation cursor-pointer ${lang === "hi" ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200" : "text-slate-600 hover:text-slate-900 font-semibold"}`}
                 >
                   हिन्दी
                 </button>
                 <button
                   type="button"
                   onClick={() => onSetLang("mr")}
-                  className={`rounded-md px-3 py-1.5 transition ${lang === "mr" ? "bg-brand text-white font-bold shadow-sm" : "text-slate-700 hover:text-slate-900 font-semibold"}`}
+                  className={`rounded-md px-3 py-1.5 transition touch-manipulation cursor-pointer ${lang === "mr" ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200" : "text-slate-600 hover:text-slate-900 font-semibold"}`}
                 >
                   मराठी
                 </button>
@@ -409,41 +421,56 @@ export function HomeView({
             )}
           </div>
 
-          <p className="text-xs leading-relaxed text-foreground/90 font-medium">
+          <p className="text-xs leading-relaxed text-slate-700 font-medium">
             {aiSummary.text}
           </p>
         </section>
 
-        {/* Dense 5-Metric Operational Ticker */}
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <div className="rounded-xl border border-border/70 bg-card p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{dt.inspectionsToday}</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">{loading ? "…" : inspectionsToday}</p>
-            <span className="mt-1 block text-[10px] text-muted-foreground">{dt.ofTotalLogged.replace("{total}", String(scanned))}</span>
+        {/* Dense 5-Metric Operational Ticker — Clean Executive Typography */}
+        <section className="grid grid-cols-2 gap-3.5 sm:grid-cols-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs hover:border-slate-300 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{dt.inspectionsToday}</p>
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+            </div>
+            <p className="mt-2 text-2xl sm:text-3xl font-black tracking-tight text-slate-900">{loading ? "…" : inspectionsToday}</p>
+            <span className="mt-1 block text-[10px] font-medium text-slate-400">{dt.ofTotalLogged.replace("{total}", String(scanned))}</span>
           </div>
 
-          <div className="rounded-xl border border-destructive/20 bg-danger-soft/30 p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-destructive">{dt.violationsFlagged}</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-destructive">{loading ? "…" : violations}</p>
-            <span className="mt-1 block text-[10px] text-destructive/80">{dt.rule6NonCompliance}</span>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs hover:border-rose-200 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-rose-600">{dt.violationsFlagged}</p>
+              <span className="h-2 w-2 rounded-full bg-rose-500" />
+            </div>
+            <p className="mt-2 text-2xl sm:text-3xl font-black tracking-tight text-rose-600">{loading ? "…" : violations}</p>
+            <span className="mt-1 block text-[10px] font-medium text-rose-500/80">{dt.rule6NonCompliance}</span>
           </div>
 
-          <div className="rounded-xl border border-warning/20 bg-warning-soft/30 p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-warning">{dt.pendingReviews}</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-warning">{loading ? "…" : (uncertainCases + pendingReviews)}</p>
-            <span className="mt-1 block text-[10px] text-warning/80">{dt.requiresInspectorReview}</span>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs hover:border-amber-200 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600">{dt.pendingReviews}</p>
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+            </div>
+            <p className="mt-2 text-2xl sm:text-3xl font-black tracking-tight text-amber-600">{loading ? "…" : (uncertainCases + pendingReviews)}</p>
+            <span className="mt-1 block text-[10px] font-medium text-amber-600/80">{dt.requiresInspectorReview}</span>
           </div>
 
-          <div className="rounded-xl border border-border/70 bg-card p-4 shadow-xs">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{dt.packageIntegrity}</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-foreground">{loading ? "…" : integrityAlerts}</p>
-            <span className="mt-1 block text-[10px] text-muted-foreground">{dt.tamperAlerts}</span>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs hover:border-indigo-200 transition-all">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">{dt.packageIntegrity}</p>
+              <span className="h-2 w-2 rounded-full bg-indigo-500" />
+            </div>
+            <p className="mt-2 text-2xl sm:text-3xl font-black tracking-tight text-indigo-600">{loading ? "…" : integrityAlerts}</p>
+            <span className="mt-1 block text-[10px] font-medium text-slate-400">{dt.tamperAlerts}</span>
           </div>
 
-          <div className="rounded-xl border border-success/20 bg-success-soft/30 p-4 shadow-xs col-span-2 sm:col-span-1">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-success">{dt.registerHealth}</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-success">{loading ? "…" : `${registerHealth}%`}</p>
-            <span className="mt-1 block text-[10px] text-success/80">{dt.compliantRatio}</span>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs hover:border-emerald-200 transition-all col-span-2 sm:col-span-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">{dt.registerHealth}</p>
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            </div>
+            <p className="mt-2 text-2xl sm:text-3xl font-black tracking-tight text-emerald-700">{loading ? "…" : `${registerHealth}%`}</p>
+            <span className="mt-1 block text-[10px] font-medium text-emerald-600/80">{dt.compliantRatio}</span>
           </div>
         </section>
 
@@ -452,68 +479,68 @@ export function HomeView({
           {/* Left Column: Immediate Action & Queue (7 Cols) */}
           <div className="space-y-6 lg:col-span-7">
             {/* Urgent Review & Violations Queue */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-border/70 pb-3 mb-3">
+            <section className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-xs">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
                 <div className="flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-destructive" />
-                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
+                  <ShieldAlert className="h-4 w-4 text-rose-600" />
+                  <h3 className="text-xs font-mono font-bold text-slate-900 uppercase tracking-wider">
                     {dt.priorityQueueTitle} ({urgentQueue.length})
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => onNavigate("reviewQueue")}
-                  className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
+                  className="text-xs font-semibold text-slate-700 hover:text-slate-950 inline-flex items-center gap-1 transition"
                 >
                   {dt.fullQueue} <ChevronRight className="h-3 w-3" />
                 </button>
               </div>
 
               {urgentQueue.length > 0 ? (
-                <div className="divide-y divide-border/60">
+                <div className="divide-y divide-slate-100">
                   {urgentQueue.map((item: any) => (
-                    <div key={item.id} className="flex items-center justify-between py-3">
+                    <div key={item.id} className="flex items-center justify-between py-3 hover:bg-slate-50/70 px-2 rounded-xl transition">
                       <div className="min-w-0 flex-1 pr-3">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-foreground truncate">{item.product}</span>
+                          <span className="font-semibold text-sm text-slate-900 truncate">{item.product}</span>
                         </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                        <p className="mt-0.5 text-xs text-slate-500 font-mono truncate">
                           {item.productId ? `#${item.productId} · ` : `#${item.id} · `}{item.dateLabel}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={item.status} compact lang={lang} />
-                        <Button
-                          variant="secondary"
-                          className="h-8 px-2.5 text-xs"
+                        <button
+                          type="button"
+                          className="h-8 px-3 text-xs font-semibold rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 transition active:scale-95 shadow-2xs cursor-pointer"
                           onClick={() => onOpen(item)}
                         >
                           {dt.review}
-                        </Button>
+                        </button>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground py-4 text-center">
+                <p className="text-xs text-slate-400 py-6 text-center font-medium">
                   {dt.allPriorityProcessed}
                 </p>
               )}
             </section>
 
             {/* Recent Inspections Log */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-border/70 pb-3 mb-3">
+            <section className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-xs">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
                 <div>
-                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
+                  <h3 className="text-xs font-mono font-bold text-slate-900 uppercase tracking-wider">
                     {dt.recentInspections}
                   </h3>
-                  <p className="text-[11px] text-muted-foreground">{dt.liveStatutoryRecords}</p>
+                  <p className="text-[11px] text-slate-500 font-medium">{dt.liveStatutoryRecords}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => onNavigate("history")}
-                  className="text-xs font-semibold text-brand hover:underline inline-flex items-center gap-1"
+                  className="text-xs font-semibold text-slate-700 hover:text-slate-950 inline-flex items-center gap-1 transition"
                 >
                   {dt.viewAll} ({scanned}) <ArrowRight className="h-3 w-3" />
                 </button>
@@ -522,11 +549,11 @@ export function HomeView({
               {loading ? (
                 <div className="space-y-2 py-2">
                   {[0, 1, 2].map((i) => (
-                    <div key={i} className="h-12 animate-pulse rounded-lg bg-muted" />
+                    <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
                   ))}
                 </div>
               ) : inspections.length ? (
-                <div className="divide-y divide-border/60">
+                <div className="divide-y divide-slate-100">
                   {inspections.slice(0, 4).map((inspection) => (
                     <InspectionRow key={inspection.id} inspection={inspection} onOpen={onOpen} lang={lang} />
                   ))}
@@ -544,40 +571,40 @@ export function HomeView({
           {/* Right Column: Regulatory Intelligence & Inter-Agency Surveillance (5 Cols) */}
           <div className="space-y-6 lg:col-span-5">
             {/* Regulatory Updates & Rule Engine Status */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-border/70 pb-2.5">
+            <section className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-brand" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
+                  <FileText className="h-4 w-4 text-slate-700" />
+                  <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-900">
                     {dt.regulatoryUpdates}
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => onNavigate("regulatory")}
-                  className="text-[11px] font-semibold text-brand hover:underline"
+                  className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 transition"
                 >
                   {dt.ruleEngine}
                 </button>
               </div>
 
               <div className="space-y-2.5 text-xs">
-                <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-1">
                   <div className="flex items-center justify-between font-semibold">
-                    <span>{dt.lmpcRule6}</span>
-                    <span className="rounded bg-success-soft text-success px-1.5 py-0.2 text-[9px] font-bold">{dt.active}</span>
+                    <span className="text-slate-900 font-bold">{dt.lmpcRule6}</span>
+                    <span className="rounded bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[9px] font-mono font-bold">{dt.active}</span>
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
                     {dt.lmpcRule6Desc}
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-1">
                   <div className="flex items-center justify-between font-semibold">
-                    <span>{dt.gsrQrCode}</span>
-                    <span className="rounded bg-brand-soft text-brand px-1.5 py-0.2 text-[9px] font-bold">{dt.gazette}</span>
+                    <span className="text-slate-900 font-bold">{dt.gsrQrCode}</span>
+                    <span className="rounded bg-blue-100 text-blue-800 px-1.5 py-0.5 text-[9px] font-mono font-bold">{dt.gazette}</span>
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
                     {dt.gsrQrCodeDesc}
                   </p>
                 </div>
@@ -585,34 +612,34 @@ export function HomeView({
             </section>
 
             {/* Cross-Verification: FSSAI & Package Integrity */}
-            <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-border/70 pb-2.5">
+            <section className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
+                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                  <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-900">
                     {dt.interAgencyCheck}
                   </h3>
                 </div>
-                <span className="text-[10px] font-mono text-muted-foreground">DOCA · FSSAI</span>
+                <span className="text-[10px] font-mono font-bold text-slate-400">LMPC · FSSAI</span>
               </div>
 
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between rounded-xl bg-muted/40 p-3 border border-border/60">
+              <div className="space-y-2.5 text-xs">
+                <div className="flex items-center justify-between rounded-xl bg-slate-50/60 p-3.5 border border-slate-200">
                   <div>
-                    <p className="font-semibold text-foreground">{dt.fssaiVerification}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{dt.fssaiDesc}</p>
+                    <p className="font-bold text-slate-900">{dt.fssaiVerification}</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{dt.fssaiDesc}</p>
                   </div>
-                  <span className="rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-bold text-success">
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-mono font-bold text-emerald-800">
                     {dt.fssaiStatus}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between rounded-xl bg-muted/40 p-3 border border-border/60">
+                <div className="flex items-center justify-between rounded-xl bg-slate-50/60 p-3.5 border border-slate-200">
                   <div>
-                    <p className="font-semibold text-foreground">{dt.integrityModel}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{dt.integrityDesc}</p>
+                    <p className="font-bold text-slate-900">{dt.integrityModel}</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{dt.integrityDesc}</p>
                   </div>
-                  <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-bold text-brand">
+                  <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-mono font-bold text-blue-800">
                     {dt.integrityStatus}
                   </span>
                 </div>

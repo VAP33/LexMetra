@@ -2,11 +2,11 @@
   "_meta": {
     "schema_version": "2.0",
     "purpose": "Machine-readable legal requirements for the Legal Metrology (Packaged Commodities) Rules, 2011 and related Legal Metrology Act requirements used by the inspection engine.",
-    "authority": "Department of Consumer Affairs, Government of India",
+    "authority": "Legal Metrology Statutory Division",
     "source_priority": [
-      "official Department of Consumer Affairs publications and gazette notifications",
-      "e-Gazette of India",
-      "other government reproductions of the rules",
+      "official statutory publications and gazette notifications",
+      "e-Gazette statutory publications",
+      "statutory reproductions of the rules",
       "secondary legal sources only for discovery, never as final legal authority"
     ],
     "decision_policy": "The rule engine must never infer PASS from missing evidence. If a legal condition cannot be established from available evidence, return UNCERTAIN or REVIEW_REQUIRED.",

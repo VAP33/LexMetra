@@ -132,12 +132,12 @@ export function DesktopRail({ view, onNavigate, lang = "en", role }: { view: Vie
       <button
         type="button"
         onClick={() => onNavigate("landing")}
-        className="mb-6 w-full transition-opacity hover:opacity-80 active:scale-[0.98]"
+        className="mb-6 w-full transition-opacity hover:opacity-80 active:scale-[0.98] flex items-center justify-center"
       >
         <img
-          src="/lexmetra-logo-new.png"
+          src="/lexmetra-blue-logo.png"
           alt="LexMetra"
-          className="w-4/5 mx-auto h-auto object-contain"
+          className="h-10 w-auto object-contain"
           draggable={false}
         />
       </button>
@@ -172,7 +172,7 @@ export function DesktopRail({ view, onNavigate, lang = "en", role }: { view: Vie
           <span>Statutory Authority Unit</span>
         </div>
         <p className="mt-1.5 leading-relaxed text-slate-600 text-[11px]">
-          Legal Metrology (Packaged Commodities) Rules, 2011 · Government of India
+          Legal Metrology (Packaged Commodities) Rules, 2011 · Statutory Standards
         </p>
         <div className="mt-2.5 flex items-center gap-1.5 text-[10px] font-bold text-saffron-700">
           <span className="h-1.5 w-1.5 rounded-full bg-govgreen" />
@@ -304,9 +304,9 @@ const dashboardTranslations: Record<
   }
 > = {
   en: {
-    govDca: "Government of India · Legal Metrology",
+    govDca: "Statutory Legal Metrology Division",
     enforcementUnit: "Enforcement Unit: Zone 4 Surveillance",
-    fieldOperations: "Legal Metrology Field Operations",
+    fieldOperations: "Compliance Operations & Intelligence",
     fieldSub: "Statutory verification under Legal Metrology (Packaged Commodities) Rules, 2011 & FSSAI Standards",
     newScan: "New Scan",
     regionalIntel: "Regional Intel",
@@ -355,9 +355,9 @@ const dashboardTranslations: Record<
     citizenDesc: "Public scan & report",
   },
   hi: {
-    govDca: "भारत सरकार · विधिक मापविज्ञान प्रभाग",
+    govDca: "विधिक मापविज्ञान प्रभाग",
     enforcementUnit: "प्रवर्तन इकाई: जोन 4 निगरानी",
-    fieldOperations: "विधिक मापविज्ञान क्षेत्रीय संचालन",
+    fieldOperations: "अनुपालन संचालन एवं विधिक आसूचना",
     fieldSub: "विधिक मापविज्ञान (पैक की गई वस्तुएं) नियम, 2011 एवं FSSAI मानकों के तहत वैधानिक सत्यापन",
     newScan: "नई जांच (स्कैन)",
     regionalIntel: "क्षेत्रीय आसूचना",
@@ -406,9 +406,9 @@ const dashboardTranslations: Record<
     citizenDesc: "सार्वजनिक स्कैन व रिपोर्ट",
   },
   mr: {
-    govDca: "भारत सरकार · कायदेशीर मापनशास्त्र विभाग",
+    govDca: "कायदेशीर मापनशास्त्र विभाग",
     enforcementUnit: "अंमलबजावणी कक्ष: विभाग 4 देखरेख",
-    fieldOperations: "कायदेशीर मापनशास्त्र क्षेत्रीय कामकाज",
+    fieldOperations: "अनुपालन कामकाज व वैधानिक गुप्तचर",
     fieldSub: "कायदेशीर मापनशास्त्र (पॅकबंद वस्तू) नियम, 2011 आणि FSSAI मानकांनुसार वैधानिक पडताळणी",
     newScan: "नवीन स्कॅन",
     regionalIntel: "प्रादेशिक माहिती",
