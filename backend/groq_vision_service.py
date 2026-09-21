@@ -359,6 +359,23 @@ def groq_result_to_classified_fields(groq_data: Dict[str, Any]) -> Dict[str, Dic
                 except Exception:
                     pass
 
+        # Parse numeric USP if available
+        if canon_key == "unit_sale_price":
+            m_usp = re.search(r"(\d+(?:\.\d+)?)\s*(?:/|per\s*)(?:100\s*)?([a-zA-Z.]+)", str(val))
+            if m_usp:
+                try:
+                    f_data["numeric_value"] = float(m_usp.group(1))
+                    f_data["numeric_unit"] = m_usp.group(2).lower()
+                except Exception:
+                    pass
+            elif not f_data.get("numeric_value"):
+                m_bare = re.search(r"(\d+(?:\.\d+)?)", str(val))
+                if m_bare:
+                    try:
+                        f_data["numeric_value"] = float(m_bare.group(1))
+                    except Exception:
+                        pass
+
         classified[canon_key] = f_data
         if canon_key in ("manufacturer_name", "marketer_name", "packer_name"):
             if "manufacturer_name_address" not in classified or canon_key == "manufacturer_name":

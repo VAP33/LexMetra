@@ -267,6 +267,25 @@ def evaluate_regulatory_compliance(
     unit_calc = compute_unit_sale_price(mrp, net_quantity_value, net_quantity_unit)
     expected_usp = float(unit_calc.unit_sale_price) if unit_calc and unit_calc.unit_sale_price is not None else None
 
+    declared_usp = None
+    if extractions.get("unit_sale_price"):
+        usp_ext = extractions["unit_sale_price"]
+        nv = usp_ext.get("numeric_value") if isinstance(usp_ext, dict) else getattr(usp_ext, "numeric_value", None)
+        if nv is not None:
+            try:
+                declared_usp = float(nv)
+            except Exception:
+                pass
+        if declared_usp is None:
+            raw_v = usp_ext.get("value") if isinstance(usp_ext, dict) else getattr(usp_ext, "value", None)
+            if raw_v:
+                m_raw = re.search(r"(\d+(?:\.\d+)?)", str(raw_v))
+                if m_raw:
+                    try:
+                        declared_usp = float(m_raw.group(1))
+                    except Exception:
+                        pass
+
     # Exemption classification
     ex_input = ExemptionInput(
         sale_type=sale_type,
@@ -278,7 +297,6 @@ def evaluate_regulatory_compliance(
     )
     ex_result = classify_exemption(ex_input)
 
-
     evidence = build_generic_evidence(
         extractions=extractions,
         localized_evidence=localized_evidence,
@@ -288,6 +306,7 @@ def evaluate_regulatory_compliance(
         is_imported=is_imported,
         is_export_only=is_export_only,
         category_requires_best_before=best_before_applicable,
+        declared_unit_sale_price=declared_usp,
         expected_unit_sale_price=expected_usp,
         multipack_count=retail_bundle_count,
         inspection_date=inspection_date or date.today(),
@@ -429,6 +448,18 @@ def evaluate_regulatory_compliance(
                 val = getattr(ext, "normalized_value", None) or getattr(ext, "value", None)
                 raw_t = getattr(ext, "raw_text", None)
                 conf = float(getattr(ext, "confidence", 0.0) or 0.0)
+
+            if field_id == "unit_sale_price":
+                nu = ext.get("numeric_unit") if isinstance(ext, dict) else getattr(ext, "numeric_unit", None)
+                nv = ext.get("numeric_value") if isinstance(ext, dict) else getattr(ext, "numeric_value", None)
+                if not nu and raw_t:
+                    m_u = re.search(r"/(?:100\s*)?([a-zA-Z]+)|\bper\s+(?:100\s*)?([a-zA-Z]+)", str(raw_t))
+                    if m_u:
+                        nu = (m_u.group(1) or m_u.group(2)).lower()
+                if nv is not None and nu:
+                    val = f"₹{float(nv):g}/{nu}"
+                elif val and nu and "/" not in str(val):
+                    val = f"{val}/{nu}"
 
         # Canonical Status mapping
         reason_text = rule_res.explanation if rule_res else ""

@@ -186,7 +186,13 @@ def compare_canonical_fields(
             if target_insp_bgr is None:
                 target_insp_bgr = insp_image_bgr
             if target_insp_bgr is not None:
-                insp_crop = _make_evidence_crop(target_insp_bgr, insp_bbox, polygon=insp_polygon)
+                try:
+                    import geometry
+                    norm_res = geometry.normalize_package_surface(target_insp_bgr)
+                    crop_target = norm_res.canonical_image if (norm_res and getattr(norm_res, "canonical_image", None) is not None) else target_insp_bgr
+                except Exception:
+                    crop_target = target_insp_bgr
+                insp_crop = _make_evidence_crop(crop_target, insp_bbox, polygon=insp_polygon)
 
         ocr_conf = insp_c
         quality = assess_region_quality(insp_image_bgr, insp_bbox) if (insp_image_bgr is not None and insp_bbox) else {"sharpness": 1.0, "is_degraded": False, "quality_note": "Normal quality"}
@@ -218,7 +224,13 @@ def compare_canonical_fields(
             if target_ref_bgr is None:
                 target_ref_bgr = ref_image_bgr
             if target_ref_bgr is not None:
-                ref_crop = _make_evidence_crop(target_ref_bgr, ref_bbox, polygon=ref_polygon)
+                try:
+                    import geometry
+                    norm_res = geometry.normalize_package_surface(target_ref_bgr)
+                    crop_target = norm_res.canonical_image if (norm_res and getattr(norm_res, "canonical_image", None) is not None) else target_ref_bgr
+                except Exception:
+                    crop_target = target_ref_bgr
+                ref_crop = _make_evidence_crop(crop_target, ref_bbox, polygon=ref_polygon)
 
         raw_sim, norm_sim, sim_reason = compute_ocr_similarity(ref_str, insp_str)
 

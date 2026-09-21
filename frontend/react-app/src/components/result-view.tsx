@@ -710,6 +710,16 @@ export function ResultView({
                 productId={inspection.productId}
                 productName={inspection.product}
                 initialData={inspection.packageIntegrity}
+                isReferenceCacheInitial={Boolean((inspection as any).is_reference_cache ?? (inspection as any).isReferenceCache)}
+                onToggleReferenceCache={(newState) => {
+                  if (onInspectionUpdated) {
+                    onInspectionUpdated({
+                      ...inspection,
+                      isReferenceCache: newState,
+                      is_reference_cache: newState,
+                    } as any);
+                  }
+                }}
                 onSave={(savedReport) => {
                   if (onInspectionUpdated) {
                     onInspectionUpdated({

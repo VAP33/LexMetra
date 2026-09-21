@@ -206,7 +206,7 @@ _PHONE_RE = re.compile(
 )
 
 _RATE_RE = re.compile(
-    r"(?:(?:₹|rs\.?|=|/)\s*|^|\b)([0-9]+(?:\.[0-9]{1,2})?)\s*/\s*(g|kg|gm|gms|grams?|ml|l|litres?|liters?|cm|m|metres?|meters?|units?|pieces?|pcs?|pc|nos?\.?)\b",
+    r"(?:(?:₹|rs\.?|=|/|usp:?)\s*|^|\b)([0-9]+(?:\.[0-9]{1,2})?)\s*(?:/|per\s*)(?:100\s*)?(g|kg|gm|gms|grams?|ml|l|litres?|liters?|cm|m|metres?|meters?|units?|pieces?|pcs?|pc|nos?\.?|n|number)\b",
     re.I,
 )
 
@@ -350,7 +350,7 @@ def _canonical_numeric_unit(unit: str) -> Optional[str]:
         "tab": "number", "tabs": "number", "tablet": "number", "tablets": "number",
         "piece": "number", "pieces": "number", "pc": "number", "pcs": "number",
         "no": "number", "nos": "number", "unit": "number", "units": "number",
-        "number": "number",
+        "number": "number", "n": "number",
     }
     return aliases.get(u)
 
@@ -472,20 +472,29 @@ def _normalize_date(text: Optional[str], *, strict: bool = False) -> Optional[st
 
 def _extract_unit_price_unit(text: str) -> Optional[str]:
     """
-    Extract a unit after 'per' from a declared unit-price line.
-
-    This intentionally returns None when the unit is absent. The unit-price
-    engine must not infer a unit from context.
+    Extract a unit after 'per' or '/' from a declared unit-price line (e.g. '0.55/g', 'per ml', 'Rs. 0.55 / g').
     """
-    m = re.search(
-        r"\bper\s+(kg|g|ml|l|litre|liter|cm|m|number|no\.?|nos?\.?|"
-        r"piece|pieces|unit|units)\b",
+    if not text:
+        return None
+    # 1. Match '/<unit>' e.g. "/g", "/ml", "/ 100g", "/kg", "/N"
+    m_slash = re.search(
+        r"/\s*(?:100\s*)?(kg|kgs?|g|gm|gms|grams?|ml|millilit(?:re|er)s?|l|lit(?:re|er)s?|cm|m|number|no\.?|nos?\.?|piece|pieces|unit|units|n)\b",
         text,
         re.I,
     )
-    if not m:
-        return None
-    return _canonical_numeric_unit(m.group(1))
+    if m_slash:
+        return _canonical_numeric_unit(m_slash.group(1))
+
+    # 2. Match 'per <unit>'
+    m_per = re.search(
+        r"\bper\s+(?:100\s*)?(kg|kgs?|g|gm|gms|grams?|ml|millilit(?:re|er)s?|l|lit(?:re|er)s?|cm|m|number|no\.?|nos?\.?|piece|pieces|unit|units|n)\b",
+        text,
+        re.I,
+    )
+    if m_per:
+        return _canonical_numeric_unit(m_per.group(1))
+
+    return None
 
 
 def _value_shape(field: str, text: str) -> bool:
@@ -661,8 +670,17 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                     "source": "ocr_label_inline" if is_inline else "ocr_associated_value_line",
                     "status": "DETECTED",
                 }
-                if f == "unit_sale_price" and getattr(res.value, "denominator_unit", None):
-                    entry["numeric_unit"] = res.value.denominator_unit
+                if f == "unit_sale_price":
+                    if getattr(res.value, "denominator_unit", None):
+                        entry["numeric_unit"] = res.value.denominator_unit
+                    elif res.raw_text:
+                        inferred_u = _extract_unit_price_unit(res.raw_text)
+                        if inferred_u:
+                            entry["numeric_unit"] = inferred_u
+                    if entry.get("numeric_unit") and entry.get("numeric_value") is not None:
+                        val_str = str(entry.get("value") or "")
+                        if "/" not in val_str:
+                            entry["value"] = f"₹{entry['numeric_value']:g}/{entry['numeric_unit']}"
                 found[f] = entry
 
             elif f == "batch_no":
@@ -781,8 +799,17 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
             }
             if f in {"mrp", "unit_sale_price"}:
                 entry["numeric_value"] = getattr(res.value, "amount", None)
-                if f == "unit_sale_price" and getattr(res.value, "denominator_unit", None):
-                    entry["numeric_unit"] = res.value.denominator_unit
+                if f == "unit_sale_price":
+                    if getattr(res.value, "denominator_unit", None):
+                        entry["numeric_unit"] = res.value.denominator_unit
+                    elif res.raw_text:
+                        inferred_u = _extract_unit_price_unit(res.raw_text)
+                        if inferred_u:
+                            entry["numeric_unit"] = inferred_u
+                    if entry.get("numeric_unit") and entry.get("numeric_value") is not None:
+                        val_str = str(entry.get("value") or "")
+                        if "/" not in val_str:
+                            entry["value"] = f"₹{entry['numeric_value']:g}/{entry['numeric_unit']}"
             elif f == "batch_no":
                 entry["batch_code"] = val
             found[f] = entry

@@ -18,6 +18,7 @@ import {
   getPackageIntegrityHistory,
   comparePackageIntegrity,
   savePackageIntegrity,
+  toggleReferenceCache,
   type FieldComparisonData,
   type ComparisonHistoryItem,
   type IntegrityReportData,
@@ -290,17 +291,23 @@ export function PackageIntegrityCard({
   productId: _productId,
   productName: _productName,
   initialData,
+  isReferenceCacheInitial,
+  onToggleReferenceCache,
   onSave,
 }: {
   inspectionId: string;
   productId?: string;
   productName?: string;
   initialData?: IntegrityReportData | null;
+  isReferenceCacheInitial?: boolean;
+  onToggleReferenceCache?: (newState: boolean) => void;
   onSave?: (savedReport: IntegrityReportData) => void;
 }) {
   const [data, setData] = useState<IntegrityReportData | null>(initialData || null);
-  const [loading, setLoading] = useState(!initialData);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isReferenceCache, setIsReferenceCache] = useState<boolean>(Boolean(isReferenceCacheInitial));
+  const [togglingCache, setTogglingCache] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadRefType, setUploadRefType] = useState<"TRUSTED" | "DEMO" | "UNVERIFIED">("UNVERIFIED");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -320,7 +327,29 @@ export function PackageIntegrityCard({
     }
   }, [initialData]);
 
-  function loadIntegrity(silent = false) {
+  useEffect(() => {
+    if (isReferenceCacheInitial !== undefined) {
+      setIsReferenceCache(Boolean(isReferenceCacheInitial));
+    }
+  }, [isReferenceCacheInitial]);
+
+  async function handleToggleReferenceCache() {
+    if (togglingCache) return;
+    setTogglingCache(true);
+    try {
+      const res = await toggleReferenceCache(inspectionId, !isReferenceCache);
+      setIsReferenceCache(res.is_reference_cache);
+      if (onToggleReferenceCache) {
+        onToggleReferenceCache(res.is_reference_cache);
+      }
+    } catch (err: any) {
+      alert(`Failed to update reference cache standard: ${err?.message || "Error"}`);
+    } finally {
+      setTogglingCache(false);
+    }
+  }
+
+  function loadIntegrity(silent = true) {
     if (!silent) setLoading(true);
     getPackageIntegrity(inspectionId)
       .then((res) => {
@@ -344,7 +373,7 @@ export function PackageIntegrityCard({
   }
 
   useEffect(() => {
-    loadIntegrity(Boolean(initialData));
+    loadIntegrity(true);
   }, [inspectionId]);
 
   async function handleSaveIntegrity() {
@@ -657,6 +686,31 @@ export function PackageIntegrityCard({
     );
   }
 
+  const renderSingleTickButton = () => (
+    <button
+      type="button"
+      onClick={handleToggleReferenceCache}
+      disabled={togglingCache}
+      title={
+        isReferenceCache
+          ? "This inspection is currently elected as the Active Reference Cache Standard (Only 1 allowed across the entire system). Click to revoke."
+          : "Elect this inspection's verified package evidence as the authoritative reference cache standard for subsequent comparisons."
+      }
+      className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition shadow-xs ${
+        isReferenceCache
+          ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-2 ring-emerald-500/30"
+          : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      {togglingCache ? (
+        <LoaderCircle className="h-3.5 w-3.5 animate-spin text-brand" />
+      ) : (
+        <Check className={`h-3.5 w-3.5 ${isReferenceCache ? "text-emerald-500 stroke-[3]" : "text-muted-foreground"}`} />
+      )}
+      <span>{isReferenceCache ? "Active Reference Cache Standard" : "Elect as Reference Standard Cache"}</span>
+    </button>
+  );
+
   if (error || !data || !data.has_reference) {
     return (
       <section className="rounded-2xl border border-border/70 bg-card p-5 sm:p-7 space-y-5">
@@ -674,6 +728,7 @@ export function PackageIntegrityCard({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+            {renderSingleTickButton()}
             {history.length > 0 && (
               <button
                 type="button"
@@ -812,6 +867,7 @@ export function PackageIntegrityCard({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {renderSingleTickButton()}
           {data && (
             <button
               type="button"

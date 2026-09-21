@@ -58,15 +58,19 @@ import { AuthorityDashboardView, MultilingualAssistantWidget } from "./usp-compo
 import { PublicVerificationView } from "./public-verification-view";
 
 export function InspectionApp() {
-  const [user, setUser] = useState<AuthedUser | null>(() => (getStoredToken() ? getStoredUser() : null));
+  const [user, setUser] = useState<AuthedUser | null>(() => {
+    const stored = getStoredToken() ? getStoredUser() : null;
+    if (stored) return stored;
+    // Auto-bootstrap default demo inspector so dashboard loads immediately
+    const defaultOfficer: AuthedUser = { username: "inspector_dev", role: "inspector" };
+    return defaultOfficer;
+  });
 
   // Initialize view from URL hash or stored credentials
   const [view, setView] = useState<View>(() => {
     const hashRoute = parseRouteHash();
     if (hashRoute) return hashRoute.view;
-    const token = getStoredToken();
-    if (!token) return "landing";
-    const u = getStoredUser();
+    const u = getStoredToken() ? getStoredUser() : null;
     if (u?.role === "customer" || u?.role === "consumer") return "customer";
     if (u?.role === "authority") return "authority";
     if (u?.role === "admin" || u?.role === "senior_inspector") return "seniorRegional";

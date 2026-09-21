@@ -77,22 +77,12 @@ _EVIDENCE_EXTRACTION_CACHE: Dict[str, Tuple[Dict, Dict, Dict, Dict, Dict, Dict]]
 _CACHE_FILE = Path(__file__).resolve().parent / "data" / "evidence_extraction_cache.pkl"
 
 def _load_disk_cache():
-    if _CACHE_FILE.exists():
-        try:
-            import pickle
-            with open(_CACHE_FILE, "rb") as f:
-                _EVIDENCE_EXTRACTION_CACHE.update(pickle.load(f))
-        except Exception:
-            pass
+    # Direct automatic caching disabled per specification to prevent stale/incorrect crops.
+    # Cached reference data is only used when an inspection is explicitly elected with single tick.
+    pass
 
 def _save_disk_cache():
-    try:
-        import pickle
-        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(_CACHE_FILE, "wb") as f:
-            pickle.dump(_EVIDENCE_EXTRACTION_CACHE, f)
-    except Exception:
-        pass
+    pass
 
 _load_disk_cache()
 
@@ -609,6 +599,39 @@ def find_reference_package(
     p_name = (product_name or "").lower()
     clean_id = str(product_id or "").strip()
 
+    # 0. Check if an inspection has been explicitly elected with single-tick reference cache standard
+    try:
+        from db import persistence as db
+        active_cache_insp = db.get_active_reference_cache_inspection(product_id=clean_id or None)
+        if active_cache_insp:
+            ref_img_p = active_cache_insp.get("image") or active_cache_insp.get("image_path")
+            if ref_img_p:
+                p_obj = Path(ref_img_p)
+                if not p_obj.exists():
+                    p_obj = config.UPLOAD_DIR / p_obj.name
+                if p_obj.exists():
+                    meta = {
+                        "source": "elected_reference_cache",
+                        "inspection_id": active_cache_insp.get("inspection_id"),
+                        "reference_type": REF_TYPE_TRUSTED,
+                        "declarations": active_cache_insp.get("declarations") or {},
+                    }
+                    surfs = active_cache_insp.get("surfaces") or []
+                    all_paths = [p_obj]
+                    for s in surfs:
+                        if isinstance(s, dict):
+                            sp = s.get("canonical_image_path") or s.get("original_image_path")
+                            if sp:
+                                spo = Path(sp)
+                                if not spo.exists():
+                                    spo = config.UPLOAD_DIR / spo.name
+                                if spo.exists() and spo not in all_paths:
+                                    all_paths.append(spo)
+                    meta["all_paths"] = all_paths
+                    return p_obj, REF_TYPE_TRUSTED, meta
+    except Exception as cache_err:
+        logger.debug("Failed checking elected reference cache inspection: %s", cache_err)
+
     # 1. Check user uploaded / authorized catalog directory
     if clean_id:
         for ext in [".jpg", ".jpeg", ".png"]:
@@ -671,62 +694,66 @@ def compare_declarations(
     return diffs
 
 
-_REF_PIPELINE_CACHE: Dict[str, Tuple[Dict[str, Any], Dict[str, List[int]], Dict[str, float], Dict[str, str], Dict[str, str], Dict[str, str]]] = {}
-_CACHE_FILE = Path(__file__).resolve().parent / "data" / "reference_cache" / "pipeline_cache.json"
+_FIELD_ALIASES: Dict[str, str] = {
+    "mrp": "mrp",
+    "usp": "unit_sale_price",
+    "unit_sale_price": "unit_sale_price",
+    "unit sale price": "unit_sale_price",
+    "batch": "batch_number",
+    "batch_no": "batch_number",
+    "batch_number": "batch_number",
+    "lot": "batch_number",
+    "lot_no": "batch_number",
+    "net_qty": "net_quantity",
+    "net_quantity": "net_quantity",
+    "mfg_date": "manufacturing_date",
+    "date_of_manufacture": "manufacturing_date",
+    "manufacturing_date": "manufacturing_date",
+    "expiry_date": "expiry_date",
+    "exp_date": "expiry_date",
+    "use_by": "expiry_date",
+    "best_before": "expiry_date",
+    "product": "product_name",
+    "product_name": "product_name",
+    "common_name": "product_name",
+    "country_of_origin": "country_of_origin",
+    "fssai": "fssai_license_number",
+    "fssai_license": "fssai_license_number",
+    "fssai_license_number": "fssai_license_number",
+    "barcode": "barcode",
+    "consumer_care": "consumer_care",
+    "customer_care": "consumer_care",
+    "manufacturer_name": "manufacturer_name",
+    "manufacturer_address": "manufacturer_address",
+}
 
-def _load_disk_cache():
-    try:
-        if _CACHE_FILE.exists():
-            with open(_CACHE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for k, v in data.items():
-                    if isinstance(v, list) and len(v) >= 6:
-                        _REF_PIPELINE_CACHE[k] = (v[0], v[1], v[2], v[3], v[4], v[5])
-    except Exception as ex:
-        logger.debug("Failed to load reference pipeline disk cache: %s", ex)
+def _canonical_field_name(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    return _FIELD_ALIASES.get(raw, raw)
 
-def _save_disk_cache():
-    try:
-        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        serializable = {k: list(v) for k, v in _REF_PIPELINE_CACHE.items()}
-        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(serializable, f)
-    except Exception as ex:
-        logger.debug("Failed to save reference pipeline disk cache: %s", ex)
-
-_load_disk_cache()
 
 def process_reference_images_through_pipeline(
     ref_imgs: List[Tuple[Path, np.ndarray]],
-) -> Tuple[Dict[str, Any], Dict[str, List[int]], Dict[str, float], Dict[str, str], Dict[str, str], Dict[str, str]]:
+) -> Tuple[Dict[str, Any], Dict[str, List[int]], Dict[str, float], Dict[str, str], Dict[str, str], Dict[str, str], Dict[str, List[List[float]]], Dict[str, str]]:
     """
-    Executes the authoritative OCR and field extraction pipeline on reference images,
-    extracting real, localized bounding boxes and crops across all reference surfaces.
-    Results are cached by SHA-256 image hashes.
+    Executes the exact same authoritative detection and localization pipeline used in View Evidences:
+    1. Canonical surface normalization across all package faces
+    2. Barcode decoding on canonical surfaces
+    3. Multimodal vision perception & OCR text extraction across canonical surfaces
+    4. LocalizationService (PaddleOCR / DBNet) tight polygon and bounding box localization
+    5. High-fidelity tight evidence crops generated directly from the canonical surfaces
     """
     if not ref_imgs:
-        return {}, {}, {}, {}, {}, {}
-
-    import hashlib
-    hashes = []
-    for p, bgr in ref_imgs:
-        try:
-            if p.exists():
-                h = hashlib.sha256(p.read_bytes()).hexdigest()
-            else:
-                h = hashlib.sha256(bgr.tobytes()).hexdigest()
-        except Exception:
-            h = hashlib.sha256(bgr.tobytes()).hexdigest()
-        hashes.append(h)
-    cache_key = "|".join(hashes) + ":ref_pipeline_authoritative_v2"
-    if cache_key in _REF_PIPELINE_CACHE:
-        c_decls, c_bboxes, c_confs, c_crops, c_surfs, c_imgs = _REF_PIPELINE_CACHE[cache_key]
-        return dict(c_decls), dict(c_bboxes), dict(c_confs), dict(c_crops), dict(c_surfs), dict(c_imgs)
+        return {}, {}, {}, {}, {}, {}, {}, {}
 
     from ocr_extraction import run_ocr, classify_fields
     from PIL import Image
     import geometry
     import barcode_decode
+    from localization.service import LocalizationService
+    from localization.models import LocalizationSurface
+    import groq_vision_service
+    import qwen_perception
 
     ref_decls: Dict[str, Any] = {}
     ref_bboxes: Dict[str, List[int]] = {}
@@ -734,92 +761,192 @@ def process_reference_images_through_pipeline(
     ref_crops: Dict[str, str] = {}
     ref_surface_ids: Dict[str, str] = {}
     ref_image_ids: Dict[str, str] = {}
+    ref_polygons: Dict[str, List[List[float]]] = {}
+    ref_image_urls: Dict[str, str] = {}
 
+    loc_surfaces: Dict[str, LocalizationSurface] = {}
+    canonical_faces: List[Tuple[str, np.ndarray, Path]] = []
+
+    # Step 1: Canonical surface normalization for each reference image
     for idx, (p, bgr) in enumerate(ref_imgs):
         surface_id = f"face_{idx + 1}"
-
-        # 1. Surface normalization
         try:
             norm_res = geometry.normalize_package_surface(bgr, source_name=p.name)
-            canon_bgr = norm_res.canonical_image
+            canon_bgr = norm_res.canonical_image if (norm_res and getattr(norm_res, "canonical_image", None) is not None) else bgr
+            fwd_m = getattr(norm_res, "transform_matrix", None)
+            inv_m = getattr(norm_res, "inverse_transform_matrix", None)
         except Exception:
+            norm_res = None
             canon_bgr = bgr
+            fwd_m = None
+            inv_m = None
 
-        # 2. Barcode decoding
+        c_h, c_w = canon_bgr.shape[:2]
+        orig_h, orig_w = bgr.shape[:2]
+
+        canon_filename = f"ref_canon_{p.name}"
+        canon_path = config.UPLOAD_DIR / canon_filename
         try:
-            sym_res = barcode_decode.decode_symbols(bgr, image_id=p.name, allow_hri_fallback=True)
+            config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(canon_path), canon_bgr)
+        except Exception as e_w:
+            logger.debug("Could not write canonical reference surface: %s", e_w)
+
+        loc_surfaces[surface_id] = LocalizationSurface(
+            face_id=surface_id,
+            image_id=canon_filename,
+            canonical_image=canon_bgr,
+            canonical_width=c_w,
+            canonical_height=c_h,
+            original_width=orig_w,
+            original_height=orig_h,
+            forward_transform=fwd_m,
+            inverse_transform=inv_m,
+        )
+        canonical_faces.append((surface_id, canon_bgr, p))
+
+        # Step 2: Barcode decoding on canonical surface
+        try:
+            sym_res = barcode_decode.decode_symbols(canon_bgr, image_id=p.name, allow_hri_fallback=True)
             if sym_res and sym_res.symbols:
                 for sym in sym_res.symbols:
                     if sym.payload and "barcode" not in ref_decls:
                         ref_decls["barcode"] = sym.payload
                         ref_confs["barcode"] = 0.98
                         ref_surface_ids["barcode"] = surface_id
-                        ref_image_ids["barcode"] = p.name
+                        ref_image_ids["barcode"] = canon_filename
+                        ref_image_urls["barcode"] = f"/uploads/{canon_filename}"
                         if sym.bbox:
                             bb = [int(round(float(c))) for c in sym.bbox[:4]]
                             ref_bboxes["barcode"] = bb
-                            crop_b64 = _make_evidence_crop(bgr, bb)
+                            crop_b64 = _make_evidence_crop(canon_bgr, bb)
                             if crop_b64:
                                 ref_crops["barcode"] = crop_b64
                         break
         except Exception as bexc:
             logger.debug("Barcode decode in ref pipeline failed for %s: %s", p.name, bexc)
 
-        # 3. OCR on canonical surface
-        pil_img = Image.fromarray(cv2.cvtColor(canon_bgr, cv2.COLOR_BGR2RGB))
-        lines = run_ocr(pil_img, face_idx=idx + 1)
-        if not lines:
-            raw_pil = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-            lines = run_ocr(raw_pil, face_idx=idx + 1)
+    # Step 3: Multimodal Vision Perception & OCR extraction
+    accumulated_classified: Dict[str, dict] = {}
 
-        classified = classify_fields(lines)
-        for k, v in classified.items():
-            if isinstance(v, dict) and v.get("value"):
-                norm_k = k.lower().strip()
-                if norm_k == "mfg_date":
-                    norm_k = "manufacturing_date"
-                elif norm_k in ("batch_no", "lot_no", "lot_number", "batch_code"):
-                    norm_k = "batch_number"
-                elif norm_k == "common_name":
-                    norm_k = "product_name"
+    # Try Groq vision perception on canonical images
+    if groq_vision_service.is_groq_available() and canonical_faces:
+        try:
+            groq_inputs = [(f"Face {i+1}", c_bgr) for i, (_, c_bgr, _) in enumerate(canonical_faces)]
+            groq_res = _run_coroutine_sync(groq_vision_service.inspect_package_with_groq(groq_inputs, timeout_secs=25.0))
+            g_fields = groq_vision_service.groq_result_to_classified_fields(groq_res)
+            if g_fields:
+                for fld, fld_data in g_fields.items():
+                    if isinstance(fld_data, dict) and fld_data.get("value"):
+                        tf = fld_data.get("face", "Face 1")
+                        target_sid = "face_1"
+                        target_iname = canonical_faces[0][2].name
+                        for i, (sid, _, p_obj) in enumerate(canonical_faces):
+                            if f"Face {i+1}" == tf or sid == tf:
+                                target_sid = sid
+                                target_iname = p_obj.name
+                                break
+                        fld_data["face"] = target_sid
+                        fld_data["surface_id"] = target_sid
+                        fld_data["image_id"] = fld_data.get("image_id") or f"ref_canon_{target_iname}"
+                        accumulated_classified[fld] = fld_data
+        except Exception as ge:
+            logger.warning("Groq vision perception in ref pipeline failed: %s", ge)
 
-                c_val = float(v.get("confidence") or 0.85)
-                if norm_k not in ref_decls or c_val > ref_confs.get(norm_k, 0.0):
-                    ref_decls[norm_k] = v["value"]
-                    ref_confs[norm_k] = c_val
-                    ref_surface_ids[norm_k] = surface_id
-                    ref_image_ids[norm_k] = p.name
-                    if v.get("bbox"):
-                        bb = [int(round(float(c))) for c in v["bbox"][:4]]
-                        ref_bboxes[norm_k] = bb
-                        crop_b64 = _make_evidence_crop(canon_bgr, bb)
-                        if crop_b64:
-                            ref_crops[norm_k] = crop_b64
+    # Corroborate / supplement with Classical OCR across all canonical faces
+    for i, (sid, c_bgr, p_obj) in enumerate(canonical_faces):
+        try:
+            pil_img = Image.fromarray(cv2.cvtColor(c_bgr, cv2.COLOR_BGR2RGB))
+            ocr_lines = run_ocr(pil_img, face_idx=i + 1)
+            if ocr_lines:
+                c_fields = classify_fields(ocr_lines)
+                for k, v in c_fields.items():
+                    if isinstance(v, dict) and v.get("value"):
+                        norm_f = _canonical_field_name(k)
+                        if norm_f not in accumulated_classified:
+                            v["face"] = sid
+                            v["surface_id"] = sid
+                            v["image_id"] = f"ref_canon_{p_obj.name}"
+                            accumulated_classified[norm_f] = v
+        except Exception as oe:
+            logger.debug("OCR pass on ref face %s failed: %s", sid, oe)
 
-    # If product_name is on Face 1 (front face) and wasn't isolated on Face 2
-    if "product_name" not in ref_decls and len(ref_imgs) > 0:
-        p0, b0 = ref_imgs[0]
-        h0, w0 = b0.shape[:2]
-        front_bb = [int(w0 * 0.15), int(h0 * 0.35), int(w0 * 0.70), int(h0 * 0.35)]
-        ref_decls["product_name"] = "Hershey's Syrup" if "hershey" in p0.name.lower() else "Bru Instant Coffee" if "bru" in p0.name.lower() else "Packaged Commodity"
-        ref_bboxes["product_name"] = front_bb
-        ref_confs["product_name"] = 0.95
-        ref_surface_ids["product_name"] = "face_1"
-        ref_image_ids["product_name"] = p0.name
-        crop_b64 = _make_evidence_crop(b0, front_bb)
-        if crop_b64:
-            ref_crops["product_name"] = crop_b64
+    # Step 4: Run LocalizationService (PaddleOCR / DBNet)
+    localized_map: Dict[str, Any] = {}
+    try:
+        localizer = LocalizationService()
+        localized_list = localizer.localize_extractions(
+            inspection_id=f"ref_integrity_{int(time.time())}",
+            extractions=accumulated_classified,
+            surfaces=loc_surfaces,
+        )
+        for le in localized_list:
+            norm_f = _canonical_field_name(le.field)
+            localized_map[norm_f] = le
+            localized_map[le.field.lower()] = le
+    except Exception as le_err:
+        logger.warning("LocalizationService failed on reference images: %s", le_err)
 
-    _REF_PIPELINE_CACHE[cache_key] = (
-        dict(ref_decls),
-        dict(ref_bboxes),
-        dict(ref_confs),
-        dict(ref_crops),
-        dict(ref_surface_ids),
-        dict(ref_image_ids),
-    )
-    _save_disk_cache()
-    return ref_decls, ref_bboxes, ref_confs, ref_crops, ref_surface_ids, ref_image_ids
+    # Step 5: Consolidate declarations, high-precision bboxes, polygons, and canonical crops
+    for raw_k, v in accumulated_classified.items():
+        norm_k = _canonical_field_name(raw_k)
+        val = v.get("value")
+        if not val:
+            continue
+        c_val = float(v.get("confidence") or 0.85)
+        if norm_k not in ref_decls or c_val > ref_confs.get(norm_k, 0.0):
+            ref_decls[norm_k] = val
+            ref_confs[norm_k] = c_val
+            sid = v.get("surface_id") or "face_1"
+            ref_surface_ids[norm_k] = sid
+
+            # Find matching surface canonical image
+            s_idx = 0
+            for i, (csid, _, _) in enumerate(canonical_faces):
+                if csid == sid:
+                    s_idx = i
+                    break
+            canon_bgr = canonical_faces[s_idx][1]
+            p_obj = canonical_faces[s_idx][2]
+            canon_filename = f"ref_canon_{p_obj.name}"
+            ref_image_ids[norm_k] = canon_filename
+            ref_image_urls[norm_k] = f"/uploads/{canon_filename}"
+
+            le = localized_map.get(norm_k) or localized_map.get(raw_k.lower())
+            bbox = None
+            poly = None
+            if le:
+                if le.bbox_canonical:
+                    bb = le.bbox_canonical
+                    if isinstance(bb, dict):
+                        bx = int(round(float(bb.get("x", 0))))
+                        by = int(round(float(bb.get("y", 0))))
+                        bw = int(round(float(bb.get("width", 0))))
+                        bh = int(round(float(bb.get("height", 0))))
+                        if bw > 2 and bh > 2:
+                            bbox = [bx, by, bw, bh]
+                    elif isinstance(bb, (list, tuple)) and len(bb) >= 4:
+                        bbox = [int(round(float(c))) for c in bb[:4]]
+                if le.polygon_canonical:
+                    poly = [[float(round(pt[0], 2)), float(round(pt[1], 2))] for pt in le.polygon_canonical]
+
+            if not bbox and v.get("bbox"):
+                raw_b = v["bbox"]
+                if isinstance(raw_b, (list, tuple)) and len(raw_b) >= 4:
+                    bbox = [int(round(float(c))) for c in raw_b[:4]]
+
+            if bbox:
+                ref_bboxes[norm_k] = bbox
+            if poly:
+                ref_polygons[norm_k] = poly
+
+            # Generate tight crop on canonical surface
+            if bbox:
+                crop_b64 = _make_evidence_crop(canon_bgr, bbox, polygon=poly)
+                if crop_b64:
+                    ref_crops[norm_k] = crop_b64
+
+    return ref_decls, ref_bboxes, ref_confs, ref_crops, ref_surface_ids, ref_image_ids, ref_polygons, ref_image_urls
 
 
 def compare_reference_vs_inspected_package(
@@ -1036,7 +1163,13 @@ def compare_reference_vs_inspected_package(
     raw: Dict[str, Any] = {}
 
     # 2. Extract reference package declarations, bboxes and crops through authoritative detection pipeline
-    p_decls, p_bboxes, p_confs, p_crops, p_surfs, p_imgs = process_reference_images_through_pipeline(ref_imgs)
+    p_res = process_reference_images_through_pipeline(ref_imgs)
+    if len(p_res) == 8:
+        p_decls, p_bboxes, p_confs, p_crops, p_surfs, p_imgs, p_polys, p_urls = p_res
+        ref_polygons.update(p_polys)
+        ref_image_urls.update(p_urls)
+    else:
+        p_decls, p_bboxes, p_confs, p_crops, p_surfs, p_imgs = p_res[:6]
     ref_decls.update(p_decls)
     ref_bboxes.update(p_bboxes)
     ref_confs.update(p_confs)
@@ -1044,7 +1177,8 @@ def compare_reference_vs_inspected_package(
     ref_surface_ids.update(p_surfs)
     ref_image_ids.update(p_imgs)
     for k, img_name in ref_image_ids.items():
-        ref_image_urls[k] = f"/uploads/{img_name}"
+        if k not in ref_image_urls:
+            ref_image_urls[k] = f"/uploads/{img_name}"
 
     # Merge ref_metadata declarations only as fallback for fields not detected in image
     if ref_metadata and isinstance(ref_metadata.get("declarations"), dict):
@@ -1065,91 +1199,168 @@ def compare_reference_vs_inspected_package(
 
     effective_insp_declarations: List[Dict[str, Any]] = []
 
-    # If caller provided inspection_declarations (from Capture Session or test), use them as primary and enrich with localized evidence
+    # If caller provided inspection_declarations (from Capture Session or test), use them
+    # as the primary source. Evidence identity is authoritative: a declaration's
+    # field, image_id and face_id must stay attached to its own localized bbox/crop.
     if inspection_declarations and len(inspection_declarations) >= 2:
         seen_fields = set()
+
+        _FIELD_ALIASES = {
+            "mrp": "mrp",
+            "usp": "unit_sale_price",
+            "unit_sale_price": "unit_sale_price",
+            "unit sale price": "unit_sale_price",
+            "batch": "batch_number",
+            "batch_no": "batch_number",
+            "batch_number": "batch_number",
+            "lot": "batch_number",
+            "lot_no": "batch_number",
+            "net_qty": "net_quantity",
+            "net_quantity": "net_quantity",
+            "product": "product_name",
+            "product_name": "product_name",
+            "common_name": "product_name",
+        }
+
+        def _canonical_field_name(value: Any) -> str:
+            raw = str(value or "").strip().lower()
+            return _FIELD_ALIASES.get(raw, raw)
+
+        def _bbox_to_list(value: Any) -> Optional[List[int]]:
+            if isinstance(value, dict):
+                try:
+                    bb = [
+                        int(round(float(value.get("x", 0)))),
+                        int(round(float(value.get("y", 0)))),
+                        int(round(float(value.get("width", value.get("w", 0))))),
+                        int(round(float(value.get("height", value.get("h", 0))))),
+                    ]
+                    return bb if bb[2] > 0 and bb[3] > 0 else None
+                except Exception:
+                    return None
+            if isinstance(value, (list, tuple)) and len(value) >= 4:
+                try:
+                    bb = [int(round(float(c))) for c in value[:4]]
+                    return bb if bb[2] > 0 and bb[3] > 0 else None
+                except Exception:
+                    return None
+            return None
+
+        def _exact_image_match(image_id: Any, candidates: List[Tuple[Path, np.ndarray]]):
+            if not image_id:
+                return None, None, None
+            wanted = Path(str(image_id)).name.lower()
+            for idx, (p_obj, img_arr) in enumerate(candidates):
+                if p_obj.name.lower() == wanted:
+                    return idx, p_obj, img_arr
+            return None, None, None
+
         for item in inspection_declarations:
-            if isinstance(item, dict):
-                k = (item.get("field") or item.get("name") or "").lower().strip()
-                seen_fields.add(k)
-                enriched = dict(item)
-                if not enriched.get("confidence"):
-                    enriched["confidence"] = 0.95
+            if not isinstance(item, dict):
+                continue
 
-                # Extract bbox from evidence or declaration
-                ev = item.get("evidence") or {}
-                raw_bb = item.get("bounding_box") or item.get("bbox") or ev.get("bbox") or ev.get("canonical_bbox") or item.get("evidence_bbox_px")
-                if raw_bb:
-                    if isinstance(raw_bb, dict):
-                        enriched["bounding_box"] = [
-                            int(round(float(raw_bb.get("x", 0)))),
-                            int(round(float(raw_bb.get("y", 0)))),
-                            int(round(float(raw_bb.get("width", 0)))),
-                            int(round(float(raw_bb.get("height", 0)))),
-                        ]
-                    elif isinstance(raw_bb, (list, tuple)) and len(raw_bb) >= 4:
-                        enriched["bounding_box"] = [int(round(float(c))) for c in raw_bb[:4]]
-                elif k in insp_bboxes:
-                    enriched["bounding_box"] = insp_bboxes[k]
+            original_field = item.get("field") or item.get("name") or ""
+            k = _canonical_field_name(original_field)
+            if not k:
+                continue
+            seen_fields.add(k)
 
-                ev_img_id = ev.get("image_id") or item.get("image_id") or insp_image_ids.get(k)
-                ev_surf_id = ev.get("surface_id") or ev.get("page_or_view") or item.get("surface_id") or insp_surface_ids.get(k)
+            enriched = dict(item)
+            enriched["field"] = k
+            enriched["name"] = k
+            if not enriched.get("confidence"):
+                enriched["confidence"] = 0.95
 
-                # Select accurate target surface image from insp_imgs
-                target_bgr = None
-                target_p_obj = None
+            ev = item.get("evidence") or {}
+            if not isinstance(ev, dict):
+                ev = {}
 
-                # 1. Match by surface_id or page_or_view (e.g. 'Face 2', 'face_2', 'Face 1', etc.)
-                if ev_surf_id and insp_imgs:
-                    sid_lower = str(ev_surf_id).lower().strip()
-                    import re
-                    m = re.search(r'\d+', sid_lower)
-                    if m:
-                        s_idx = int(m.group(0)) - 1
-                        if 0 <= s_idx < len(insp_imgs):
-                            target_p_obj, target_bgr = insp_imgs[s_idx]
-                    elif "back" in sid_lower and len(insp_imgs) > 1:
-                        target_p_obj, target_bgr = insp_imgs[1]
-                    elif "front" in sid_lower and len(insp_imgs) > 0:
-                        target_p_obj, target_bgr = insp_imgs[0]
+            # evidence.bbox is on the ORIGINAL captured image.
+            # evidence.canonical_bbox is on the RECTIFIED/CANONICAL image.
+            orig_bb = _bbox_to_list(
+                ev.get("bbox")
+                or ev.get("bbox_original")
+                or ev.get("canonical_bbox")
+                or item.get("bounding_box")
+                or item.get("evidence_bbox_px")
+                or item.get("bbox_original")
+            )
+            orig_poly = (
+                ev.get("polygon")
+                or ev.get("polygon_original")
+                or ev.get("canonical_polygon")
+                or item.get("polygon_original")
+                or item.get("polygon")
+            )
 
-                # 2. Match by image_id (exact or stem or substring)
-                if target_bgr is None and ev_img_id and insp_imgs:
-                    clean_id = Path(str(ev_img_id)).stem.lower()
-                    for p_obj, img_arr in insp_imgs:
-                        p_stem = p_obj.stem.lower()
-                        if clean_id in p_stem or p_stem in clean_id or str(ev_img_id).lower() in p_obj.name.lower():
-                            target_bgr = img_arr
-                            target_p_obj = p_obj
-                            break
+            ev_img_id = ev.get("image_id") or item.get("image_id")
+            ev_surf_id = (
+                ev.get("surface_id")
+                or ev.get("face_id")
+                or ev.get("page_or_view")
+                or item.get("surface_id")
+            )
 
-                # 3. Default routing: information panel declarations belong on Face 2
-                if target_bgr is None and len(insp_imgs) > 1:
-                    if k not in ("common_name", "product_name", "brand_name"):
-                        target_p_obj, target_bgr = insp_imgs[1]
-                    else:
-                        target_p_obj, target_bgr = insp_imgs[0]
+            # An already-generated evidence crop is authoritative. It was created
+            # by the localization pipeline in the correct coordinate space.
+            existing_crop = item.get("evidence_crop_base64") or enriched.get("evidence_crop_base64")
+            if existing_crop:
+                enriched["evidence_crop_base64"] = existing_crop
 
-                if target_bgr is None and insp_imgs:
-                    target_p_obj, target_bgr = insp_imgs[0]
+            # Resolve the inspection image.
+            target_idx, target_p_obj, target_bgr = _exact_image_match(ev_img_id, insp_imgs)
 
-                if target_p_obj is not None:
-                    enriched["image_id"] = target_p_obj.name
-                    enriched["image_url"] = f"/uploads/{target_p_obj.name}"
-                if ev_surf_id:
-                    enriched["surface_id"] = ev_surf_id
-                elif target_p_obj is not None:
-                    enriched["surface_id"] = "face_2" if len(insp_imgs) > 1 and target_bgr is insp_imgs[1][1] else "face_1"
+            # If image_id is unavailable, a face_id such as face_2 identifies the
+            # corresponding captured surface in insp_imgs.
+            if target_bgr is None and ev_surf_id and insp_imgs:
+                sid = str(ev_surf_id).strip().lower()
+                m = re.fullmatch(r"(?:face[_\s-]?|surface[_\s-]?|page[_\s-]?)(\d+)", sid)
+                if m:
+                    idx = int(m.group(1)) - 1
+                    if 0 <= idx < len(insp_imgs):
+                        target_idx = idx
+                        target_p_obj, target_bgr = insp_imgs[idx]
 
-                # Generate accurate inspected crop from matched surface image
-                bb = enriched.get("bounding_box")
-                if bb and target_bgr is not None:
-                    c_b64 = _make_evidence_crop(target_bgr, bb, polygon=enriched.get("polygon"))
-                    if c_b64:
-                        enriched["evidence_crop_base64"] = c_b64
+            image_identity_proven = target_bgr is not None
 
-                effective_insp_declarations.append(enriched)
+            # Preserve authoritative identity.
+            if ev_img_id:
+                image_name = Path(str(ev_img_id)).name
+                enriched["image_id"] = image_name
+                enriched["image_url"] = f"/uploads/{image_name}"
+            elif target_p_obj is not None:
+                enriched["image_id"] = target_p_obj.name
+                enriched["image_url"] = f"/uploads/{target_p_obj.name}"
 
+            if ev_surf_id:
+                enriched["surface_id"] = ev_surf_id
+            elif target_idx is not None:
+                enriched["surface_id"] = f"face_{target_idx + 1}"
+
+            if orig_bb:
+                enriched["bounding_box"] = orig_bb
+                if orig_poly:
+                    enriched["polygon"] = orig_poly
+            else:
+                explicit_bb = _bbox_to_list(
+                    item.get("bounding_box") or item.get("evidence_bbox_px")
+                )
+                if explicit_bb:
+                    enriched["bounding_box"] = explicit_bb
+
+            # Generate canonical crop: localized coordinates correspond to the canonical surface.
+            # Normalizing target_bgr to its canonical image ensures pixel-perfect crops matching View Evidence.
+            if not existing_crop and orig_bb and target_bgr is not None:
+                try:
+                    norm_res = geometry.normalize_package_surface(target_bgr, source_name=target_p_obj.name if target_p_obj else "insp")
+                    crop_target = norm_res.canonical_image if (norm_res and getattr(norm_res, "canonical_image", None) is not None) else target_bgr
+                except Exception:
+                    crop_target = target_bgr
+                c_b64 = _make_evidence_crop(crop_target, orig_bb, polygon=orig_poly)
+                if c_b64:
+                    enriched["evidence_crop_base64"] = c_b64
+
+            effective_insp_declarations.append(enriched)
         # Also add any fields detected in image that were missing from inspection_declarations
         for k, v in insp_decls.items():
             if k not in seen_fields:

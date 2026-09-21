@@ -66,6 +66,7 @@ RATE_DENOMINATOR_UNITS: Dict[str, str] = {
     "nos.": "number",
     "number": "number",
     "numbers": "number",
+    "n": "number",
     "item": "item",
     "items": "item",
 }
@@ -104,14 +105,14 @@ def parse_money(text: str) -> Optional[MoneyValue]:
     Parse a string into a MoneyValue object.
 
     Accurately distinguishes:
-    1. Unit rate with denominator (e.g. "₹26.67/ml", "26.67 / ml", "₹ 2.80/g", "5.00 per unit")
+    1. Unit rate with denominator (e.g. "₹26.67/ml", "26.67 / ml", "₹ 2.80/g", "5.00 per unit", "0.55/g")
     2. Plain monetary price (e.g. "₹800.00", "₹800", "800.00", "Rs. 120/-")
     3. Rejects mass / volume measurements (e.g. "16.89 g", "30 ml", "500 g") when bare.
     """
     if not text:
         return None
 
-    cleaned = text.strip()
+    cleaned = text.strip().strip("()")
 
     # Detect tax qualifiers
     qualifiers = []
@@ -121,15 +122,17 @@ def parse_money(text: str) -> Optional[MoneyValue]:
     has_curr = bool(_CURRENCY_SYMBOL_RE.search(cleaned)) or "/-" in cleaned
 
     # Check for unit rate pattern: amount / unit or amount per unit
-    # e.g. ₹26.67/ml, =26.67/ml, 26.67/ml, ₹2.80/g, 5.00 per unit
+    # e.g. ₹26.67/ml, =26.67/ml, 26.67/ml, ₹2.80/g, 5.00 per unit, 0.55/g
     rate_pattern = re.compile(
-        r"(?:(?:₹|rs\.?|inr|=)\s*)?([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:/|per)\s*([a-zA-Z.]+)",
+        r"(?:(?:₹|rs\.?|inr|=|usp:?)\s*)?([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:/|per\s*)(?:100\s*)?([a-zA-Z.]+)",
         re.I,
     )
     m_rate = rate_pattern.search(cleaned)
     if m_rate:
         raw_amt_str = m_rate.group(1).replace(",", "")
         unit_str = m_rate.group(2).lower().rstrip(" .,;:")
+        if unit_str.startswith("100"):
+            unit_str = unit_str[3:]
         try:
             amt = float(raw_amt_str)
             canon_unit = RATE_DENOMINATOR_UNITS.get(unit_str)
@@ -144,6 +147,8 @@ def parse_money(text: str) -> Optional[MoneyValue]:
                     qualifiers=qualifiers,
                     confidence=0.95 if has_curr else 0.85,
                 )
+        except Exception:
+            pass
         except (ValueError, TypeError):
             pass
 

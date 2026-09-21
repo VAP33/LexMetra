@@ -103,7 +103,9 @@ def init_schema() -> None:
             for alter_sql in [
                 "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_json JSONB;",
                 "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_status TEXT;",
+                "ALTER TABLE inspections ADD COLUMN IF NOT EXISTS is_reference_cache BOOLEAN NOT NULL DEFAULT FALSE;",
                 "CREATE INDEX IF NOT EXISTS idx_inspections_integrity_status ON inspections(package_integrity_status);",
+                "CREATE INDEX IF NOT EXISTS idx_inspections_ref_cache ON inspections(is_reference_cache);",
             ]:
                 try:
                     cur.execute(alter_sql)
@@ -1731,4 +1733,89 @@ def get_departmental_dossier(inspection_id: str) -> Optional[dict]:
             pass
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Single-Tick Reference Packaging Cache Election
+# ---------------------------------------------------------------------------
+
+def set_inspection_reference_cache(inspection_id: str, is_cache: bool = True) -> bool:
+    """
+    Sets or unsets the single-tick reference cache eligibility flag for an inspection.
+    Enforces the single-tick invariant: when is_cache is True, all other inspections
+    are cleared (only one tick is allowed across the system/product catalog).
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("ALTER TABLE inspections ADD COLUMN IF NOT EXISTS is_reference_cache BOOLEAN NOT NULL DEFAULT FALSE;")
+                except Exception:
+                    pass
+
+                if is_cache:
+                    # Single-tick rule: clear any previous tick
+                    cur.execute("UPDATE inspections SET is_reference_cache = FALSE WHERE is_reference_cache = TRUE;")
+                    cur.execute(
+                        "UPDATE inspections SET is_reference_cache = TRUE WHERE inspection_id = %s;",
+                        (inspection_id,),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE inspections SET is_reference_cache = FALSE WHERE inspection_id = %s;",
+                        (inspection_id,),
+                    )
+                conn.commit()
+        return is_cache
+    except Exception as e:
+        logger.warning("Failed to set_inspection_reference_cache(%s, %s): %s", inspection_id, is_cache, e)
+        return False
+
+
+def get_active_reference_cache_inspection(product_id: Optional[str] = None) -> Optional[dict]:
+    """
+    Retrieves the single inspection currently elected as the active reference cache standard.
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                try:
+                    cur.execute("ALTER TABLE inspections ADD COLUMN IF NOT EXISTS is_reference_cache BOOLEAN NOT NULL DEFAULT FALSE;")
+                    conn.commit()
+                except Exception:
+                    pass
+
+                if product_id:
+                    cur.execute(
+                        """
+                        SELECT * FROM inspections
+                        WHERE is_reference_cache = TRUE AND (product_id = %s OR product_id IS NULL)
+                        ORDER BY created_at DESC
+                        LIMIT 1;
+                        """,
+                        (str(product_id),),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT * FROM inspections
+                        WHERE is_reference_cache = TRUE
+                        ORDER BY created_at DESC
+                        LIMIT 1;
+                        """
+                    )
+                row = cur.fetchone()
+                if not row:
+                    return None
+
+                rec = dict(row)
+                if "declarations_json" in rec and rec["declarations_json"]:
+                    rec["declarations"] = decode_json_column(rec["declarations_json"]) or []
+                if "package_integrity_json" in rec and rec["package_integrity_json"]:
+                    rec["package_integrity"] = decode_json_column(rec["package_integrity_json"])
+                return rec
+    except Exception as e:
+        logger.warning("Failed to get_active_reference_cache_inspection: %s", e)
+        return None
+
 

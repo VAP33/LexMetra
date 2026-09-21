@@ -69,11 +69,18 @@ CREATE TABLE IF NOT EXISTS inspections (
 
     -- Persisted Package Integrity comparison report and summary status
     package_integrity_json   JSONB,
-    package_integrity_status TEXT
+    package_integrity_status TEXT,
+
+    -- Single-tick reference packaging cache election flag
+    is_reference_cache       BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_json JSONB;
 ALTER TABLE inspections ADD COLUMN IF NOT EXISTS package_integrity_status TEXT;
+ALTER TABLE inspections ADD COLUMN IF NOT EXISTS is_reference_cache BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_inspections_ref_cache
+    ON inspections(is_reference_cache);
 
 CREATE INDEX IF NOT EXISTS idx_inspections_integrity_status
     ON inspections(package_integrity_status);

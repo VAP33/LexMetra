@@ -20,6 +20,47 @@ import fssai_verification
 logger = logging.getLogger('routes_inspections')
 router = APIRouter(tags=['inspections'])
 
+def _build_integrity_image_paths(detail: Dict[str, Any], insp_data: Dict[str, Any]):
+    """
+    Build Package Integrity inspected-image paths using ORIGINAL captures only.
+
+    Surface original_image_path entries retain their persisted face order. Legacy
+    image_path/image and capture image_id values are appended only when unique.
+    Canonical/rectified images are deliberately excluded because localized
+    evidence.bbox coordinates are defined on the original captured image.
+    """
+    img_path = detail.get("image_path") or detail.get("image")
+    all_insp_paths: List[str] = []
+
+    surfaces = detail.get("surfaces") or insp_data.get("surfaces") or []
+    for s in surfaces:
+        if not isinstance(s, dict):
+            continue
+        sp = (
+            s.get("original_image_path")
+            or s.get("image_path")
+            or s.get("image_url")
+            or s.get("image_id")
+        )
+        if sp and str(sp) not in all_insp_paths:
+            all_insp_paths.append(str(sp))
+
+    if img_path and str(img_path) not in all_insp_paths:
+        all_insp_paths.append(str(img_path))
+
+    captures = detail.get("captures") or insp_data.get("captures") or []
+    for c in captures:
+        if not isinstance(c, dict):
+            continue
+        cp = c.get("image_id")
+        if cp and str(cp) not in all_insp_paths:
+            all_insp_paths.append(str(cp))
+
+    return img_path, all_insp_paths
+
+
+
+
 @router.get("/inspections")
 def get_inspections(
     limit: int = 50,
@@ -125,58 +166,17 @@ def get_inspection(
     if current_pi and not _is_stale_package_integrity(current_pi):
         detail["package_integrity"] = current_pi
     else:
-        insp_data = detail.get("inspection") or detail
-        declarations = detail.get("declarations") or insp_data.get("declarations") or []
-        p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id") or detail.get("product_id")
-        p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or detail.get("product_name")
-        for d in declarations:
-            if isinstance(d, dict):
-                fld = (d.get("field") or "").lower().strip()
-                v = d.get("value")
-                if v:
-                    if not p_name and fld in ("common_name", "product_name"):
-                        p_name = v
-                    if (not p_id or str(p_id).startswith("SCAN-") or str(p_id).startswith("scan-")) and fld in ("barcode", "gtin", "product_id"):
-                        p_id = v
-        img_path = detail.get("image_path") or detail.get("image")
-        all_insp_paths = []
-        if img_path:
-            all_insp_paths.append(str(img_path))
-        for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
-            if isinstance(s, dict):
-                sp = (
-                    s.get("original_image_path")
-                    or s.get("canonical_image_path")
-                    or s.get("image_url")
-                    or s.get("image_path")
-                    or s.get("image_id")
-                )
-                if sp and str(sp) not in all_insp_paths:
-                    all_insp_paths.append(str(sp))
-        for c in (detail.get("captures") or insp_data.get("captures") or []):
-            if isinstance(c, dict):
-                cp = c.get("image_id")
-                if cp and str(cp) not in all_insp_paths:
-                    all_insp_paths.append(str(cp))
-        try:
-            integrity_res = package_integrity.evaluate_package_integrity(
-                img_path,
-                inspected_image_paths=all_insp_paths,
-                product_id=p_id,
-                product_name=p_name,
-                allow_demo_fixtures=True,
-                inspection_declarations=declarations,
-            )
-            rep_dict = integrity_res.to_dict()
-            rep_dict["inspection_id"] = inspection_id
-            detail["package_integrity"] = rep_dict
-            try:
-                db.save_package_integrity_comparison(rep_dict)
-                db.save_inspection_detail(inspection_id, detail)
-            except Exception:
-                pass
-        except Exception as pie:
-            logger.debug("Failed to evaluate package integrity in get_inspection: %s", pie)
+        # Do not automatically evaluate without user uploading reference images
+        detail["package_integrity"] = {
+            "status": "AWAITING_REFERENCE_STANDARD",
+            "has_reference": False,
+            "reference_type": "UNVERIFIED",
+            "reference_image_urls": [],
+            "detected_differences": [],
+            "field_comparisons": [],
+            "explanation": "No reference packaging standard uploaded. Upload reference package image(s) across faces to run comparative integrity verification.",
+            "source_tag": "COMPUTER VISION",
+        }
 
     if "fssai" not in detail:
         insp_data = detail.get("inspection") or detail
@@ -210,6 +210,7 @@ def get_inspection(
         net_quantity_unit=qty_unit,
     )
 
+    detail["is_reference_cache"] = bool(detail.get("is_reference_cache", False))
     return detail
 
 
@@ -240,65 +241,19 @@ def get_inspection_integrity(
             pass
         return rec
 
-    insp_data = detail.get("inspection") or detail
-    declarations = detail.get("declarations") or insp_data.get("declarations") or []
-    p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id") or detail.get("product_id")
-    p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or detail.get("product_name")
-    for d in declarations:
-        if isinstance(d, dict):
-            fld = (d.get("field") or "").lower().strip()
-            v = d.get("value")
-            if v:
-                if not p_name and fld in ("common_name", "product_name"):
-                    p_name = v
-                if (not p_id or str(p_id).startswith("SCAN-") or str(p_id).startswith("scan-")) and fld in ("barcode", "gtin", "product_id"):
-                    p_id = v
-    img_path = detail.get("image_path") or detail.get("image")
-
-    all_insp_paths = []
-    if img_path:
-        all_insp_paths.append(str(img_path))
-    for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
-        if isinstance(s, dict):
-            sp = (
-                s.get("original_image_path")
-                or s.get("canonical_image_path")
-                or s.get("image_url")
-                or s.get("image_path")
-                or s.get("image_id")
-            )
-            if sp and str(sp) not in all_insp_paths:
-                all_insp_paths.append(str(sp))
-    for c in (detail.get("captures") or insp_data.get("captures") or []):
-        if isinstance(c, dict):
-            cp = c.get("image_id")
-            if cp and str(cp) not in all_insp_paths:
-                all_insp_paths.append(str(cp))
-
-    res = package_integrity.evaluate_package_integrity(
-        img_path,
-        inspected_image_paths=all_insp_paths,
-        product_id=p_id,
-        product_name=p_name,
-        inspection_declarations=declarations,
-        allow_demo_fixtures=True,
-    )
-    report_dict = res.to_dict()
-    report_dict["inspection_id"] = inspection_id
-    if not report_dict.get("status"):
-        report_dict["status"] = report_dict.get("comparison_status")
-    if not report_dict.get("comparison_status"):
-        report_dict["comparison_status"] = report_dict.get("status")
-    try:
-        db.save_package_integrity_comparison(report_dict)
-    except Exception:
-        pass
-    detail["package_integrity"] = report_dict
-    try:
-        db.save_inspection_detail(inspection_id, detail)
-    except Exception:
-        pass
-    return report_dict
+    # Never auto-evaluate without the user uploading reference images!
+    awaiting_rep = {
+        "inspection_id": inspection_id,
+        "status": "AWAITING_REFERENCE_STANDARD",
+        "has_reference": False,
+        "reference_type": "UNVERIFIED",
+        "reference_image_urls": [],
+        "detected_differences": [],
+        "field_comparisons": [],
+        "explanation": "No reference packaging standard uploaded. Please upload reference package image(s) across faces to run comparative integrity verification.",
+        "source_tag": "COMPUTER VISION",
+    }
+    return awaiting_rep
 
 
 class SavePackageIntegrityRequest(BaseModel):
@@ -334,15 +289,7 @@ def save_inspection_integrity(
         declarations = detail.get("declarations") or insp_data.get("declarations") or []
         p_id = (insp_data.get("product_identity") or {}).get("product_id") or insp_data.get("product_id") or detail.get("product_id")
         p_name = (insp_data.get("product_identity") or {}).get("product_name") or insp_data.get("product_name") or detail.get("product_name")
-        img_path = detail.get("image_path") or detail.get("image")
-        all_insp_paths = []
-        if img_path:
-            all_insp_paths.append(str(img_path))
-        for s in (detail.get("surfaces") or insp_data.get("surfaces") or []):
-            if isinstance(s, dict):
-                sp = s.get("original_image_path") or s.get("canonical_image_path") or s.get("image_url") or s.get("image_path") or s.get("image_id")
-                if sp and str(sp) not in all_insp_paths:
-                    all_insp_paths.append(str(sp))
+        img_path, all_insp_paths = _build_integrity_image_paths(detail, insp_data)
         res = package_integrity.evaluate_package_integrity(
             img_path,
             inspected_image_paths=all_insp_paths,
@@ -387,6 +334,41 @@ def get_inspection_integrity_history(
     """
     history = db.list_package_integrity_history(inspection_id)
     return {"history": history, "count": len(history)}
+
+
+class ToggleReferenceCacheRequest(BaseModel):
+    is_cache: Optional[bool] = None
+
+
+@router.post("/inspections/{inspection_id}/toggle-reference-cache")
+@router.post("/integrity/{inspection_id}/toggle-reference-cache")
+def toggle_inspection_reference_cache(
+    inspection_id: str,
+    payload: Optional[ToggleReferenceCacheRequest] = None,
+    current_user: auth.CurrentUser = Depends(auth.require_scan_access),
+):
+    """
+    Sets or toggles the single-tick reference caching status for this inspection.
+    Enforces the single-tick invariant: only one inspection can be the active cache.
+    """
+    detail = db.get_inspection_detail(inspection_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Inspection not found.")
+
+    current_state = bool(detail.get("is_reference_cache", False))
+    target_state = payload.is_cache if (payload and payload.is_cache is not None) else not current_state
+
+    db.set_inspection_reference_cache(inspection_id, is_cache=target_state)
+    detail["is_reference_cache"] = target_state
+    try:
+        db.save_inspection_detail(inspection_id, detail)
+    except Exception:
+        pass
+    return {
+        "status": "success",
+        "inspection_id": inspection_id,
+        "is_reference_cache": target_state,
+    }
 
 
 
