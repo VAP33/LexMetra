@@ -64,17 +64,17 @@ export function LandingPage({
     },
     {
       title: "Fast OCR & Polygon Localization",
-      sub: "Sub-Second Text Vectorization & Strict Bounding Box Isolation",
+      sub: "Text extraction and localized evidence regions",
       badge: "Stage 02 · Perception Pipeline",
     },
     {
       title: "LMPC Deterministic Rule Engine",
-      sub: "Rule 12 Unit Sale Price Math & Rule 6(1) Declarations Verification",
+      sub: "Versioned rules, applicability conditions and declaration evaluation",
       badge: "Stage 03 · Statutory Engine",
     },
     {
-      title: "Tamper-Proof Audit Docket Export",
-      sub: "ReportLab Official PDF Certificate & Evidence Audit Trail",
+      title: "Audit-Ready Report Export",
+      sub: "Structured PDF report with evidence references and inspection findings",
       badge: "Stage 04 · Enforcement Action",
     },
   ];
@@ -83,26 +83,26 @@ export function LandingPage({
     en: {
       directorate: "Legal Metrology Compliance · Statutory Packaged Commodities Authority",
       titleMain: "Automated Legal Metrology",
-      titleHighlight: "Compliance & Enforcement",
+      titleHighlight: "Inspection & Verification",
       subtitle:
-        "AI-powered multi-surface inspection under the Legal Metrology Act, 2009 & Packaged Commodities Rules, 2011. Instant mathematical unit-price validation, deterministic statutory compliance, and tamper-proof PDF audit dockets.",
+        "AI-powered multi-surface inspection under the Legal Metrology Act, 2009 & Packaged Commodities Rules, 2011. Evidence-backed declaration verification, contextual rule evaluation, and audit-ready reporting.",
       startScan: "Start Package Inspection",
       officerPortal: "Officer Command Center",
       citizenPortal: "Citizen Grievance & Search",
-      stat1Val: "13 Rules",
-      stat1Lbl: "Statutory Checks",
-      stat2Val: "0% Error",
-      stat2Lbl: "USP Math Tolerance",
-      stat3Val: "6-Face 360°",
-      stat3Lbl: "Package Coverage",
-      stat4Val: "< 1.5s",
-      stat4Lbl: "OCR Perception Speed",
-      cap1Title: "360° Multi-Panel Scan",
-      cap1Desc: "Full-package unobserved evaluation preventing false absences across 6 surfaces.",
-      cap2Title: "Rule 12 Unit Sale Price",
-      cap2Desc: "Deterministic arithmetic cross-check of MRP vs Net Qty with 0% tolerance.",
-      cap3Title: "Official Audit PDF",
-      cap3Desc: "Tamper-proof dockets with localized bounding-box crops and court-admissible proof.",
+      stat1Val: "Versioned Rules",
+      stat1Lbl: "Regulatory Framework",
+      stat2Val: "Evidence-Backed",
+      stat2Lbl: "Declaration Verification",
+      stat3Val: "Multi-Surface",
+      stat3Lbl: "Package Inspection",
+      stat4Val: "Multimodal AI",
+      stat4Lbl: "Label Understanding",
+      cap1Title: "Multi-Surface Inspection",
+      cap1Desc: "Analyze captured package surfaces and connect detected declarations to visual evidence.",
+      cap2Title: "Evidence-Backed Verification",
+      cap2Desc: "Connect extracted declarations with localized evidence and contextual regulatory evaluation.",
+      cap3Title: "Audit-Ready Reporting",
+      cap3Desc: "Generate structured inspection reports with findings, evidence references and regulatory context.",
       footerCopy: "© 2026 LexMetra · Automated Statutory Compliance Platform",
     },
     hi: {
@@ -114,15 +114,15 @@ export function LandingPage({
       startScan: "पैकेज निरीक्षण शुरू करें",
       officerPortal: "अधिकारी पोर्टल",
       citizenPortal: "नागरिक शिकायत पोर्टल",
-      stat1Val: "13 नियम",
-      stat1Lbl: "वैधानिक जाँच",
-      stat2Val: "0% त्रुटि",
-      stat2Lbl: "गणितीय सटीकता",
-      stat3Val: "6-सतह 360°",
-      stat3Lbl: "कवरेज",
-      stat4Val: "< 1.5 से.",
-      stat4Lbl: "ओसीआर गति",
-      cap1Title: "360° बहु-सतह स्कैन",
+      stat1Val: "संस्करणित नियम",
+      stat1Lbl: "नियामक ढाँचा",
+      stat2Val: "साक्ष्य-आधारित",
+      stat2Lbl: "घोषणा सत्यापन",
+      stat3Val: "बहु-सतह",
+      stat3Lbl: "पैकेज निरीक्षण",
+      stat4Val: "मल्टीमॉडल AI",
+      stat4Lbl: "लेबल समझ",
+      cap1Title: "बहु-सतह पैकेज निरीक्षण",
       cap1Desc: "पैकेज की सभी 6 सतहों पर अनिवार्य घोषणाओं का समग्र सत्यापन।",
       cap2Title: "नियम 12 इकाई विक्रय मूल्य",
       cap2Desc: "एमआरपी और शुद्ध मात्रा का सटीक गणितीय सत्यापन।",
@@ -139,15 +139,15 @@ export function LandingPage({
       startScan: "पॅकेज तपासणी सुरू करा",
       officerPortal: "अधिकारी पोर्टल",
       citizenPortal: "नागरिक पोर्टल",
-      stat1Val: "13 नियम",
-      stat1Lbl: "वैधानिक नियम",
-      stat2Val: "0% त्रुटी",
-      stat2Lbl: "गणितीय अचूकता",
-      stat3Val: "6-पृष्ठभाग",
-      stat3Lbl: "कव्हरेज",
-      stat4Val: "< 1.5 से.",
-      stat4Lbl: "ओसीआर वेग",
-      cap1Title: "360° बहु-पृष्ठभाग स्कॅन",
+      stat1Val: "संस्करणित नियम",
+      stat1Lbl: "नियामक चौकट",
+      stat2Val: "पुराव्यावर आधारित",
+      stat2Lbl: "घोषणा पडताळणी",
+      stat3Val: "बहु-पृष्ठभाग",
+      stat3Lbl: "पॅकेज तपासणी",
+      stat4Val: "मल्टीमॉडल AI",
+      stat4Lbl: "लेबल समज",
+      cap1Title: "बहु-पृष्ठभाग पॅकेज तपासणी",
       cap1Desc: "संपूर्ण पॅकेजवरील 6 पृष्ठांवर अनिवार्य घोषणांची अचूक पडताळणी.",
       cap2Title: "नियम 12 युनिट विक्री किंमत",
       cap2Desc: "एमआरपी आणि निव्वळ प्रमाण यांचे तंतोतंत गणितीय परीक्षण.",
@@ -158,25 +158,25 @@ export function LandingPage({
   }[lang] || {
     directorate: "Legal Metrology Division · Statutory Compliance Platform",
     titleMain: "Automated Legal Metrology",
-    titleHighlight: "Compliance & Enforcement",
+    titleHighlight: "Inspection & Verification",
     subtitle: "AI-powered statutory package inspection platform.",
     startScan: "Start Package Inspection",
     officerPortal: "Officer Portal",
     citizenPortal: "Citizen Portal",
-    stat1Val: "13 Rules",
-    stat1Lbl: "Statutory Checks",
-    stat2Val: "0% Error",
-    stat2Lbl: "USP Math Tolerance",
-    stat3Val: "6-Face 360°",
-    stat3Lbl: "Package Coverage",
-    stat4Val: "< 1.5s",
+    stat1Val: "Versioned Rules",
+    stat1Lbl: "Regulatory Framework",
+    stat2Val: "Evidence-Backed",
+    stat2Lbl: "Declaration Verification",
+    stat3Val: "Multi-Surface",
+    stat3Lbl: "Package Inspection",
+    stat4Val: "Sub-Second",
     stat4Lbl: "Perception Speed",
-    cap1Title: "360° Multi-Panel Scan",
+    cap1Title: "Multi-Surface Inspection",
     cap1Desc: "Multi-angle surface analysis preventing false absence.",
-    cap2Title: "Rule 12 Unit Sale Price",
+    cap2Title: "Evidence-Backed Verification",
     cap2Desc: "Deterministic arithmetic cross-check with 0% error tolerance.",
-    cap3Title: "Official Audit PDF",
-    cap3Desc: "Tamper-proof legal dockets with localized bounding-box crops.",
+    cap3Title: "Audit-Ready Reporting",
+    cap3Desc: "Tamper-proof legal dockets with localized statutory evidence crops.",
     footerCopy: "© 2026 LexMetra · Automated Statutory Compliance Platform",
   };
 
@@ -190,7 +190,7 @@ export function LandingPage({
           <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
             <button
               type="button"
-              onClick={() => {}}
+              onClick={() => { }}
               className="flex items-center gap-2 sm:gap-3 transition-opacity hover:opacity-90 active:scale-[0.98] touch-manipulation cursor-pointer text-left"
             >
               <img
@@ -250,11 +250,10 @@ export function LandingPage({
                               onLanguageChange(opt.code as "en" | "hi" | "mr");
                               setIsLangOpen(false);
                             }}
-                            className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition touch-manipulation cursor-pointer ${
-                              isActive
+                            className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition touch-manipulation cursor-pointer ${isActive
                                 ? "bg-purple-50 text-purple-900 font-bold"
                                 : "text-slate-700 hover:bg-slate-100 font-medium"
-                            }`}
+                              }`}
                           >
                             <div className="flex flex-col text-left">
                               <span>{opt.label}</span>
@@ -390,9 +389,8 @@ export function LandingPage({
                     type="button"
                     onClick={() => setActiveStage(idx)}
                     aria-label={`Switch to Stage ${idx + 1}`}
-                    className={`h-2.5 rounded-full transition-all touch-manipulation cursor-pointer ${
-                      activeStage === idx ? "w-6 bg-saffron-500 shadow-xs" : "w-2.5 bg-slate-200"
-                    }`}
+                    className={`h-2.5 rounded-full transition-all touch-manipulation cursor-pointer ${activeStage === idx ? "w-6 bg-saffron-500 shadow-xs" : "w-2.5 bg-slate-200"
+                      }`}
                   />
                 ))}
               </div>
@@ -422,11 +420,10 @@ export function LandingPage({
 
                 {/* Simulated Bounding Box 1: MRP */}
                 <div
-                  className={`p-1.5 rounded border-2 transition-all duration-300 ${
-                    activeStage >= 1
+                  className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 1
                       ? "border-brand bg-brand-50/80 shadow-sm"
                       : "border-slate-200"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between text-[9px]">
                     <span className="text-slate-800 font-mono font-bold">MRP: ₹99.00</span>
@@ -441,11 +438,10 @@ export function LandingPage({
 
                 {/* Simulated Bounding Box 2: FSSAI / Mfg Date */}
                 <div
-                  className={`p-1.5 rounded border-2 transition-all duration-300 ${
-                    activeStage >= 1
+                  className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 1
                       ? "border-govgreen bg-emerald-50/80 shadow-sm"
                       : "border-slate-200"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between text-[9px]">
                     <span className="text-slate-800 font-mono font-bold">FSSAI: 10012022000295</span>
@@ -457,11 +453,10 @@ export function LandingPage({
 
                 {/* Simulated Bounding Box 3: Consumer Care */}
                 <div
-                  className={`p-1.5 rounded border-2 transition-all duration-300 ${
-                    activeStage >= 2
+                  className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 2
                       ? "border-saffron-500 bg-saffron-50/80"
                       : "border-slate-200"
-                  }`}
+                    }`}
                 >
                   <div className="text-[8px] text-slate-800 truncate font-mono font-semibold">
                     Care: 1800-425-4444
@@ -500,7 +495,7 @@ export function LandingPage({
               </div>
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-saffron-600 hover:text-saffron-700 touch-manipulation cursor-pointer">
                 <Download className="h-3.5 w-3.5" />
-                ReportLab Engine Ready
+                PDF Reporting
               </span>
             </div>
           </div>
@@ -512,10 +507,10 @@ export function LandingPage({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10 space-y-2">
             <p className="text-xs font-bold uppercase tracking-widest text-saffron-600">
-              Deterministic Statutory Architecture
+              Evidence & Regulatory Architecture
             </p>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-brand-950">
-              Engineered for Real-World Field Enforcement
+              Built for Real-World Inspection
             </h2>
           </div>
 
@@ -568,7 +563,7 @@ export function LandingPage({
             <span className="text-saffron-500">•</span>
             <span>LMPC Rules 2011</span>
             <span className="text-govgreen">•</span>
-            <span>Rule 12 Unit Pricing</span>
+            <span>Declaration & Unit-Price Checks</span>
           </div>
         </div>
       </footer>

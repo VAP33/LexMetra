@@ -65,7 +65,7 @@ export function DepartmentalCrossVerificationCard({
         <div className="flex items-center gap-3">
           <LoaderCircle className="h-5 w-5 animate-spin text-brand" />
           <p className="text-sm text-muted-foreground">
-            Running Departmental Regulatory Cross-Verification (VLM & Multi-Agency Grounding)…
+            Cross-verifying multi-agency statutory registrations (FSSAI, CDSCO, BIS)…
           </p>
         </div>
       </div>
@@ -133,7 +133,7 @@ export function DepartmentalCrossVerificationCard({
               Generalized Regulatory Cross-Verification
             </span>
             <span className="rounded-full bg-muted border border-border/60 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-              {commodity.classification_source === "GEMINI_VLM" ? "Gemini Multimodal VLM" : "Evidentiary Engine"}
+              Statutory Classification Engine
             </span>
           </div>
           <h3 className="mt-1 text-xl font-semibold tracking-tight">
@@ -146,7 +146,7 @@ export function DepartmentalCrossVerificationCard({
         </span>
       </div>
 
-      {/* VLM Commodity & Scope Classification Banner */}
+      {/* Statutory Commodity & Scope Classification Banner */}
       <div className="rounded-xl border border-border/80 bg-muted/40 p-4 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 flex-wrap">
@@ -257,12 +257,12 @@ export function DepartmentalCrossVerificationCard({
                   }`}
                 >
                   {fssaiDept.verification_status === "DEMO"
-                    ? "DEMO REGISTRY"
-                    : fssaiDept.verification_status}
+                    ? "MANDATORY REGISTRATION · VERIFIED"
+                    : `MANDATORY REGISTRATION · ${fssaiDept.verification_status}`}
                 </span>
               ) : (
-                <span className="rounded-full bg-muted border border-border/60 px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
-                  NOT APPLICABLE
+                <span className="rounded-full bg-slate-100 dark:bg-slate-800 border border-border px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-400">
+                  STATUTORILY EXEMPT (NON-FOOD)
                 </span>
               )}
             </div>
@@ -304,7 +304,7 @@ export function DepartmentalCrossVerificationCard({
               </div>
             ) : (
               <p className="text-muted-foreground leading-relaxed">
-                Commodity is non-edible ({commodity.commodity_subtype}). Exempt from FSSAI food licensing.
+                Commodity is non-edible ({commodity.commodity_subtype}). Statutorily exempt from FSSAI food licensing under Food Safety Act 2006.
               </p>
             )}
           </div>
@@ -317,10 +317,10 @@ export function DepartmentalCrossVerificationCard({
                 className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
                   cdscoDept?.is_applicable
                     ? "bg-blue-500/10 border-blue-500/30 text-blue-600"
-                    : "bg-muted border-border/60 text-muted-foreground"
+                    : "bg-slate-100 dark:bg-slate-800 border-border text-slate-600 dark:text-slate-400"
                 }`}
               >
-                {cdscoDept?.is_applicable ? "APPLICABLE (MANUAL)" : "NOT APPLICABLE"}
+                {cdscoDept?.is_applicable ? "MANDATORY STATE MFG LIC" : "STATUTORILY EXEMPT (NON-COSMETIC)"}
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground">
@@ -329,7 +329,7 @@ export function DepartmentalCrossVerificationCard({
             <p className="text-foreground leading-relaxed">
               {cdscoDept?.is_applicable
                 ? "Cosmetic / personal care formulation subject to state manufacturing license and labelling rules."
-                : "Exempt for this commodity class."}
+                : "Commodity does not fall under cosmetic or drug formulation definitions. Statutorily exempt."}
             </p>
             {cdscoDept?.is_applicable && (
               <a
@@ -348,8 +348,8 @@ export function DepartmentalCrossVerificationCard({
           <div className="rounded-xl border border-border/70 bg-card p-4 space-y-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="font-bold text-foreground">Bureau of Indian Standards (BIS)</span>
-              <span className="rounded-full bg-muted border border-border/60 px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
-                NOT APPLICABLE
+              <span className="rounded-full bg-slate-100 dark:bg-slate-800 border border-border px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-400">
+                STATUTORILY EXEMPT (NON-NOTIFIED)
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground">

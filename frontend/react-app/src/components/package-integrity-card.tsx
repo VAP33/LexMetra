@@ -224,13 +224,6 @@ function SideEvidencePanel({
           </span>
           <p className="text-[10px] text-muted-foreground">{subtitle}</p>
         </div>
-        <div className="flex items-center gap-1.5">
-          {confidence !== undefined && (
-            <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold border ${badgeBorder}`}>
-              {(confidence * 100).toFixed(0)}% Conf
-            </span>
-          )}
-        </div>
       </div>
 
       {/* Visual Canvas Display */}
@@ -249,22 +242,9 @@ function SideEvidencePanel({
           </>
         ) : (
           <div className="text-center p-3 text-slate-400 text-xs">
-            <p className="font-semibold">{value || "No Crop Available"}</p>
+            <p className="font-semibold">{value || "Marking Not Located"}</p>
           </div>
         )}
-
-        {/* Overlay Badges */}
-        <div className="absolute top-2 left-2 flex flex-wrap gap-1 pointer-events-none">
-          {polygon && polygon.length >= 3 ? (
-            <span className="rounded bg-black/80 backdrop-blur px-1.5 py-0.5 text-[9px] font-mono text-emerald-300 border border-emerald-500/40">
-              Vector DBNet Polygon ({polygon.length} pts)
-            </span>
-          ) : bbox ? (
-            <span className="rounded bg-black/80 backdrop-blur px-1.5 py-0.5 text-[9px] font-mono text-slate-300 border border-slate-700">
-              BBox [{bbox.join(", ")}]
-            </span>
-          ) : null}
-        </div>
 
         {(surfaceId || imageId) && (
           <div className="absolute bottom-2 right-2 flex gap-1 pointer-events-none">
@@ -281,11 +261,6 @@ function SideEvidencePanel({
           <span className="text-[10px] uppercase font-bold text-muted-foreground">
             {isLeft ? "Inspected Marking" : "Reference Master"}
           </span>
-          {bbox && (
-            <span className="text-[9px] font-mono text-muted-foreground">
-              Coord: [{bbox[0]}, {bbox[1]}, {bbox[2]}×{bbox[3]}]
-            </span>
-          )}
         </div>
         <div className="font-mono text-sm font-black text-foreground bg-muted/30 px-2 py-1.5 rounded border border-border/40 break-words">
           {value || "—"}
@@ -1133,25 +1108,20 @@ export function PackageIntegrityCard({
                     </span>
                   </div>
 
-                  {/* Values & Localised BBox Side-by-Side: STRICTLY LEFT = Inspected, RIGHT = Reference */}
+                  {/* Values & Evidence Side-by-Side: STRICTLY LEFT = Inspected, RIGHT = Reference */}
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
                     {/* LEFT: ORIGINAL / INSPECTED */}
                     <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.03] p-2 space-y-1.5 flex flex-col justify-between">
                       <div>
                         <div className="flex items-center justify-between text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                          <span>Left: Original BBox</span>
-                          {item.inspection_bbox && (
-                            <span className="font-mono text-[9px] text-muted-foreground">
-                              [{item.inspection_bbox.slice(0, 2).map((n) => Math.round(Number(n))).join(", ")}]
-                            </span>
-                          )}
+                          <span>Inspected Package Marking</span>
                         </div>
                         <p className="font-mono font-bold text-foreground text-xs truncate mt-1" title={item.inspection_value}>
                           {item.inspection_value || "Not detected"}
                         </p>
                       </div>
 
-                      {/* Visual Crop / BBox */}
+                      {/* Visual Crop */}
                       <div
                         onClick={() => setActiveEvidence(item)}
                         className="relative h-16 w-full rounded-md bg-slate-950 flex items-center justify-center overflow-hidden border border-border/60 cursor-pointer hover:border-emerald-500/60 transition group"
@@ -1160,11 +1130,11 @@ export function PackageIntegrityCard({
                         {resolveMediaSrc(item.inspection_crop_base64 || item.inspection_crop) ? (
                           <img
                             src={resolveMediaSrc(item.inspection_crop_base64 || item.inspection_crop)}
-                            alt="Original BBox Crop"
+                            alt="Inspected Marking"
                             className="h-full w-full object-contain group-hover:scale-105 transition"
                           />
                         ) : (
-                          <span className="text-[10px] text-muted-foreground font-mono">No BBox Crop</span>
+                          <span className="text-[10px] text-muted-foreground font-medium">Marking Not Located</span>
                         )}
                         <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[8px] font-mono text-emerald-400 opacity-0 group-hover:opacity-100 transition">
                           Inspect
@@ -1176,19 +1146,14 @@ export function PackageIntegrityCard({
                     <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/[0.03] p-2 space-y-1.5 flex flex-col justify-between">
                       <div>
                         <div className="flex items-center justify-between text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-                          <span>Right: Ref Field BBox</span>
-                          {item.reference_bbox && (
-                            <span className="font-mono text-[9px] text-muted-foreground">
-                              [{item.reference_bbox.slice(0, 2).map((n) => Math.round(Number(n))).join(", ")}]
-                            </span>
-                          )}
+                          <span>Authorized Reference Standard</span>
                         </div>
                         <p className="font-mono font-medium text-foreground text-xs truncate mt-1" title={item.reference_value}>
                           {item.reference_value || "Not specified"}
                         </p>
                       </div>
 
-                      {/* Visual Crop / BBox */}
+                      {/* Visual Crop */}
                       <div
                         onClick={() => setActiveEvidence(item)}
                         className="relative h-16 w-full rounded-md bg-slate-950 flex items-center justify-center overflow-hidden border border-border/60 cursor-pointer hover:border-indigo-500/60 transition group"
@@ -1197,11 +1162,11 @@ export function PackageIntegrityCard({
                         {resolveMediaSrc(item.reference_crop_base64 || item.reference_crop) ? (
                           <img
                             src={resolveMediaSrc(item.reference_crop_base64 || item.reference_crop)}
-                            alt="Reference BBox Crop"
+                            alt="Reference Standard"
                             className="h-full w-full object-contain group-hover:scale-105 transition"
                           />
                         ) : (
-                          <span className="text-[10px] text-muted-foreground font-mono">No Ref Crop</span>
+                          <span className="text-[10px] text-muted-foreground font-medium">Standard Not Registered</span>
                         )}
                         <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[8px] font-mono text-indigo-300 opacity-0 group-hover:opacity-100 transition">
                           Inspect
@@ -1209,32 +1174,6 @@ export function PackageIntegrityCard({
                       </div>
                     </div>
                   </div>
-
-                  {/* Special Barcode Product ID Breakdown */}
-                  {(item.field_key === "barcode" || item.field_name.toLowerCase().includes("barcode")) && (item.decoded_value || item.observed_value || item.barcode_verification_status) && (
-                    <div className="rounded-lg border border-blue-500/30 bg-blue-500/[0.04] p-2 space-y-1 text-[10px]">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Barcode Cross-Check</span>
-                        <span className={`rounded px-1.5 py-0.2 font-black uppercase text-[9px] border ${
-                          item.barcode_verification_status === "VERIFIED"
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                            : item.barcode_verification_status === "NOT_OBSERVED"
-                            ? "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
-                            : "bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400"
-                        }`}>
-                          {item.barcode_verification_status || "VERIFIED"}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-muted-foreground font-mono">
-                        <span>Decoded Bars:</span>
-                        <span className="font-bold text-foreground">{item.decoded_value || "—"}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-muted-foreground font-mono">
-                        <span>Printed Digits:</span>
-                        <span className="font-bold text-foreground">{item.observed_value || "— (Not Observed)"}</span>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Special USP Arithmetic Corroboration Badge */}
                   {item.field_key === "unit_sale_price" && item.status === "MATCH" && (
@@ -1253,10 +1192,7 @@ export function PackageIntegrityCard({
                 </div>
 
                 {/* Footer with [View Evidence] button */}
-                <div className="mt-3 pt-2.5 border-t border-border/40 flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">
-                    Confidence: {(item.confidence * 100).toFixed(0)}%
-                  </span>
+                <div className="mt-3 pt-2.5 border-t border-border/40 flex items-center justify-end">
                   <button
                     type="button"
                     onClick={() => setActiveEvidence(item)}
@@ -1322,7 +1258,7 @@ export function PackageIntegrityCard({
               {/* LEFT: ORIGINAL / INSPECTED IMAGE */}
               <SideEvidencePanel
                 side="LEFT"
-                title="LEFT: ORIGINAL / INSPECTED"
+                title="INSPECTED PACKAGE MARKING"
                 subtitle="Physical Scanned Package Evidence"
                 value={activeEvidence.inspection_value}
                 cropBase64={activeEvidence.inspection_crop_base64 || activeEvidence.inspection_crop}
@@ -1342,7 +1278,7 @@ export function PackageIntegrityCard({
               {/* RIGHT: REFERENCE / GOLDEN IMAGE */}
               <SideEvidencePanel
                 side="RIGHT"
-                title="RIGHT: REFERENCE / GOLDEN"
+                title="AUTHORIZED REFERENCE STANDARD"
                 subtitle="Registered Digital Master / Catalog Standard"
                 value={activeEvidence.reference_value}
                 cropBase64={activeEvidence.reference_crop_base64 || activeEvidence.reference_crop}
@@ -1359,41 +1295,6 @@ export function PackageIntegrityCard({
                 }
               />
             </div>
-
-            {/* Barcode Dual-Channel Evidence Cross-Check Card */}
-            {(activeEvidence.field_key === "barcode" || activeEvidence.decoded_value || activeEvidence.observed_value) && (
-              <div className="rounded-xl border border-blue-500/30 bg-blue-500/[0.03] p-3.5 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-foreground flex items-center gap-1.5">
-                    Barcode Dual-Channel Verification (Decoded vs Visually Observed)
-                  </span>
-                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border ${
-                    activeEvidence.barcode_verification_status === "VERIFIED"
-                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                      : activeEvidence.barcode_verification_status === "NOT_OBSERVED"
-                      ? "bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400"
-                      : "bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400"
-                  }`}>
-                    {activeEvidence.barcode_verification_status || "VERIFIED"}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div className="rounded-lg bg-card border border-border/60 p-2.5 space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-muted-foreground block">Machine Decoded Barcode:</span>
-                    <span className="font-mono text-xs font-black text-foreground">{activeEvidence.decoded_value || activeEvidence.inspection_value || "—"}</span>
-                    <span className="text-[9px] text-muted-foreground block">CV Barcode Detector / ZXing Channel</span>
-                  </div>
-                  <div className="rounded-lg bg-card border border-border/60 p-2.5 space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-muted-foreground block">Visually Observed Printed Digits:</span>
-                    <span className="font-mono text-xs font-black text-foreground">{activeEvidence.observed_value || "— (Not Observable on Packaging)"}</span>
-                    <span className="text-[9px] text-muted-foreground block">OCR Text Localization / HRI Channel</span>
-                  </div>
-                </div>
-                <p className="text-[10px] text-muted-foreground italic">
-                  * Invariant: Printed digits are never fabricated from the machine decoder. Real vector polygons & bboxes preserved.
-                </p>
-              </div>
-            )}
 
             {/* Unit Sale Price Arithmetic Corroboration Card */}
             {activeEvidence.field_key === "unit_sale_price" && (

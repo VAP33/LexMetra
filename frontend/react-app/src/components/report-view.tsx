@@ -53,11 +53,16 @@ export function findIntegrityCrop(
   keys: string[]
 ): string | undefined {
   if (!fieldComparisons || fieldComparisons.length === 0) return undefined;
+  const isDateSearch = keys.some(k => k.includes("date") || k.includes("mfd") || k.includes("mfg") || k.includes("expiry"));
   const match = fieldComparisons.find((fc) => {
-    const k = (fc.field_key || fc.field || fc.field_name || "").toLowerCase().replace(/[\s_\-\/\(\)]/g, "");
+    const origKey = (fc.field_key || fc.field || fc.field_name || "").toLowerCase();
+    if (isDateSearch && (origKey.includes("address") || origKey.includes("name") || origKey.includes("care") || origKey.includes("packer"))) {
+      return false;
+    }
+    const k = origKey.replace(/[\s_\-\/\(\)]/g, "");
     return keys.some((target) => {
       const cleanTarget = target.toLowerCase().replace(/[\s_\-\/\(\)]/g, "");
-      return k === cleanTarget || k.includes(cleanTarget) || cleanTarget.includes(k);
+      return k === cleanTarget || (cleanTarget.length >= 4 && k.includes(cleanTarget)) || (k.length >= 4 && cleanTarget.includes(k));
     });
   });
   return match?.inspection_crop_base64 || match?.inspection_crop;
@@ -543,26 +548,42 @@ export function ReportView({ inspection, onBack, lang = "en", onLanguageChange }
               ))}
             </div>
 
-            {/* Section 1: Core 13 Statutory Rules & Localized Evidence */}
+            {/* Section 1: Core Statutory Retail Declarations & Localized Evidence */}
             <div className="print-avoid-break">
-              <SectionTitle n={1} title="Statutory Rule-by-Rule Compliance Findings (The 13 Core LMPC Rules)" />
-              <p className="text-xs text-slate-500 mb-2.5">
-                Core mandatory statutory declarations evaluated under Rule 6 and Second Schedule of the Legal Metrology (Packaged Commodities) Rules, 2011.
+              <SectionTitle n={1} title="Statutory Retail Declarations (Mandatory Baseline — Rule 6, LMPC Rules 2011)" />
+              <p className="text-xs text-slate-500 mb-2.5 leading-relaxed">
+                Rule 6(1) of the Legal Metrology (Packaged Commodities) Rules, 2011 specifies the mandatory declarations required on retail packages. Extended provisions (Rules 7–10 Display &amp; Typography, Rule 24 Net Quantity Tolerances, Rule 26 Statutory Exemptions, and Rule 32 Enforcement) are evaluated across applicable statutory schedules.
               </p>
               <div className="rounded-xl border border-slate-200 overflow-x-auto shadow-xs">
                 <table className="w-full text-left text-xs border-collapse">
                   <TableHeader cols={["Rule Clause", "Requirement", "Observed Value", "Status", "Evidence / Localized Section", "Statutory Requirement"]} />
                   <tbody className="divide-y divide-slate-100">
                     {[
-                      { rule: "Rule 6(1)(a)", req: "Manufacturer / Packer Name & Address", decl: mfgDecl, req_text: "Full name and complete address of manufacturer/packer/importer.", keys: ["manufacturer", "packer", "mfg_address", "mfg_name"] },
-                      { rule: "Rule 6(1)(a)", req: "Marketer / Distributor Name & Address", decl: allDecls.find(d => d.field.toLowerCase().includes("marketer") || d.canonicalField?.toLowerCase() === "marketer_name_address"), req_text: "Full name and address of marketer where distinct from manufacturer.", keys: ["marketer", "distributor", "manufacturer"] },
+                      { rule: "Rule 6(1)(a)", req: "Manufacturer / Packer Name & Address", decl: mfgDecl, req_text: "Full name and complete address of manufacturer/packer/importer.", keys: ["manufacturer_name", "packer", "mfg_address", "mfg_name"] },
+                      { rule: "Rule 6(1)(a)", req: "Marketer / Distributor Name & Address", decl: allDecls.find(d => d.field.toLowerCase().includes("marketer") || d.canonicalField?.toLowerCase() === "marketer_name_address"), req_text: "Full name and address of marketer where distinct from manufacturer.", keys: ["marketer", "distributor"] },
                       { rule: "Rule 6(1)(b)", req: "Common / Generic Name of Commodity", decl: allDecls.find(d => d.field.toLowerCase().includes("product") || d.field.toLowerCase().includes("name") || d.canonicalField?.toLowerCase() === "common_name"), req_text: "Common or generic name of commodity must be declared.", keys: ["product_identity", "product_name", "common_name", "generic_name", "commodity"] },
                       { rule: "Rule 6(1)(c)", req: "Net Quantity (weight/volume/number)", decl: allDecls.find(d => d.field.toLowerCase().includes("net") || d.field.toLowerCase().includes("quantity") || d.canonicalField?.toLowerCase() === "net_quantity"), req_text: "Net quantity in standard metric units.", keys: ["net_quantity", "net_qty", "net_weight", "net_volume", "quantity", "180g"] },
-                      { rule: "Rule 5 / Sch II", req: "Standard Pack Size Compliance", decl: allDecls.find(d => d.field.toLowerCase().includes("standard") || d.field.toLowerCase().includes("pack_size") || d.field.toLowerCase().includes("pack size") || d.canonicalField?.toLowerCase() === "standard_pack_size"), req_text: "Pack size complies with Second Schedule standard packaging specifications.", keys: ["standard_pack_size", "pack_size"] },
-                      { rule: "Rule 6(1)(d)", req: "Month and Year of Manufacture / Packing", decl: allDecls.find(d => d.field.toLowerCase().includes("mfg") || d.field.toLowerCase().includes("manufacture") || d.canonicalField?.toLowerCase() === "mfg_date"), req_text: "MM/YYYY or Month-Year format.", keys: ["mfg_date", "date_of_manufacture", "manufacture", "mfd", "packing_date"] },
+                      {
+                        rule: "Rule 6(1)(d)",
+                        req: "Month and Year of Manufacture / Packing",
+                        decl: allDecls.find(d => {
+                          const f = (d.field || "").toLowerCase();
+                          const c = (d.canonicalField || "").toLowerCase();
+                          return (c === "mfg_date" || c === "manufacturing_date") ||
+                            ((f.includes("mfg") || f.includes("manufactur")) && (f.includes("date") || f.includes("mfd") || (!f.includes("name") && !f.includes("address") && !f.includes("packer"))));
+                        }),
+                        req_text: "MM/YYYY or Month-Year format.",
+                        keys: ["manufacturing_date", "mfg_date", "date_of_manufacture", "mfd_date", "packing_date"]
+                      },
                       { rule: "Rule 6(1)(d)", req: "Expiry / Best Before / Use By Date", decl: allDecls.find(d => d.field.toLowerCase().includes("expiry") || d.field.toLowerCase().includes("best_before") || d.field.toLowerCase().includes("use_by") || d.canonicalField?.toLowerCase() === "best_before_use_by"), req_text: "Best before or use by date declaration for perishable or consumer commodities.", keys: ["expiry_date", "best_before", "use_by", "expiry", "best before date"] },
                       { rule: "Rule 6(1)(e)", req: "Maximum Retail Price (MRP) incl. all taxes", decl: allDecls.find(d => d.field.toLowerCase().includes("mrp") || d.field.toLowerCase().includes("price") || d.canonicalField?.toLowerCase() === "mrp"), req_text: "MRP as 'M.R.P. ₹ XX.XX (Inclusive of all taxes)'.", keys: ["mrp", "retail_price", "price", "maximum retail price"] },
-                      { rule: "Rule 6(1)(da)", req: "Unit Sale Price (USP)", decl: allDecls.find(d => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit_sale") || d.canonicalField?.toLowerCase() === "unit_sale_price"), req_text: "Price per standard unit (per gram, per ml, etc.).", keys: ["unit_sale_price", "usp", "unit sale price", "unit_price"] },
+                      {
+                        rule: "Rule 6(1)(da)",
+                        req: "Unit Sale Price (USP)",
+                        decl: allDecls.find(d => d.field.toLowerCase().includes("usp") || d.field.toLowerCase().includes("unit_sale") || d.canonicalField?.toLowerCase() === "unit_sale_price"),
+                        req_text: "Price per standard unit (per gram, per ml, etc.).",
+                        keys: ["unit_sale_price", "usp", "unit sale price", "unit_price"]
+                      },
                       { rule: "Rule 6(1)(f)", req: "Consumer Care Contact Details", decl: careDecl, req_text: "Telephone number or email of consumer care.", keys: ["consumer_care", "care", "customer_care", "contact", "consumer care"] },
                       { rule: "Rule 6(1)(g)", req: "Country of Origin (Imported Goods)", decl: allDecls.find(d => d.field.toLowerCase().includes("country") || d.field.toLowerCase().includes("origin") || d.canonicalField?.toLowerCase() === "country_of_origin"), req_text: "Country of origin required for imported goods.", keys: ["country_of_origin", "origin", "country"] },
                       { rule: "Rule 6(1)(h)", req: "Barcode / GTIN Verification", decl: barcodeDecl || allDecls.find(d => d.field.toLowerCase().includes("barcode") || d.field.toLowerCase().includes("gtin") || d.canonicalField?.toLowerCase() === "barcode"), req_text: "Statutory readable barcode / GTIN encoding verified.", keys: ["barcode", "gtin", "barcode / gtin", "ean"] },
@@ -579,13 +600,23 @@ export function ReportView({ inspection, onBack, lang = "en", onLanguageChange }
                       const bbox = decl?.evidenceBboxPx || decl?.valueBboxPx || decl?.canonicalBboxPx;
                       const directCrop = (decl as any)?.evidenceCropBase64 || (decl as any)?.evidenceCrop || findIntegrityCrop(integrityData?.field_comparisons, keys);
 
+                      // Corroborate observed value and status from package integrity comparisons if decl is unobserved or generic
+                      const intMatch = integrityData?.field_comparisons?.find((fc: any) => {
+                        const fk = (fc.field_key || fc.field || fc.field_name || "").toLowerCase();
+                        return keys.some((k) => fk === k || fk.includes(k) || k.includes(fk));
+                      });
+                      const displayVal = (decl?.value && decl.value !== "Not captured" && decl.value !== "UNOBSERVED")
+                        ? decl.value
+                        : (intMatch?.inspection_value || decl?.value || null);
+                      const isPassing = Boolean(displayVal && (decl?.status === "VERIFIED" || (decl?.status as string) === "PASS" || intMatch?.status === "MATCH"));
+
                       return (
                         <tr key={rule + i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                           <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">{rule}</td>
                           <td className="px-3 py-2 font-semibold text-slate-800">{req}</td>
-                          <td className="px-3 py-2 text-slate-700 max-w-[140px] break-words">{decl?.value || <span className="italic text-slate-400">Not Observed</span>}</td>
-                          <td className={`px-3 py-2 whitespace-nowrap ${statusColor(decl?.status || "MISSING")}`}>
-                            {decl ? statusLabel(decl.status) : "NOT OBSERVED ✗"}
+                          <td className="px-3 py-2 text-slate-700 max-w-[140px] break-words">{displayVal || <span className="italic text-slate-400">Not Observed</span>}</td>
+                          <td className={`px-3 py-2 whitespace-nowrap ${isPassing ? "text-emerald-700 font-bold" : statusColor(decl?.status || "MISSING")}`}>
+                            {isPassing ? "PASS ✓" : decl ? statusLabel(decl.status) : "NOT OBSERVED ✗"}
                           </td>
                           <td className="px-3 py-2">
                             <ReportEvidenceCrop
