@@ -613,12 +613,13 @@ class DeclarationGraphResolver:
                     role_union_bbox = lbl_view.bbox
 
                 full_val = role_block.full_declaration or role_block.company_name
+                disp_val = role_block.company_name or full_val
 
                 resolved[role_field] = ResolvedDeclaration(
                     field=role_field,
                     status="RESOLVED" if role_block.company_name else "REVIEW_REQUIRED",
                     value=role_block,
-                    display_value=full_val,
+                    display_value=disp_val,
                     raw_text=lbl_view.text + " " + " ".join(role_block.address_lines),
                     bbox=role_union_bbox,
                     label_bbox=lbl_view.bbox,
@@ -889,15 +890,25 @@ class DeclarationGraphResolver:
 
     def _format_display_value(self, parsed_val: Any) -> Optional[str]:
         if isinstance(parsed_val, MoneyValue):
+            try:
+                amt_str = f"{float(parsed_val.amount):g}"
+            except (ValueError, TypeError):
+                amt_str = str(parsed_val.amount)
             if parsed_val.is_unit_rate:
-                return f"₹{parsed_val.amount:g}/{parsed_val.denominator_unit}"
-            return f"₹{parsed_val.amount:g}"
+                return f"₹{amt_str}/{parsed_val.denominator_unit}"
+            return f"₹{amt_str}"
         if isinstance(parsed_val, BatchCandidate):
             return parsed_val.normalized_reading
         if isinstance(parsed_val, TemporalValue):
             return parsed_val.normalized_iso or parsed_val.calendar_date or parsed_val.raw_text
         if isinstance(parsed_val, dict) and "amount" in parsed_val:
-            return f"{parsed_val['amount']:g} {parsed_val['unit']}"
+            amt = parsed_val.get("amount")
+            try:
+                amt_str = f"{float(amt):g}"
+            except (ValueError, TypeError):
+                amt_str = str(amt)
+            u = parsed_val.get("unit", "")
+            return f"{amt_str} {u}".strip()
         return str(parsed_val) if parsed_val is not None else None
 
     def _extract_value_details(self, parsed_val: Any) -> Dict[str, Any]:

@@ -1031,7 +1031,7 @@ def build_inspection_report_pdf(
                 label=f_title,
                 value=d_val,
                 target_width_mm=44 * mm,
-                target_height_mm=17 * mm,
+                target_height_mm=16 * mm,
                 box_color=crop_box_col,
             )
 
@@ -1048,17 +1048,17 @@ def build_inspection_report_pdf(
             ("SPAN", (0, 2), (1, 2)),
             ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
             ("BOX", (0, 0), (-1, -1), 0.35, colors.HexColor("#cbd5e1")),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
             ("LEFTPADDING", (0, 0), (-1, -1), 3),
             ("RIGHTPADDING", (0, 0), (-1, -1), 3),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
         crop_cells.append(cell_table)
 
-    # 2-column evidence grid (6 items fit comfortably with 3-face gallery below)
+    # 2-column evidence grid (all statutory declaration cards)
     evidence_grid_rows = []
-    for i in range(0, min(6, len(crop_cells)), 2):
+    for i in range(0, min(10, len(crop_cells)), 2):
         row = [crop_cells[i]]
         if i + 1 < len(crop_cells):
             row.append(crop_cells[i + 1])
@@ -1070,8 +1070,8 @@ def build_inspection_report_pdf(
         evidence_grid = Table(evidence_grid_rows, colWidths=[90 * mm, 90 * mm])
         evidence_grid.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.0),
             ("LEFTPADDING", (0, 0), (-1, -1), 1),
             ("RIGHTPADDING", (0, 0), (-1, -1), 1),
         ]))
@@ -1198,20 +1198,29 @@ def build_inspection_report_pdf(
     findings_section = build_findings_section(inspection)
     findings_rows = findings_section.get("rows", [])
     
+    if findings_section.get("showing_facts") and findings_section.get("heading"):
+        story.append(Paragraph(f"<b>{findings_section['heading']}</b>", sec_heading))
+        story.append(Spacer(1, 2))
+
+    if findings_section.get("warning"):
+        story.append(Paragraph(f"<font color='#dc2626'><b>{findings_section['warning']}</b></font>", small))
+        story.append(Spacer(1, 2))
+
     f_head_style = ParagraphStyle("FHead", parent=small, fontName="Helvetica-Bold", textColor=colors.HexColor("#0f172a"))
     f_table_rows = [[
         Paragraph("Rule / Parameter", f_head_style),
         Paragraph("Citation", f_head_style),
         Paragraph("Evaluation Status", f_head_style),
         Paragraph("Statutory Analysis &amp; Compliance Reason", f_head_style),
+        Paragraph("Evidence Trace", f_head_style),
     ]]
     f_style_cmds = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
         ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")),
         ("FONTSIZE", (0, 0), (-1, -1), 7.5),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8),
     ]
 
     if findings_rows:
@@ -1221,11 +1230,13 @@ def build_inspection_report_pdf(
             f_label = fr['label']
             clean_label = str(f_label).replace("_", " ").title() if str(f_label).islower() else str(f_label)
             f_reason = re.sub(r"\'([a-z_]+)\'", lambda m: m.group(1).replace("_", " ").title(), fr["reason"])
+            f_ev = fr.get("evidence") or "Canonical surface recorded"
             f_table_rows.append([
                 Paragraph(f"<b>{clean_label}</b>", small),
                 Paragraph(fr["rule_version"], small),
                 Paragraph(f"<font color='{f_col.hexval()}'><b>{f_stat}</b></font>", small),
                 Paragraph(f_reason, small),
+                Paragraph(f_ev, small),
             ])
     else:
         # Ground from top evaluated retail rules in master rules register
@@ -1243,11 +1254,16 @@ def build_inspection_report_pdf(
                 Paragraph(tr_cit, small),
                 Paragraph(f"<font color='{col_hex}'><b>{tr_st}</b></font>", small),
                 Paragraph(tr_note, small),
+                Paragraph("Orthomosaic capture", small),
             ])
 
-    f_table = Table(f_table_rows, colWidths=[48 * mm, 26 * mm, 28 * mm, 80 * mm], repeatRows=1)
+    f_table = Table(f_table_rows, colWidths=[38 * mm, 22 * mm, 24 * mm, 58 * mm, 38 * mm], repeatRows=1)
     f_table.setStyle(TableStyle(f_style_cmds))
     story.append(f_table)
+
+    if findings_section.get("closing"):
+        story.append(Spacer(1, 1.5))
+        story.append(Paragraph(findings_section["closing"], small_muted))
 
     story.append(Spacer(1, 4))
 
