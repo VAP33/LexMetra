@@ -151,8 +151,9 @@ VLM_VERIFICATION_ENABLED = _env_bool("VLM_VERIFICATION_ENABLED", True) and bool(
 )
 
 # Gemini is used for high-speed multimodal perception and OCR
-GEMINI_OCR_MODEL = os.environ.get("GEMINI_OCR_MODEL", "gemini-3.5-flash-lite")
-GEMINI_OCR_TIMEOUT_SECONDS = float(os.environ.get("GEMINI_OCR_TIMEOUT_SECONDS", "15"))
+GEMINI_OCR_ENABLED = os.environ.get("GEMINI_OCR_ENABLED", "true").lower() in ("1", "true", "yes")
+GEMINI_OCR_MODEL = os.environ.get("GEMINI_OCR_MODEL", "gemini-2.5-flash-lite")
+GEMINI_OCR_TIMEOUT_SECONDS = float(os.environ.get("GEMINI_OCR_TIMEOUT_SECONDS", "10"))
 GEMINI_OCR_MAX_OUTPUT_TOKENS = int(os.environ.get("GEMINI_OCR_MAX_OUTPUT_TOKENS", "8192"))
 
 # ---------------------------------------------------------------------------

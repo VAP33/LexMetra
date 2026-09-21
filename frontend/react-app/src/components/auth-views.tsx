@@ -97,7 +97,7 @@ export function LoginView({
       <form onSubmit={handleSubmit} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl">
         <div className="h-1.5 w-full tricolor-stripe mb-5 rounded-full" />
         <div className="flex flex-col items-center text-center pb-4 border-b border-slate-100 mb-4">
-          <LexMetraLogo className="h-10 sm:h-12 w-auto max-w-[220px] mx-auto mb-1" />
+          <LexMetraLogo className="w-56 sm:w-64 h-auto mx-auto mb-1" />
         </div>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground text-center">
           Select your statutory role or enter credentials to access Legal Metrology dashboards and inspection tools.

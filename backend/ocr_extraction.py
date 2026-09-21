@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -195,37 +196,27 @@ def _ocr_single(image: Image.Image, psm: int = 6) -> List[OcrLine]:
 
 def _preprocess_variants(image: Image.Image) -> List[Image.Image]:
     """
-    Produce conservative OCR variants.
-
-    The original image is always included. Extra variants mainly help with
-    low-contrast labels and small text. Image dimensions are capped to 2048px
-    to prevent runaway CPU latency on high-resolution camera images.
+    Produce fast, conservative OCR variants.
+    Capping dimensions to 1200px ensures sub-second Tesseract CPU execution
+    without losing OCR text clarity.
     """
     rgb = image.convert("RGB")
-    gray = ImageOps.grayscale(rgb)
-
-    max_dim = max(gray.size)
-    if max_dim < 1000:
-        scale = min(2.0, 1600.0 / max(1, max_dim))
-    elif max_dim < 1600:
-        scale = min(1.3, 1920.0 / max(1, max_dim))
+    max_dim = max(rgb.size)
+    if max_dim > 1200:
+        scale = 1200.0 / max_dim
+        target_size = (max(1, int(rgb.width * scale)), max(1, int(rgb.height * scale)))
+        rgb_scaled = rgb.resize(target_size, Image.Resampling.BILINEAR)
+    elif max_dim < 800:
+        scale = min(1.5, 1100.0 / max(1, max_dim))
+        target_size = (max(1, int(rgb.width * scale)), max(1, int(rgb.height * scale)))
+        rgb_scaled = rgb.resize(target_size, Image.Resampling.BILINEAR)
     else:
-        scale = min(1.0, 2048.0 / max(1, max_dim))
+        rgb_scaled = rgb
 
-    if abs(scale - 1.0) > 0.05:
-        target_size = (max(1, int(gray.width * scale)), max(1, int(gray.height * scale)))
-        enlarged = gray.resize(target_size, Image.Resampling.BILINEAR)
-    else:
-        enlarged = gray
-
-    contrast = ImageEnhance.Contrast(enlarged).enhance(1.5)
-    sharp = contrast.filter(ImageFilter.SHARPEN)
-    auto = ImageOps.autocontrast(sharp, cutoff=1)
-
-    # For large images, 2 variants (rgb + auto) provide excellent coverage at 2x speed
-    if max_dim >= 1200:
-        return [rgb, auto]
-    return [rgb, enlarged, auto]
+    gray = ImageOps.grayscale(rgb_scaled)
+    contrast = ImageEnhance.Contrast(gray).enhance(1.4)
+    auto = ImageOps.autocontrast(contrast, cutoff=1)
+    return [rgb_scaled, auto]
 
 
 def _dedupe_lines(lines: Iterable[OcrLine]) -> List[OcrLine]:
@@ -273,6 +264,8 @@ def _dedupe_lines(lines: Iterable[OcrLine]) -> List[OcrLine]:
     return selected
 
 
+_gemini_circuit_broken_until: float = 0.0
+
 def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     """
     Run Gemini Vision API for OCR extraction.
@@ -280,6 +273,13 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     Returns OcrLine objects compatible with the existing pipeline.
     Falls back gracefully if the API is unavailable or returns unexpected format.
     """
+    global _gemini_circuit_broken_until
+    if time.time() < _gemini_circuit_broken_until:
+        return []
+
+    if not getattr(config, "GEMINI_OCR_ENABLED", True) or getattr(config, "GEMINI_OCR_MODEL", "") in ("", "disabled", "none"):
+        return []
+
     client = get_gemini_client()
     if client is None:
         print("[!] [GEMINI OCR] No client available (GEMINI_API_KEY missing or invalid)", flush=True)
@@ -304,29 +304,25 @@ def _ocr_gemini(image: Image.Image) -> List[OcrLine]:
     )
 
     response = None
-    candidate_models = [config.GEMINI_OCR_MODEL]
-    for alt in ("gemini-3.5-flash-lite", "gemini-3.6-flash"):
-        if alt not in candidate_models:
-            candidate_models.append(alt)
-
+    model_name = getattr(config, "GEMINI_OCR_MODEL", "gemini-2.5-flash-lite")
     text = ""
-    for model_name in candidate_models:
-        try:
-            print(f"[+] [GEMINI OCR] Sending image ({rgb_image.width}x{rgb_image.height}) to {model_name}...", flush=True)
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[prompt, rgb_image],
-                config=_genai_types.GenerateContentConfig(
-                    temperature=0,
-                    response_mime_type="application/json",
-                    max_output_tokens=config.GEMINI_OCR_MAX_OUTPUT_TOKENS,
-                ),
-            )
-            text = getattr(response, "text", "") or ""
-            print(f"[+] [GEMINI OCR SUCCESS] {model_name} returned response ({len(text)} chars)", flush=True)
-            break
-        except Exception as e:
-            print(f"[!] [GEMINI OCR] {model_name} failed ({e}). Trying next model...", flush=True)
+    try:
+        print(f"[+] [GEMINI OCR] Sending image ({rgb_image.width}x{rgb_image.height}) to {model_name}...", flush=True)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=[prompt, rgb_image],
+            config=_genai_types.GenerateContentConfig(
+                temperature=0,
+                response_mime_type="application/json",
+                max_output_tokens=config.GEMINI_OCR_MAX_OUTPUT_TOKENS,
+            ),
+        )
+        text = getattr(response, "text", "") or ""
+        print(f"[+] [GEMINI OCR SUCCESS] {model_name} returned response ({len(text)} chars)", flush=True)
+    except Exception as e:
+        print(f"[!] [GEMINI OCR] {model_name} failed ({e}).", flush=True)
+        _gemini_circuit_broken_until = time.time() + 180.0
+        print(f"[!] [GEMINI OCR] Tripping circuit breaker for 180s to prevent scan stalls.", flush=True)
 
     if not text:
         return []
@@ -494,18 +490,9 @@ def _run_ocr_whole_image(image: Image.Image) -> List[OcrLine]:
         sx = orig_w / vw
         sy = orig_h / vh
 
-        # PSM 6 handles text blocks and label panels well
-        psms = [6]
-        # Only add sparse mode (PSM 11) on first variant if initial extraction found very few lines
-        if variant_index == 0 and len(all_lines) < 6:
-            psms.append(11)
-
-        for psm in psms:
-            try:
-                lines = _ocr_single(variant, psm=psm)
-            except Exception:
-                continue
-
+        # Fast PSM 6 (single uniform block of text)
+        try:
+            lines = _ocr_single(variant, psm=6)
             for line in lines:
                 x, y, w, h = line.bbox
                 mapped = (
@@ -521,6 +508,37 @@ def _run_ocr_whole_image(image: Image.Image) -> List[OcrLine]:
                         confidence=line.confidence,
                     )
                 )
+        except Exception:
+            pass
+
+        # Early exit: if variant 0 already extracted rich text (>= 8 lines),
+        # skip subsequent variants to ensure sub-second CPU response time.
+        if variant_index == 0 and len(all_lines) >= 8:
+            break
+
+    # If initial pass found very few lines (< 4), try sparse mode PSM 11 on variant 0
+    if len(all_lines) < 4 and len(variants) > 0:
+        vw, vh = variants[0].size
+        sx = orig_w / vw
+        sy = orig_h / vh
+        try:
+            sparse_lines = _ocr_single(variants[0], psm=11)
+            for line in sparse_lines:
+                x, y, w, h = line.bbox
+                all_lines.append(
+                    OcrLine(
+                        text=line.text,
+                        bbox=(
+                            max(0, int(round(x * sx))),
+                            max(0, int(round(y * sy))),
+                            max(1, int(round(w * sx))),
+                            max(1, int(round(h * sy))),
+                        ),
+                        confidence=line.confidence,
+                    )
+                )
+        except Exception:
+            pass
 
     return _dedupe_lines(all_lines)
 
