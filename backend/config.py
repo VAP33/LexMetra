@@ -118,7 +118,10 @@ UPLOAD_DIR = Path(
         str(Path(__file__).resolve().parent / "uploads"),
     )
 )
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 REPORT_DIR = Path(
     os.environ.get(
@@ -126,7 +129,10 @@ REPORT_DIR = Path(
         str(Path(__file__).resolve().parent / "reports"),
     )
 )
-REPORT_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 # ---------------------------------------------------------------------------
 # Optional external services
