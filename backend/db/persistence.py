@@ -112,6 +112,21 @@ def init_schema() -> None:
                 except Exception:
                     pass
 
+            # Ensure all sequences are synced with current table data
+            try:
+                cur.execute("""
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND column_default LIKE 'nextval%'
+                """)
+                for tbl, col in cur.fetchall():
+                    try:
+                        cur.execute(f"SELECT setval(pg_get_serial_sequence('{tbl}', '{col}'), COALESCE((SELECT MAX({col}) FROM {tbl}), 1));")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
 
 # ---------------------------------------------------------------------------
 # Serialization helpers
@@ -509,6 +524,7 @@ def save_inspection(
             )
 
             # Keep the existing core schema contract.
+            decl_json = _json_or_none(getattr(inspection, "declarations", []) or [])
             cur.execute(
                 """
                 INSERT INTO inspections
@@ -522,9 +538,11 @@ def save_inspection(
                         mrp,
                         overall_status,
                         exempt_reason,
-                        image_filename
+                        image_filename,
+                        review_required,
+                        declarations_json
                     )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (inspection_id) DO UPDATE SET
                     product_id = EXCLUDED.product_id,
                     sale_type = EXCLUDED.sale_type,
@@ -534,6 +552,8 @@ def save_inspection(
                     mrp = EXCLUDED.mrp,
                     overall_status = EXCLUDED.overall_status,
                     exempt_reason = EXCLUDED.exempt_reason,
+                    review_required = EXCLUDED.review_required,
+                    declarations_json = EXCLUDED.declarations_json,
                     image_filename = COALESCE(
                         EXCLUDED.image_filename,
                         inspections.image_filename
@@ -550,6 +570,8 @@ def save_inspection(
                     overall_status,
                     exempt_reason,
                     image_filename,
+                    review_required,
+                    decl_json,
                 ),
             )
 
@@ -561,179 +583,80 @@ def save_inspection(
             )
 
             facts = getattr(inspection, "facts", []) or []
-
-            # Detect optional richer columns once. This lets us preserve
-            # compatibility with the original three-table MVP schema while
-            # allowing evidence JSON in an upgraded schema.
-            cur.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'inspection_facts'
-                """
-            )
-            fact_columns = {
-                row[0]
-                for row in cur.fetchall()
-            }
-
-            has_evidence_json = "evidence_json" in fact_columns
-
-            for fact in facts:
-                field = str(getattr(fact, "field", ""))
-
-                base_values = (
-                    inspection_id,
-                    field,
-                    _fact_value(fact),
-                    _fact_status(fact),
-                    _fact_confidence(fact),
-                    _fact_rule_id(fact),
-                    _fact_rule_version(fact),
-                    _fact_reason(fact),
-                    _fact_review_required(fact),
-                )
-
-                if has_evidence_json:
-                    cur.execute(
-                        """
-                        INSERT INTO inspection_facts
-                            (
-                                inspection_id,
-                                field,
-                                extracted_value,
-                                status,
-                                confidence,
-                                rule_id,
-                                rule_version,
-                                reason,
-                                review_required,
-                                evidence_json
-                            )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        base_values + (_fact_evidence_payload(fact),),
-                    )
-                else:
-                    cur.execute(
-                        """
-                        INSERT INTO inspection_facts
-                            (
-                                inspection_id,
-                                field,
-                                extracted_value,
-                                status,
-                                confidence,
-                                rule_id,
-                                rule_version,
-                                reason,
-                                review_required
-                            )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        base_values,
-                    )
-
-            # If the upgraded inspections table has a review_required column,
-            # persist the aggregate state as well. Otherwise the existing
-            # inspection_facts review flags remain the source for list filters.
-            cur.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'inspections'
-                """
-            )
-            inspection_columns = {
-                row[0]
-                for row in cur.fetchall()
-            }
-
-            if "review_required" in inspection_columns:
-                cur.execute(
+            if facts and psycopg2 is not None:
+                fact_rows = []
+                for fact in facts:
+                    field = str(getattr(fact, "field", ""))
+                    fact_rows.append((
+                        inspection_id,
+                        field,
+                        _fact_value(fact),
+                        _fact_status(fact),
+                        _fact_confidence(fact),
+                        _fact_rule_id(fact),
+                        _fact_rule_version(fact),
+                        _fact_reason(fact),
+                        _fact_review_required(fact),
+                        _fact_evidence_payload(fact),
+                    ))
+                psycopg2.extras.execute_values(
+                    cur,
                     """
-                    UPDATE inspections
-                    SET review_required = %s
-                    WHERE inspection_id = %s
+                    INSERT INTO inspection_facts
+                        (
+                            inspection_id,
+                            field,
+                            extracted_value,
+                            status,
+                            confidence,
+                            rule_id,
+                            rule_version,
+                            reason,
+                            review_required,
+                            evidence_json
+                        )
+                    VALUES %s
                     """,
-                    (review_required, inspection_id),
-                )
-
-            if "declarations_json" in inspection_columns:
-                cur.execute(
-                    """
-                    UPDATE inspections
-                    SET declarations_json = %s
-                    WHERE inspection_id = %s
-                    """,
-                    (_json_or_none(getattr(inspection, "declarations", []) or []), inspection_id),
+                    fact_rows,
                 )
 
             # ---------------- Findings ----------------
-            #
-            # The legal verdicts. Previously not persisted at all, so a reloaded
-            # inspection had facts but no findings, and the PDF report quietly
-            # rendered facts in their place. Guarded by a table-existence check
-            # so an older database that has not run the current schema.sql keeps
-            # working rather than failing every save.
             cur.execute(
-                """
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_schema = current_schema()
-                  AND table_name = 'inspection_findings'
-                """
+                "DELETE FROM inspection_findings WHERE inspection_id = %s",
+                (inspection_id,),
             )
-            has_findings_table = cur.fetchone() is not None
 
-            if has_findings_table:
-                cur.execute(
-                    "DELETE FROM inspection_findings WHERE inspection_id = %s",
-                    (inspection_id,),
-                )
-
-                findings = getattr(inspection, "findings", []) or []
-                placeholders = ", ".join(["%s"] * len(FINDING_COLUMNS))
+            findings = getattr(inspection, "findings", []) or []
+            if findings and psycopg2 is not None:
+                finding_rows = [
+                    tuple(build_finding_row(inspection_id, finding)[name] for name in FINDING_COLUMNS)
+                    for finding in findings
+                ]
                 columns = ", ".join(FINDING_COLUMNS)
-
-                for finding in findings:
-                    row = build_finding_row(inspection_id, finding)
-                    cur.execute(
-                        f"INSERT INTO inspection_findings ({columns}) "
-                        f"VALUES ({placeholders})",
-                        tuple(row[name] for name in FINDING_COLUMNS),
-                    )
+                psycopg2.extras.execute_values(
+                    cur,
+                    f"INSERT INTO inspection_findings ({columns}) VALUES %s",
+                    finding_rows,
+                )
 
             # ---------------- Surfaces ----------------
             cur.execute(
-                """
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_schema = current_schema()
-                  AND table_name = 'inspection_surfaces'
-                """
+                "DELETE FROM inspection_surfaces WHERE inspection_id = %s",
+                (inspection_id,),
             )
-            has_surfaces_table = cur.fetchone() is not None
 
-            if has_surfaces_table:
-                cur.execute(
-                    "DELETE FROM inspection_surfaces WHERE inspection_id = %s",
-                    (inspection_id,),
-                )
-
-                surfaces = getattr(inspection, "surfaces", []) or []
-                s_placeholders = ", ".join(["%s"] * len(SURFACE_COLUMNS))
+            surfaces = getattr(inspection, "surfaces", []) or []
+            if surfaces and psycopg2 is not None:
+                surface_rows = [
+                    tuple(build_surface_row(inspection_id, surface)[name] for name in SURFACE_COLUMNS)
+                    for surface in surfaces
+                ]
                 s_columns = ", ".join(SURFACE_COLUMNS)
-
-                for surface in surfaces:
-                    s_row = build_surface_row(inspection_id, surface)
-                    cur.execute(
-                        f"INSERT INTO inspection_surfaces ({s_columns}) "
-                        f"VALUES ({s_placeholders})",
-                        tuple(s_row[name] for name in SURFACE_COLUMNS),
-                    )
+                psycopg2.extras.execute_values(
+                    cur,
+                    f"INSERT INTO inspection_surfaces ({s_columns}) VALUES %s",
+                    surface_rows,
+                )
 
 
 
