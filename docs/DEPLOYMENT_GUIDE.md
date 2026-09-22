@@ -178,15 +178,17 @@ python3 scripts/migrate_to_supabase.py --schema-only
 ```
 
 ### 3. Connecting Render Backend to Supabase
-In your Render Dashboard (`lexmetra-backend` Web Service $\rightarrow$ Environment Variables) or in `render.yaml`:
-Set `DATABASE_URL` to your Supabase PostgreSQL URL:
+Because `.env` is listed in `.gitignore` (to prevent secrets from being committed to public repositories), Render does not read `.env` directly from the Git repository. Instead, you supply the environment variables in the Render Dashboard:
 
-- **Direct Connection (Port 5432)**:
-  `postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require`
-- **Transaction Pooler (Port 6543 - Recommended for Render container spin-up)**:
-  `postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?sslmode=require`
+1. Go to your **Render Web Service** (`lexmetra-backend`) $\rightarrow$ **Environment**.
+2. Click **"Add Environment Variable"** and configure:
+   - **`DATABASE_URL`**: `postgresql://postgres:database2%40lexmetra@db.oacqlksmcrtrftmzjjvn.supabase.co:5432/postgres?sslmode=require`
+   - **`CORS_ORIGINS`**: `https://lexmetra-ui.vercel.app,http://localhost:5173`
+   - **`LMPC_DEV_MODE`**: `true`
+   - **`PORT`**: `8000`
+3. Save changes. Render automatically injects these into the container on every deploy.
 
-The FastAPI backend automatically negotiates SSL (`sslmode=require`) and initializes tables if absent.
+The FastAPI backend automatically negotiates SSL (`sslmode=require`) and connects directly to Supabase.
 
 ---
 
