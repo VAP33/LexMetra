@@ -693,9 +693,16 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                       <div className="relative flex items-center justify-center h-full w-full">
                         <img
                           src={displayUrl}
-                          crossOrigin="anonymous"
                           alt={`${st.faceLabel || st.surfaceType} scan`}
                           className="max-h-full max-w-full object-contain select-none block"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            if (!img.dataset.retried) {
+                              img.dataset.retried = "1";
+                              const cleanUrl = displayUrl.replace("?ngrok-skip-browser-warning=true", "").replace("&ngrok-skip-browser-warning=true", "");
+                              img.src = cleanUrl;
+                            }
+                          }}
                           ref={(el) => {
                             if (el && el.complete && el.naturalWidth > 0 && !faceNaturalSizes[st.surfaceType]) {
                               setFaceNaturalSizes((prev) => ({
