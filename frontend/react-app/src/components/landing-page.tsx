@@ -99,14 +99,6 @@ export function LandingPage({
       startScan: "Start Package Inspection",
       officerPortal: "Officer Command Center",
       citizenPortal: "Citizen Grievance & Search",
-      stat1Val: "13 Rules",
-      stat1Lbl: "Statutory Checks",
-      stat2Val: "0% Error",
-      stat2Lbl: "USP Math Tolerance",
-      stat3Val: "6-Face 360°",
-      stat3Lbl: "Package Coverage",
-      stat4Val: "< 1.5s",
-      stat4Lbl: "OCR Perception Speed",
       cap1Title: "360° Multi-Panel Scan",
       cap1Desc: "Full-package unobserved evaluation preventing false absences across 6 surfaces.",
       cap2Title: "Rule 12 Unit Sale Price",
@@ -124,14 +116,6 @@ export function LandingPage({
       startScan: "पैकेज निरीक्षण शुरू करें",
       officerPortal: "अधिकारी पोर्टल",
       citizenPortal: "नागरिक शिकायत पोर्टल",
-      stat1Val: "13 नियम",
-      stat1Lbl: "वैधानिक जाँच",
-      stat2Val: "0% त्रुटि",
-      stat2Lbl: "गणितीय सटीकता",
-      stat3Val: "6-सतह 360°",
-      stat3Lbl: "कवरेज",
-      stat4Val: "< 1.5 से.",
-      stat4Lbl: "ओसीआर गति",
       cap1Title: "360° बहु-सतह स्कैन",
       cap1Desc: "पैकेज की सभी 6 सतहों पर अनिवार्य घोषणाओं का समग्र सत्यापन।",
       cap2Title: "नियम 12 इकाई विक्रय मूल्य",
@@ -149,14 +133,6 @@ export function LandingPage({
       startScan: "पॅकेज तपासणी सुरू करा",
       officerPortal: "अधिकारी पोर्टल",
       citizenPortal: "नागरिक पोर्टल",
-      stat1Val: "13 नियम",
-      stat1Lbl: "वैधानिक नियम",
-      stat2Val: "0% त्रुटी",
-      stat2Lbl: "गणितीय अचूकता",
-      stat3Val: "6-पृष्ठभाग",
-      stat3Lbl: "कव्हरेज",
-      stat4Val: "< 1.5 से.",
-      stat4Lbl: "ओसीआर वेग",
       cap1Title: "360° बहु-पृष्ठभाग स्कॅन",
       cap1Desc: "संपूर्ण पॅकेजवरील 6 पृष्ठांवर अनिवार्य घोषणांची अचूक पडताळणी.",
       cap2Title: "नियम 12 युनिट विक्री किंमत",
@@ -173,14 +149,6 @@ export function LandingPage({
     startScan: "Start Package Inspection",
     officerPortal: "Officer Portal",
     citizenPortal: "Citizen Portal",
-    stat1Val: "13 Rules",
-    stat1Lbl: "Statutory Checks",
-    stat2Val: "0% Error",
-    stat2Lbl: "USP Math Tolerance",
-    stat3Val: "6-Face 360°",
-    stat3Lbl: "Package Coverage",
-    stat4Val: "< 1.5s",
-    stat4Lbl: "Perception Speed",
     cap1Title: "360° Multi-Panel Scan",
     cap1Desc: "Multi-angle surface analysis preventing false absence.",
     cap2Title: "Rule 12 Unit Sale Price",
@@ -386,26 +354,6 @@ export function LandingPage({
                 <span>{t.citizenPortal}</span>
               </button>
             )}
-          </div>
-
-          {/* Stat Pillars Bar on Clean White (Responsive 2x2 on Mobile, 4x1 on Desktop) */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-            <div className="rounded-2xl border-2 border-slate-100 bg-slate-50/80 p-3.5 text-center shadow-xs">
-              <p className="text-xl sm:text-2xl font-black text-saffron-600">{t.stat1Val}</p>
-              <p className="text-[11px] font-semibold text-slate-600 mt-0.5">{t.stat1Lbl}</p>
-            </div>
-            <div className="rounded-2xl border-2 border-emerald-100 bg-emerald-50/60 p-3.5 text-center shadow-xs">
-              <p className="text-xl sm:text-2xl font-black text-govgreen">{t.stat2Val}</p>
-              <p className="text-[11px] font-semibold text-slate-600 mt-0.5">{t.stat2Lbl}</p>
-            </div>
-            <div className="rounded-2xl border-2 border-blue-100 bg-blue-50/60 p-3.5 text-center shadow-xs">
-              <p className="text-xl sm:text-2xl font-black text-brand-700">{t.stat3Val}</p>
-              <p className="text-[11px] font-semibold text-slate-600 mt-0.5">{t.stat3Lbl}</p>
-            </div>
-            <div className="rounded-2xl border-2 border-purple-100 bg-purple-50/60 p-3.5 text-center shadow-xs">
-              <p className="text-xl sm:text-2xl font-black text-purple-700">{t.stat4Val}</p>
-              <p className="text-[11px] font-semibold text-slate-600 mt-0.5">{t.stat4Lbl}</p>
-            </div>
           </div>
         </div>
 

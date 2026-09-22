@@ -150,6 +150,46 @@ Render will ping `GET /health`. Once complete, the service will show **"Live"**.
 
 ---
 
+## PART 2B: Supabase Database Implementation & Render Integration
+
+LexMetra's relational database layer can be deployed seamlessly to **Supabase** using either the **Supabase CLI** or the built-in migration utility. When deployed to Render, simply point `DATABASE_URL` to Supabase.
+
+### 1. Supabase CLI Setup
+Supabase CLI is configured locally in the project root:
+```bash
+# Check linked projects or list available projects
+npx supabase projects list
+
+# Push migrations directly to Supabase via database connection string
+npx supabase db push --db-url="postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require"
+```
+
+### 2. Automated Schema & Data Migration (`scripts/migrate_to_supabase.py`)
+To copy the 11 relational tables and existing test inspections/users from local PostgreSQL (port 5433) into Supabase:
+```bash
+# Export your Supabase connection string:
+export SUPABASE_DB_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require"
+
+# Run the migration script
+python3 scripts/migrate_to_supabase.py
+
+# Or run schema-only (without copying local inspections)
+python3 scripts/migrate_to_supabase.py --schema-only
+```
+
+### 3. Connecting Render Backend to Supabase
+In your Render Dashboard (`lexmetra-backend` Web Service $\rightarrow$ Environment Variables) or in `render.yaml`:
+Set `DATABASE_URL` to your Supabase PostgreSQL URL:
+
+- **Direct Connection (Port 5432)**:
+  `postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require`
+- **Transaction Pooler (Port 6543 - Recommended for Render container spin-up)**:
+  `postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?sslmode=require`
+
+The FastAPI backend automatically negotiates SSL (`sslmode=require`) and initializes tables if absent.
+
+---
+
 ## PART 3: Ngrok Secure Tunnel Setup (Local to Cloud Bridge)
 
 If you are running the high-performance local backend (with local GPU or local database) and want the public Vercel frontend to seamlessly talk to it:

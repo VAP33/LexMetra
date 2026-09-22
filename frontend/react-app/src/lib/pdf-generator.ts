@@ -59,7 +59,7 @@ export async function exportElementAsPdf(
   // A4 in mm
   const A4_W = 210;
   const A4_H = 297;
-  const MARGIN = 8; // mm
+  const MARGIN = 6; // mm - slim margins for maximum readable width
 
   const pageW = A4_W - MARGIN * 2;
   const pageContentH = A4_H - MARGIN * 2;
@@ -72,6 +72,7 @@ export async function exportElementAsPdf(
   });
 
   const pageNodes = Array.from(clone.querySelectorAll<HTMLElement>("[data-report-page]"));
+  let pageIndex = 0;
 
   try {
     if (pageNodes.length > 0) {
@@ -91,20 +92,39 @@ export async function exportElementAsPdf(
           windowWidth: 1024,
         });
 
-        if (p > 0) pdf.addPage();
-
         const imgW = pageCanvas.width;
         const imgH = pageCanvas.height;
+        const mmPerPx = pageW / imgW;
+        const renderH = imgH * mmPerPx;
 
-        // Fit page cleanly within A4 printable area preserving aspect ratio
-        const scale = Math.min(pageW / imgW, pageContentH / imgH);
-        const renderW = imgW * scale;
-        const renderH = imgH * scale;
-        const posX = MARGIN + (pageW - renderW) / 2;
-        const posY = MARGIN;
+        // Fit across the entire width (100% readable width)
+        if (renderH <= pageContentH) {
+          if (pageIndex > 0) pdf.addPage();
+          pageIndex++;
+          const dataUrl = pageCanvas.toDataURL("image/jpeg", 0.95);
+          pdf.addImage(dataUrl, "JPEG", MARGIN, MARGIN, pageW, renderH, undefined, "FAST");
+        } else {
+          // If a section is taller than single page, slice vertically at full width
+          const slicesCount = Math.ceil(renderH / pageContentH);
+          for (let s = 0; s < slicesCount; s++) {
+            const srcYPx = Math.round((s * pageContentH) / mmPerPx);
+            const srcHPx = Math.min(Math.round(pageContentH / mmPerPx), imgH - srcYPx);
+            if (srcHPx <= 0) continue;
 
-        const dataUrl = pageCanvas.toDataURL("image/jpeg", 0.95);
-        pdf.addImage(dataUrl, "JPEG", posX, posY, renderW, renderH, undefined, "FAST");
+            if (pageIndex > 0) pdf.addPage();
+            pageIndex++;
+
+            const sliceCanvas = document.createElement("canvas");
+            sliceCanvas.width = imgW;
+            sliceCanvas.height = srcHPx;
+            const ctx = sliceCanvas.getContext("2d")!;
+            ctx.drawImage(pageCanvas, 0, srcYPx, imgW, srcHPx, 0, 0, imgW, srcHPx);
+
+            const sliceDataUrl = sliceCanvas.toDataURL("image/jpeg", 0.95);
+            const sliceHMm = srcHPx * mmPerPx;
+            pdf.addImage(sliceDataUrl, "JPEG", MARGIN, MARGIN, pageW, sliceHMm, undefined, "FAST");
+          }
+        }
       }
     } else {
       // Fallback: render continuous canvas if no page markers exist
@@ -125,9 +145,11 @@ export async function exportElementAsPdf(
       const pagesCount = Math.ceil(totalHeightMm / pageContentH);
 
       for (let p = 0; p < pagesCount; p++) {
-        if (p > 0) pdf.addPage();
+        if (pageIndex > 0) pdf.addPage();
+        pageIndex++;
         const srcYPx = Math.round((p * pageContentH) / mmPerPx);
         const srcHPx = Math.min(Math.round(pageContentH / mmPerPx), imgH - srcYPx);
+        if (srcHPx <= 0) continue;
 
         const pageCanvas = document.createElement("canvas");
         pageCanvas.width = imgW;
@@ -137,7 +159,7 @@ export async function exportElementAsPdf(
 
         const dataUrl = pageCanvas.toDataURL("image/jpeg", 0.92);
         const imgHMm = srcHPx * mmPerPx;
-        pdf.addImage(dataUrl, "JPEG", MARGIN, MARGIN, pageW, imgHMm);
+        pdf.addImage(dataUrl, "JPEG", MARGIN, MARGIN, pageW, imgHMm, undefined, "FAST");
       }
     }
   } finally {

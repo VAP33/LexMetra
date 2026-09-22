@@ -48,13 +48,32 @@ if (typeof window !== "undefined" && window.fetch) {
 
 export function resolveImageUrl(url?: string | null): string | undefined {
   if (!url) return undefined;
-  if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("http://") || url.startsWith("https://")) {
+  let resolved = url;
+  if (url.startsWith("data:") || url.startsWith("blob:")) {
     return url;
   }
-  if (url.startsWith("/")) {
-    return `${API_BASE}${url}`;
+
+  // If absolute url pointing to localhost:8000 and current API_BASE is external (e.g. on Vercel)
+  if (url.startsWith("http://localhost:8000") || url.startsWith("http://127.0.0.1:8000")) {
+    if (API_BASE && !API_BASE.includes("localhost") && !API_BASE.includes("127.0.0.1")) {
+      resolved = url.replace(/^http:\/\/(?:localhost|127\.0\.0\.1):8000/, API_BASE);
+    }
+  } else if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    if (url.startsWith("/")) {
+      resolved = `${API_BASE}${url}`;
+    } else {
+      resolved = `${API_BASE}/${url}`;
+    }
   }
-  return `${API_BASE}/${url}`;
+
+  // Ngrok free-tier returns an HTML browser-warning interstitial page for <img> requests
+  // unless ngrok-skip-browser-warning=true is in the query params.
+  if (resolved.includes("ngrok") && !resolved.includes("ngrok-skip-browser-warning")) {
+    const sep = resolved.includes("?") ? "&" : "?";
+    resolved = `${resolved}${sep}ngrok-skip-browser-warning=true`;
+  }
+
+  return resolved;
 }
 
 const TOKEN_STORAGE_KEY = "lmpc_access_token";

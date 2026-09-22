@@ -243,10 +243,20 @@ LexMetra supports statutory inspection across three official languages:
 | **`hi`** | Hindi (हिन्दी) | Citizen grievance portal & mobile UI | कानूनी मापविज्ञान, शुद्ध मात्रा, अधिकतम खुदरा मूल्य, उपभोक्ता शिकायत |
 | **`mr`** | Marathi (मराठी) | State controller dashboard & field alerts | कायदेशीर मापशास्त्र, निव्वळ वजन, किरकोळ विक्री किंमत, तपासणी अहवाल |
 
-You can inspect and query the database using TablePlus, DBeaver, or `psql`:
+### 6.3. Supabase CLI & Database Synchronization
+LexMetra supports cloud-hosted PostgreSQL via Supabase using Supabase CLI and migrations:
 ```bash
-psql -h localhost -p 5433 -U lmpc -d lmpc
+# Push schema migrations to Supabase:
+npx supabase db push --db-url="postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require"
+
+# Migrate local inspections and users into Supabase:
+python3 scripts/migrate_to_supabase.py --target-url="postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require"
 ```
+
+### 6.4. Official PDF Generation & Layout Invariants
+- `frontend/react-app/src/lib/pdf-generator.ts` executes `exportElementAsPdf()` using jsPDF and html2canvas.
+- **Full-Width Fitting**: The export engine scales elements to fill 100% of the printable page width (`pageW = A4_W - MARGIN * 2`) rather than shrinking horizontally.
+- **Vertical Pagination**: Overheight dockets are cleanly paginated across pages at full scale, preserving crisp font readability without requiring zoom.
 
 ---
 

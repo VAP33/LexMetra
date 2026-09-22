@@ -34,19 +34,29 @@ function isAuxiliaryField(field: string): boolean {
   return field.startsWith("__") || field === "mrp_numeral_height" || field === "declaration_placement";
 }
 
-// backend DeclarationEvidence.bbox is a bare 4-float list. Its docstring claims
-// [x1, y1, x2, y2] but its only producer (rule_engine.py, ~line 2294) writes
-// [ev.bbox.x, ev.bbox.y, ev.bbox.width, ev.bbox.height]. Trust the producer,
-// not the comment — reading it as a corner pair would draw every evidence box
-// at the wrong size, which would be worse than drawing none.
-function bboxFromEvidence(
-  bbox: number[] | null | undefined,
+// backend DeclarationEvidence.bbox can be an array [x, y, w, h] or object {x, y, width, height}.
+// Normalize defensively so SVG rendering and view evidence overlays never drop valid boxes.
+export function bboxFromEvidence(
+  bbox: any,
 ): { x: number; y: number; width: number; height: number } | undefined {
-  if (!bbox || bbox.length < 4) return undefined;
-  const [x, y, width, height] = bbox;
-  if (![x, y, width, height].every((n) => typeof n === "number" && Number.isFinite(n))) return undefined;
-  if (width <= 0 || height <= 0) return undefined;
-  return { x, y, width, height };
+  if (!bbox) return undefined;
+  if (Array.isArray(bbox) && bbox.length >= 4) {
+    const [x, y, width, height] = bbox;
+    if (![x, y, width, height].every((n) => typeof n === "number" && Number.isFinite(n))) return undefined;
+    if (width <= 0 || height <= 0) return undefined;
+    return { x, y, width, height };
+  }
+  if (typeof bbox === "object") {
+    const x = typeof bbox.x === "number" ? bbox.x : (typeof bbox.left === "number" ? bbox.left : undefined);
+    const y = typeof bbox.y === "number" ? bbox.y : (typeof bbox.top === "number" ? bbox.top : undefined);
+    const width = typeof bbox.width === "number" ? bbox.width : (typeof bbox.w === "number" ? bbox.w : undefined);
+    const height = typeof bbox.height === "number" ? bbox.height : (typeof bbox.h === "number" ? bbox.h : undefined);
+    if (x !== undefined && y !== undefined && width !== undefined && height !== undefined) {
+      if (width <= 0 || height <= 0) return undefined;
+      return { x, y, width, height };
+    }
+  }
+  return undefined;
 }
 
 function canonicalToDeclarations(canonicals: RawCanonicalDeclaration[]): Declaration[] {
@@ -292,7 +302,7 @@ function evidenceFromFacts(facts: RawScanResponse["inspection"]["facts"]): Evide
       label: humanizeField(f.field),
       value: f.extracted_value || "",
       confidence: Math.round((f.confidence ?? 0) * 100),
-      bboxPx: f.bbox ?? undefined,
+      bboxPx: bboxFromEvidence(f.bbox),
     }));
 }
 

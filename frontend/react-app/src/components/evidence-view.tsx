@@ -66,6 +66,30 @@ import { resolveImageUrl, getInspectionDetail, API_BASE } from "@/lib/api-client
 import { fromInspectionRow } from "@/lib/adapters";
 import { type View, Button, StatusBadge } from "./ui-primitives";
 
+function getRegionBbox(r: any): { x: number; y: number; width: number; height: number } | undefined {
+  if (!r) return undefined;
+  const target = r.bboxPx || r.bbox;
+  if (!target) return undefined;
+  if (Array.isArray(target) && target.length >= 4) {
+    const [x, y, width, height] = target;
+    if ([x, y, width, height].every((n: any) => typeof n === "number" && Number.isFinite(n)) && width > 0 && height > 0) {
+      return { x, y, width, height };
+    }
+  }
+  if (typeof target === "object") {
+    const x = typeof target.x === "number" ? target.x : target.left;
+    const y = typeof target.y === "number" ? target.y : target.top;
+    const width = typeof target.width === "number" ? target.width : target.w;
+    const height = typeof target.height === "number" ? target.height : target.h;
+    if (typeof x === "number" && typeof y === "number" && typeof width === "number" && typeof height === "number") {
+      if (width > 0 && height > 0) {
+        return { x, y, width, height };
+      }
+    }
+  }
+  return undefined;
+}
+
 export function DynamicEvidenceCrop({
   imageSrc,
   bbox,
@@ -104,6 +128,7 @@ export function DynamicEvidenceCrop({
     setLoadError(false);
     const resolvedSrc = resolveImageUrl(imageSrc) || imageSrc;
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       setLoading(false);
       const canvas = canvasRef.current;
@@ -566,17 +591,25 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
           <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
             {surfaces.map((st, idx) => {
               const currentMode = faceViewModes[st.surfaceType] || "canonical";
-              const displayUrl =
+              const rawDisplayUrl =
                 currentMode === "original"
                   ? st.imageUrl || st.canonicalImageUrl || inspection.image
                   : st.canonicalImageUrl || st.imageUrl || inspection.image;
+              const displayUrl = resolveImageUrl(rawDisplayUrl) || rawDisplayUrl;
               const isPanelActive = activeSurfaceType === st.surfaceType;
               const priority = st.priorityScore ?? (1.0 - idx * 0.05);
 
               // Filter regions strictly belonging to this face with valid polygons or bboxes
-              const faceRegionsWithBox = (st.regions || []).filter(
-                (r: any) => (r.polygonPx && r.polygonPx.length >= 3) || (r.bboxPx && r.bboxPx.width > 0 && r.bboxPx.height > 0)
-              );
+              const faceRegionsWithBox = (st.regions || [])
+                .map((r: any) => ({
+                  ...r,
+                  normalizedBbox: getRegionBbox(r),
+                }))
+                .filter(
+                  (r: any) =>
+                    (r.polygonPx && r.polygonPx.length >= 3) ||
+                    (r.normalizedBbox && r.normalizedBbox.width > 0 && r.normalizedBbox.height > 0)
+                );
 
               return (
                 <div
@@ -660,13 +693,22 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                       <div className="relative flex items-center justify-center h-full w-full">
                         <img
                           src={displayUrl}
+                          crossOrigin="anonymous"
                           alt={`${st.faceLabel || st.surfaceType} scan`}
                           className="max-h-full max-w-full object-contain select-none block"
+                          ref={(el) => {
+                            if (el && el.complete && el.naturalWidth > 0 && !faceNaturalSizes[st.surfaceType]) {
+                              setFaceNaturalSizes((prev) => ({
+                                ...prev,
+                                [st.surfaceType]: { w: el.naturalWidth, h: el.naturalHeight },
+                              }));
+                            }
+                          }}
                           onLoad={(e) => {
                             const img = e.currentTarget;
                             setFaceNaturalSizes((prev) => ({
                               ...prev,
-                              [st.surfaceType]: { w: img.naturalWidth, h: img.naturalHeight },
+                              [st.surfaceType]: { w: img.naturalWidth || 800, h: img.naturalHeight || 600 },
                             }));
                           }}
                         />
@@ -682,8 +724,9 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                               const cols = getSvgColors(region.label, isSelected);
 
                               if (region.polygonPx && region.polygonPx.length >= 3) {
-                                const pts = region.polygonPx.map(([px, py]) => `${px},${py}`).join(" ");
-                                const [firstX, firstY] = region.polygonPx[0];
+                                const pts = region.polygonPx.map((p: any) => `${p[0]},${p[1]}`).join(" ");
+                                const firstX = region.polygonPx[0]?.[0] ?? 0;
+                                const firstY = region.polygonPx[0]?.[1] ?? 0;
                                 return (
                                   <g
                                     key={region.label}
@@ -720,7 +763,8 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                                     </text>
                                   </g>
                                 );
-                              } else if (region.bboxPx) {
+                              } else if (region.normalizedBbox || region.bboxPx) {
+                                const bbox = region.normalizedBbox || region.bboxPx;
                                 return (
                                   <g
                                     key={region.label}
@@ -728,10 +772,10 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                                     onClick={() => handleSelectDeclaration(region.label, st.surfaceType)}
                                   >
                                     <rect
-                                      x={region.bboxPx.x}
-                                      y={region.bboxPx.y}
-                                      width={region.bboxPx.width}
-                                      height={region.bboxPx.height}
+                                      x={bbox.x}
+                                      y={bbox.y}
+                                      width={bbox.width}
+                                      height={bbox.height}
                                       rx={3}
                                       fill={cols.fill}
                                       stroke={cols.stroke}
@@ -739,8 +783,8 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                                       className="transition-all hover:fill-opacity-50"
                                     />
                                     <rect
-                                      x={region.bboxPx.x}
-                                      y={Math.max(4, region.bboxPx.y - 20)}
+                                      x={bbox.x}
+                                      y={Math.max(4, bbox.y - 20)}
                                       width={region.label.length * 8 + 14}
                                       height={18}
                                       rx={4}
@@ -750,8 +794,8 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                                       strokeWidth={1}
                                     />
                                     <text
-                                      x={region.bboxPx.x + 6}
-                                      y={Math.max(16, region.bboxPx.y - 7)}
+                                      x={bbox.x + 6}
+                                      y={Math.max(16, bbox.y - 7)}
                                       fill="#ffffff"
                                       fontSize="11"
                                       fontWeight="bold"
