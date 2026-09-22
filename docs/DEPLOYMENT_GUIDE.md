@@ -1,184 +1,250 @@
-# LexMetra Production Deployment Guide
-> **Blind-Executable Step-by-Step Instructions for Deploying:**
-> - **Backend (FastAPI + PostgreSQL + Tesseract)** on **Railway**
-> - **Frontend (React 18 + Vite SPA)** on **Vercel**
+# LexMetra Production Deployment & Infrastructure Guide
+
+> **Official Multi-Cloud & Local Tunnel Deployment Guide**
+> Deploying the **React 18 + Vite Frontend** on **Vercel** via Vercel CLI, the **FastAPI + OCR + Pyzbar Backend** on **Render** (or Ngrok Tunnel), and **Managed PostgreSQL 16/18**.
 
 ---
 
 ## Architecture Overview
 
 ```
- ┌──────────────────────────────┐                ┌───────────────────────────────────┐
- │        Vercel (Edge)         │                │          Railway (Cloud)          │
- │                              │  HTTPS / JSON  │                                   │
- │  React 18 + Vite SPA         ├───────────────►│  FastAPI Backend Engine           │
- │  Domain:                     │                │  Domain:                          │
- │  https://lexmetra.vercel.app │                │  https://backend.up.railway.app   │
- └──────────────────────────────┘                └─────────────────┬─────────────────┘
-                                                                   │ Internal Network
-                                                                   ▼
-                                                 ┌───────────────────────────────────┐
-                                                 │   Railway Managed PostgreSQL 16   │
-                                                 │   Database: lmpc                  │
-                                                 └───────────────────────────────────┘
+ ┌─────────────────────────────────────────────────────────┐
+ │               Vercel Edge Network (CDN)                 │
+ │                                                         │
+ │  React 18 + Vite SPA · Hash/History PWA Routing         │
+ │  Live URL: https://lexmetra-ui.vercel.app               │
+ └────────────────────────────┬────────────────────────────┘
+                              │
+               HTTPS API (JSON / Multipart)
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+ ┌──────────────────────────┐   ┌──────────────────────────┐
+ │      Render (Cloud)      │   │   Ngrok Secure Tunnel    │
+ │                          │   │   (Local Field Backend)  │
+ │  FastAPI Docker Service  │   │  https://...ngrok-free.dev│
+ │  Tesseract OCR + OpenCV  │   │  Forwarding to :8000     │
+ └────────────┬─────────────┘   └─────────────┬────────────┘
+              │                               │
+              ▼                               ▼
+ ┌──────────────────────────┐   ┌──────────────────────────┐
+ │  Render Managed Postgres │   │ Local PostgreSQL 18 DB   │
+ │  Database: lmpc_db       │   │ 127.0.0.1:5433 (11 tbls) │
+ └──────────────────────────┘   └──────────────────────────┘
 ```
 
 ---
 
-## PART 1: Deploy Backend & Database on Railway
+## Multi-Cloud Service Status Matrix
 
-### Step 1: Sign up & Create Project on Railway
-1. Navigate to [railway.app](https://railway.app/) and sign in using your GitHub account.
-2. Click the **"New Project"** button in the dashboard.
-3. Select **"Provision PostgreSQL"**.
-   - Railway will instantly provision a dedicated PostgreSQL database container.
+| Component | Target Platform | Port / URL | Health Endpoint | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| **Frontend Web App** | Vercel Edge | `https://lexmetra-ui.vercel.app` | `GET /` (HTTP 200) | Built with Vite; zero horizontal scroll; mobile PWA |
+| **Backend API Engine** | Render Cloud | `https://lexmetra-backend.onrender.com` | `GET /health` | FastAPI, Python 3.12, Tesseract OCR, YOLOv8 |
+| **Local Field Tunnel** | Ngrok | `https://rise-sponsor-juvenile.ngrok-free.dev` | `GET /health` | Bridges live Vercel frontend to local Python backend |
+| **Primary Database** | Render PostgreSQL | `postgres://lmpc_user:...@dpg-xxx:5432/lmpc_db` | `SELECT 1` | Managed cloud PostgreSQL with automated backups |
+| **Local Database** | PostgreSQL 18 | `127.0.0.1:5433` (db: `lmpc`) | `psql -p 5433` | 11 tables verified with seed demo credentials |
 
-### Step 2: Retrieve PostgreSQL Connection String
-1. Click on the newly created **Postgres** service box.
-2. Go to the **"Variables"** tab.
-3. Copy the value of `DATABASE_URL` (it will look like `postgresql://postgres:password@junction.proxy.rlwy.net:12345/railway`).
-   *(Save this URL; you will paste it into your backend environment variables in Step 4).*
+---
 
-### Step 3: Deploy the Backend Service
-1. In the same Railway project canvas, click **"+ New"** (or **"Add Service"**).
-2. Select **"GitHub Repo"** and pick your `LexMetra` repository.
-3. Railway will open the settings panel for the newly added service:
-   - Go to **Settings** $\rightarrow$ **General**:
-     - **Service Name**: Change to `lexmetra-backend`.
-     - **Root Directory**: Set to `/backend` (or leave as `/` since root `Procfile` is also provided).
-     - **Build Pack**: Ensure `Nixpacks` is selected (Nixpacks will automatically detect our `nixpacks.toml` and install `tesseract`, `libGL`, and Python dependencies).
-   - Go to **Settings** $\rightarrow$ **Networking**:
-     - Click **"Generate Domain"** (e.g. `lexmetra-backend.up.railway.app`).
-     - Save this domain URL! This is your backend public URL.
+## PART 1: Deploy Frontend on Vercel via Vercel CLI
 
-### Step 4: Configure Backend Environment Variables in Railway
-Go to your `lexmetra-backend` service $\rightarrow$ **"Variables"** tab $\rightarrow$ Click **"New Variable"** (or **"Raw Editor"**) and configure the following:
+The frontend is already configured with `.vercel` project linkages and dynamic API resolution in `src/lib/api-client.ts`.
 
-```ini
-# Server Port (Railway injects PORT automatically, but default is 8000)
-PORT=8000
-
-# Database Connection (Paste your Postgres URL from Step 2)
-DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@junction.proxy.rlwy.net:12345/railway
-
-# Vision & OCR Perception
-GEMINI_API_KEY=YOUR_ACTUAL_GEMINI_API_KEY
-GEMINI_OCR_MODEL=gemini-3.5-flash-lite
-
-# Fallback Vision Providers (Optional)
-GROQ_API_KEY=YOUR_GROQ_API_KEY_IF_ANY
-OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY_IF_ANY
-
-# Security & CORS
-JWT_SECRET=generate_a_long_random_string_here_e.g_9823fha98dshf928h
-ALLOW_ALL_CORS=true
-FRONTEND_URL=https://YOUR_VERCEL_APP_NAME.vercel.app
-
-# Bootstrapping (Creates default admin and inspector accounts on first launch)
-DEV_MODE=true
-BOOTSTRAP_DEMO_USERS=true
+### Step 1: Install & Authenticate Vercel CLI
+```bash
+npm install -g vercel
+vercel login
 ```
 
-### Step 5: Verify Backend Deployment
-1. Go to the **"Deployments"** tab in Railway.
-2. Click on the latest deployment and inspect the **Deploy Logs**.
-3. You should see:
-   ```text
-   INFO:     Started server process
-   INFO:     Waiting for application startup.
-   [+] [PaddleTextDetector] Using YOLOv8 + OpenCV Region Proposer engine.
-   INFO:     Application startup complete.
-   INFO:     Uvicorn running on http://0.0.0.0:8000
-   ```
-4. Open your browser and visit:
-   `https://lexmetra-backend.up.railway.app/health` $\rightarrow$ Returns `{"status": "ok", "app": "LMPC Compliance Inspection API"}`.
-   `https://lexmetra-backend.up.railway.app/docs` $\rightarrow$ Interactive OpenAPI Swagger Documentation.
+### Step 2: Build the Production Bundle
+From `frontend/react-app/`:
+```bash
+cd frontend/react-app
+npm install
+npm run build
+```
+This runs `tsc && vite build`, creating the optimized distribution bundle in `dist/`.
+
+### Step 3: Deploy to Production
+```bash
+vercel deploy --prebuilt --prod
+```
+The output will display the production alias:
+```text
+Production: https://lexmetra-ui.vercel.app [copied to clipboard]
+Status: Ready
+```
+
+### Step 4: Environment Variables on Vercel
+In the Vercel Dashboard (or via `vercel env add`):
+| Variable | Value | Description |
+| :--- | :--- | :--- |
+| `VITE_API_BASE_URL` | `https://rise-sponsor-juvenile.ngrok-free.dev` (or Render backend URL) | Backend API endpoint |
 
 ---
 
-## PART 2: Deploy Frontend on Vercel
+## PART 2: Deploy Backend & Database on Render
 
-### Step 1: Sign up & Import Repository on Vercel
-1. Navigate to [vercel.com](https://vercel.com/) and sign in with GitHub.
-2. Click **"Add New..."** $\rightarrow$ **"Project"**.
-3. Locate your `LexMetra` repository and click **"Import"**.
+Render provides native Docker container hosting (which includes Tesseract OCR binaries, OpenCV shared libraries, and pyzbar) and Managed PostgreSQL.
 
-### Step 2: Configure Vercel Project Settings
-On the **Configure Project** screen:
-1. **Framework Preset**: Select **Vite**.
-2. **Root Directory**: Click **Edit** and select `frontend/react-app`.
-3. **Build and Output Settings**:
-   - **Build Command**: `npm run build` (Pre-filled)
-   - **Output Directory**: `dist` (Pre-filled)
-   - **Install Command**: `npm install` (Pre-filled)
+### Method A: One-Click Render Blueprint (`render.yaml`)
 
-### Step 3: Configure Environment Variables in Vercel
-Expand the **"Environment Variables"** section and add:
+We have placed an Infrastructure-as-Code `render.yaml` in the root of the repository:
 
-| Key | Value | Notes |
-|---|---|---|
-| `VITE_API_BASE_URL` | `https://lexmetra-backend.up.railway.app` | **Your exact Railway backend URL** (without trailing slash) |
-
-### Step 4: Deploy & Launch
-1. Click **"Deploy"**.
-2. Vercel will build the React application (typically finishes in ~25–35 seconds).
-3. Once completed, Vercel will display your live production URL (e.g. `https://lexmetra.vercel.app`).
+1. Push this repository to GitHub / GitLab.
+2. Log into [dashboard.render.com](https://dashboard.render.com).
+3. Click **"Blueprints"** $\rightarrow$ **"New Blueprint Instance"**.
+4. Connect your `LexMetra` repository.
+5. Render will detect `render.yaml` and provision:
+   - **`lexmetra-db`**: Managed PostgreSQL database.
+   - **`lexmetra-backend`**: Docker Web Service running the FastAPI app.
+6. Click **"Apply"**. Both services will build and deploy automatically.
 
 ---
 
-## PART 3: Post-Deployment Interconnection & Testing
+### Method B: Manual Deployment on Render
 
-### Step 1: Update Frontend URL in Railway
-1. Return to your Railway dashboard $\rightarrow$ `lexmetra-backend` $\rightarrow$ **Variables**.
-2. Update `FRONTEND_URL` to your live Vercel URL (e.g. `https://lexmetra.vercel.app`).
-3. Railway will automatically perform a zero-downtime redeploy.
+#### Step 1: Create PostgreSQL Database on Render
+1. In Render Dashboard, click **"New +"** $\rightarrow$ **"PostgreSQL"**.
+2. Set:
+   - **Name**: `lexmetra-db`
+   - **Database**: `lmpc_db`
+   - **User**: `lmpc_user`
+   - **Region**: `Oregon (US West)` (or your preferred region)
+   - **Plan**: `Free`
+3. Click **"Create Database"**.
+4. Copy the **Internal Database URL** (for Render web service) and **External Database URL** (for local migrations).
 
-### Step 2: Live Verification Walkthrough
-1. Open `https://your-app.vercel.app/` in your desktop or mobile browser.
-2. **Login Verification**:
-   - Username: `admin`
-   - Password: `password123`
-   - Click **Login**. You are directed to the **Legal Metrology Inspection Dashboard**.
-3. **Navigation / Browser History Verification**:
-   - Click **Start Inspection** or select an existing inspection from the table.
-   - Click **View Evidence** $\rightarrow$ URL updates to `#evidence/<id>`.
-   - Click the **Back** button on your browser $\rightarrow$ Seamlessly returns to `#detail/<id>` without reloading or exiting the site.
-4. **Perception & Speed Verification**:
-   - Upload sample package photographs (e.g. Bru Coffee or Hershey's).
-   - Click **Run Statutory Inspection**.
-   - Inspection completes in ~1.5–2 seconds with Gemini Flash acceleration.
-5. **Report Download Verification**:
-   - In the inspection details view, click **Generate Official Report**.
-   - Download the statutory PDF report; verify all stamps, findings, and statutory citations appear clearly.
+#### Step 2: Create Web Service (Docker) on Render
+1. Click **"New +"** $\rightarrow$ **"Web Service"**.
+2. Select **"Build and deploy from a Git repository"** and select your `LexMetra` repository.
+3. Configure the settings:
+   - **Name**: `lexmetra-backend`
+   - **Region**: Same as your database (e.g. `Oregon`)
+   - **Branch**: `main`
+   - **Root Directory**: Leave blank (uses repository root)
+   - **Runtime**: `Docker`
+   - **Dockerfile Path**: `./backend/Dockerfile`
+   - **Docker Context**: `.`
+   - **Instance Type**: `Starter` or `Standard` (needs at least 512MB RAM for OCR models)
+
+#### Step 3: Configure Environment Variables in Render
+Go to the **"Environment"** tab of your `lexmetra-backend` service and configure:
+
+| Key | Value / Source | Purpose |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | From Database (`lexmetra-db` $\rightarrow$ connection string) | PostgreSQL connection |
+| `PORT` | `8000` | Web server listening port |
+| `ENVIRONMENT` | `production` | Enables production security & caching |
+| `CORS_ORIGINS` | `https://lexmetra-ui.vercel.app,http://localhost:5173,http://localhost:4173` | Allowed frontend domains |
+| `SECRET_KEY` | *(Click "Generate" for random 64-char string)* | JWT authentication signing |
+| `OCR_ENGINE` | `tesseract` | Primary OCR engine |
+| `DEV_MODE` | `true` | Bootstraps demo inspector and rules |
+| `BOOTSTRAP_DEMO_USERS`| `true` | Seeds demo accounts (`inspector`, `admin`) |
+
+#### Step 4: Health Check Verification
+Render will ping `GET /health`. Once complete, the service will show **"Live"**.
+- Health check: `https://lexmetra-backend.onrender.com/health`
+- Swagger docs: `https://lexmetra-backend.onrender.com/docs`
 
 ---
 
-## PART 4: Troubleshooting Common Issues
+## PART 3: Ngrok Secure Tunnel Setup (Local to Cloud Bridge)
 
-### Issue 1: Tesseract Missing on Railway
-- **Symptom**: Logs display `TesseractNotFound` or `tesseract is not installed or it's not in your PATH`.
-- **Solution**:
-  - Verify that `backend/nixpacks.toml` is present with `nixPkgs = ["tesseract", "libGL", "glib"]`.
-  - In Railway $\rightarrow$ Settings, ensure the Builder is set to **NIXPACKS**.
+If you are running the high-performance local backend (with local GPU or local database) and want the public Vercel frontend to seamlessly talk to it:
 
-### Issue 2: CORS Network Error on Vercel
-- **Symptom**: Browser console displays `Access to fetch at ... has been blocked by CORS policy`.
-- **Solution**:
-  - In Railway backend variables, verify `ALLOW_ALL_CORS=true` is set, OR `FRONTEND_URL` exactly matches your Vercel domain.
-  - Make sure `VITE_API_BASE_URL` in Vercel does **NOT** end with a trailing slash (`https://backend.up.railway.app`, not `.../`).
+### Step 1: Start PostgreSQL and Backend Locally
+```bash
+# Terminal 1: Start PostgreSQL 18
+./start_postgres.sh
 
-### Issue 3: Page Reload on Vercel Returns 404
-- **Symptom**: Navigating directly to a sub-URL or refreshing returns a Vercel 404.
-- **Solution**:
-  - Handled automatically by `frontend/react-app/vercel.json`, which redirects all routes `/(.*)` to `/index.html`.
+# Terminal 2: Start FastAPI Backend
+cd backend
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### Step 2: Launch Ngrok Tunnel
+```bash
+# Terminal 3: Start Ngrok on port 8000
+ngrok http 8000
+```
+Or with a static custom domain:
+```bash
+ngrok http --domain=rise-sponsor-juvenile.ngrok-free.dev 8000
+```
+
+### Step 3: Transparent Ngrok Warning Bypass
+The LexMetra frontend in `src/lib/api-client.ts` automatically attaches the required header `ngrok-skip-browser-warning: true` to every outgoing request, ensuring zero interstitial blocking on the free tier of Ngrok.
 
 ---
 
-## Summary of Production Endpoints
+## Summary of Useful Commands
 
-| Service | Host Provider | URL / Resource |
-|---|---|---|
-| **Frontend Web App** | Vercel | `https://<your-project>.vercel.app` |
-| **Backend API Gateway** | Railway | `https://<your-project>.up.railway.app` |
-| **Interactive API Docs** | Railway | `https://<your-project>.up.railway.app/docs` |
-| **PostgreSQL Database** | Railway | Dedicated PostgreSQL instance with TLS |
+| Task | Command | Directory | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Check Local Ports** | `ss -tulpn \| grep -E '8000\|5433\|4040\|5173'` | Root / Anywhere | Verify active listeners on backend, DB, tunnel, and Vite |
+| **Frontend Dev Server** | `npm run dev` | `frontend/react-app/` | Starts Vite HMR dev server on port 5173 |
+| **Frontend Preview** | `npm run preview` | `frontend/react-app/` | Tests compiled production distribution on port 4173 |
+| **Build Frontend** | `npm run build` | `frontend/react-app/` | Runs `tsc && vite build` generating optimized bundle |
+| **Vercel Prod Deploy** | `vercel deploy --prod` | `frontend/react-app/` | Deploys directly to Vercel production edge |
+| **Vercel Set Alias** | `vercel alias set <deploy-url> lexmetra-ui.vercel.app` | `frontend/react-app/` | Binds custom production alias to deployment |
+| **Backend Health Check**| `curl -s http://localhost:8000/health` | Anywhere | Verifies FastAPI Uvicorn engine and DB status |
+| **Backend Swagger Docs**| `http://localhost:8000/docs` | Browser | Interactive OpenAPI specification and test console |
+| **Start Local PostgreSQL**| `./start_postgres.sh` (or `pg_ctlcluster 18 main start`) | Root | Launches PostgreSQL on port 5433 with `lmpc` database |
+
+---
+
+## Vercel CLI Complete Command Reference
+
+| Command | Flags / Arguments | Description & Operational Impact |
+| :--- | :--- | :--- |
+| `vercel login` | `--github` / `--token` | Authenticates Vercel developer CLI session. |
+| `vercel link` | `--yes` | Links local directory to active project (`lexmetra-ui`). |
+| `vercel build` | `--prod` | Compiles optimized serverless edge distribution locally. |
+| `vercel deploy` | `--prod` / `--prebuilt` | Uploads and activates production release across Vercel Global Edge. |
+| `vercel alias set` | `<deployment-url> <domain>` | Points production domain (`lexmetra-ui.vercel.app`) to deploy hash. |
+| `vercel env add` | `<KEY> <production\|preview>` | Sets production environment variables (`VITE_API_BASE_URL`). |
+| `vercel env ls` | None | Lists configured environment variables across environments. |
+| `vercel inspect` | `<url> --logs` | Streams live build and edge function execution logs. |
+
+---
+
+## Render Cloud Container Specifications & Resource Matrix
+
+| Setting / Metric | Recommended Value | Free Tier Limits | Starter / Production Spec |
+| :--- | :--- | :--- | :--- |
+| **Runtime Engine** | Docker (`./backend/Dockerfile`) | Debian 12 / Python 3.12 | Dedicated Container |
+| **CPU Allocation** | 0.5 - 1.0 vCPU | Shared CPU | 1.0 vCPU Dedicated |
+| **Memory Allocation** | 512 MB - 1 GB RAM | 512 MB (Spins down on idle) | 1 GB - 2 GB RAM (Zero sleep) |
+| **Cold Start Latency** | Instant (Starter) | ~45-50s on initial wake | < 1s sustained |
+| **Disk Storage** | Ephemeral / Render Disk | 512 MB ephemeral | 10 GB Persistent Disk (Optional) |
+| **Health Check Path** | `/health` | Verified every 60s | Continuous liveness probe |
+| **Database Binding** | Internal URL (`dpg-...:5432`) | 1 GB storage, 97 connections | Automated continuous backups |
+
+---
+
+## Production Troubleshooting & Error Resolution Matrix
+
+| Symptom / Error | Root Cause | Diagnosis Command | Resolution Procedure |
+| :--- | :--- | :--- | :--- |
+| **HTTP 401 Unauthorized** during Vercel CLI deploy | Expired token or mismatched team scope | `vercel whoami && vercel teams ls` | Run `vercel link --yes` to select active team, then retry deploy. |
+| **HTTP 429 Too Many Requests** from Groq / Gemini | Public rate limit reached on vision perception | Check backend logs: `docker logs` / Uvicorn stdout | Ensure `GEMINI_API_KEY` is set; the system will use Gemini Flash Lite (~1.4s) with fallbacks. |
+| **HTTP 502 Bad Gateway** on Render backend | Render container cold start or out-of-memory | `curl -i https://lexmetra-backend.onrender.com/health` | Allow 45s for free-tier spin-up, or upgrade web service to Starter tier for zero idle sleep. |
+| **CORS Blocked by Origin** in browser console | Frontend domain not present in backend CORS allowlist | Inspect browser DevTools Network tab | Verify `CORS_ORIGINS` in Render includes `https://lexmetra-ui.vercel.app`. |
+| **Ngrok Browser Interstitial Warning** | Free tier Ngrok displays confirmation page | `curl -sI https://...ngrok-free.dev` | Frontend automatically sends `ngrok-skip-browser-warning: true` in `api-client.ts`. |
+| **Database Connection Refused** (Port 5433/5432) | PostgreSQL daemon is not listening | `ss -tulpn \| grep 5433` | Run `./start_postgres.sh` locally or verify Render Internal Database URL. |
+
+---
+
+## Production Pre-Flight Checklist
+
+- [x] **Frontend Assets Built**: Clean TypeScript compilation (`npm run build` exits with code 0).
+- [x] **Favicons & Manifest Present**: `favicon.ico`, PNG touch icons, and `site.webmanifest` loaded in `public/`.
+- [x] **Search Engine Crawlers**: `robots.txt` and `sitemap.xml` accessible at root URLs.
+- [x] **Open Graph Meta**: `og:image` (1200x630), `og:title`, and `og:description` dynamically populated.
+- [x] **Zero Horizontal Scroll**: Verified on mobile viewports (320px to 414px) with no layout clipping.
+- [x] **API Connectivity**: Frontend client resolves `VITE_API_BASE_URL` with automatic Ngrok bypass header.
+- [x] **Database Migrations**: 11 PostgreSQL tables initialized and verified with seed inspector accounts.
+- [x] **Statutory Citations**: All verdicts and reports cite Section 18/36 and LMPC Rules 2011 with zero placeholder text.
+

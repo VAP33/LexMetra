@@ -6,15 +6,15 @@ test.describe('LexMetra Legal Metrology Verification Platform', () => {
     await page.goto('/');
 
     // If on landing page, click Sign In button
-    const landingSignInBtn = page.getByRole('button', { name: /^sign in$/i }).first();
-    if (await landingSignInBtn.isVisible()) {
+    const landingSignInBtn = page.locator('#officer-login-btn').or(page.getByRole('button', { name: /sign in/i })).first();
+    if (await landingSignInBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await landingSignInBtn.click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(600);
     }
 
     // On login view: use Instant Role Access "Field Inspector" button or form
-    const fieldInspectorBtn = page.getByRole('button', { name: /field inspector/i });
-    if (await fieldInspectorBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+    const fieldInspectorBtn = page.locator('#quick-inspector-login').or(page.getByRole('button', { name: /field inspector/i })).first();
+    if (await fieldInspectorBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await fieldInspectorBtn.click();
       await page.waitForTimeout(1000);
     } else {

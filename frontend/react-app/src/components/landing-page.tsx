@@ -15,12 +15,17 @@ import {
   Download,
   Globe,
   Search,
+  Menu,
 } from "lucide-react";
+import { MobileMenuDrawer } from "./mobile-menu-drawer";
 
 interface LandingPageProps {
   onStartScan: () => void;
   onOfficerLogin: () => void;
   onConsumerPortal?: () => void;
+  onOpenPrivacy?: () => void;
+  onOpenTerms?: () => void;
+  onOpenRegulatory?: () => void;
   lang?: "en" | "hi" | "mr";
   onLanguageChange?: (l: "en" | "hi" | "mr") => void;
 }
@@ -29,10 +34,15 @@ export function LandingPage({
   onStartScan,
   onOfficerLogin,
   onConsumerPortal,
+  onOpenPrivacy,
+  onOpenTerms,
+  onOpenRegulatory,
   lang = "en",
   onLanguageChange,
 }: LandingPageProps) {
   const [isLangOpen, setIsLangOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showStickyCta, setShowStickyCta] = useState(false);
   const langMenuRef = useRef<HTMLDivElement>(null);
   const [activeStage, setActiveStage] = useState(0);
 
@@ -180,23 +190,51 @@ export function LandingPage({
     footerCopy: "© 2026 LexMetra · Automated Statutory Compliance Platform",
   };
 
+  // Scroll listener for sticky mobile CTA
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowStickyCta(window.scrollY > 240);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-white text-slate-900 flex flex-col justify-between selection:bg-saffron-500 selection:text-white overflow-x-hidden">
+    <div className="min-h-screen bg-white text-slate-900 flex flex-col justify-between selection:bg-saffron-500 selection:text-white overflow-x-hidden no-horizontal-scroll">
+      {/* Mobile Slide-Out Drawer Navigation */}
+      <MobileMenuDrawer
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        currentView="landing"
+        onNavigate={(view) => {
+          if (view === "scan") onStartScan();
+          else if (view === "login") onOfficerLogin();
+          else if (view === "customer") onConsumerPortal?.();
+          else if (view === "privacy") onOpenPrivacy?.();
+          else if (view === "terms") onOpenTerms?.();
+          else if (view === "regulatory") onOpenRegulatory?.();
+          else if (view === "landing") window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+      />
+
       {/* 1. Header with Dark Blue Background and White Logo */}
-      <header className="border-b border-brand-900/60 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white sticky top-0 z-50 shadow-md">
+      <header className="border-b border-brand-900/60 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white sticky top-0 z-40 shadow-md">
         <div className="h-1.5 w-full tricolor-stripe" />
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 min-h-[68px] sm:min-h-[76px] py-2 flex items-center justify-between gap-2 sm:gap-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 min-h-[64px] sm:min-h-[76px] py-2 flex items-center justify-between gap-2 sm:gap-4">
           {/* White Logo on Dark Blue Background */}
-          <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
             <button
               type="button"
-              onClick={() => {}}
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
               className="flex items-center gap-2 sm:gap-3 transition-opacity hover:opacity-90 active:scale-[0.98] touch-manipulation cursor-pointer text-left"
+              aria-label="LexMetra Home"
             >
               <img
                 src="/lexmetra-white-logo.png"
-                alt="LexMetra White Logo"
-                className="h-10 sm:h-12 w-auto object-contain drop-shadow-[0_2px_8px_rgba(255,255,255,0.2)]"
+                alt="LexMetra National Statutory Compliance Logo"
+                className="h-9 sm:h-12 w-auto object-contain drop-shadow-[0_2px_8px_rgba(255,255,255,0.2)]"
                 draggable={false}
               />
               <div className="hidden sm:flex flex-col">
@@ -210,8 +248,8 @@ export function LandingPage({
             </button>
           </div>
 
-          {/* Right Action Tools: Language Menu & Sign In */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Right Action Tools: Language Menu & Sign In & Mobile Menu Toggle */}
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* Multilingual Selector */}
             {onLanguageChange && (
               <div className="relative" ref={langMenuRef}>
@@ -273,35 +311,48 @@ export function LandingPage({
             {/* Officer Sign In Button */}
             <button
               type="button"
+              id="officer-login-btn"
+              aria-label="Officer Sign In"
               onClick={onOfficerLogin}
-              className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-700 via-purple-800 to-indigo-800 hover:from-purple-800 hover:to-indigo-900 text-white shadow-md transition-all active:scale-95 touch-manipulation cursor-pointer"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-700 via-purple-800 to-indigo-800 hover:from-purple-800 hover:to-indigo-900 text-white shadow-md transition-all active:scale-95 touch-manipulation cursor-pointer"
             >
               <Lock className="h-3.5 w-3.5 text-white" />
-              <span>{lang === "hi" ? "साइन इन" : lang === "mr" ? "साइन इन करा" : "Sign In"}</span>
+              <span className="hidden sm:inline">{lang === "hi" ? "साइन इन" : lang === "mr" ? "साइन इन करा" : "Sign In"}</span>
+              <span className="sm:hidden">Sign In</span>
+            </button>
+
+            {/* Mobile Hamburger Drawer Button */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              aria-label="Open mobile navigation menu"
+              className="md:hidden flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20 transition active:scale-95 touch-manipulation cursor-pointer"
+            >
+              <Menu className="h-5 w-5" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* 2. Main Hero Section on Crisp Pure White */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center flex-1 bg-white">
+      {/* 2. Main Hero Section on Crisp Pure White (Optimized Above-the-Fold for Mobile) */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-10 lg:py-16 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center flex-1 bg-white">
         {/* Left Column: Punchline & Value Proposition */}
-        <div className="lg:col-span-7 space-y-6 sm:space-y-7">
+        <div className="lg:col-span-7 space-y-4 sm:space-y-6">
           {/* Directorate Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-brand-900 text-xs font-bold shadow-xs">
-            <Sparkles className="h-4 w-4 text-saffron-600 animate-pulse" />
-            <span className="truncate max-w-[280px] sm:max-w-none">{t.directorate}</span>
+          <div className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-1 sm:py-1.5 rounded-full bg-brand-50 border border-brand-200 text-brand-900 text-[11px] sm:text-xs font-bold shadow-xs">
+            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-saffron-600 animate-pulse" />
+            <span className="truncate max-w-[260px] sm:max-w-none">{t.directorate}</span>
           </div>
 
           {/* Heading */}
-          <div className="space-y-3 sm:space-y-4">
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-brand-950 leading-[1.14]">
+          <div className="space-y-2.5 sm:space-y-4">
+            <h1 className="text-2xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-brand-950 leading-[1.15]">
               {t.titleMain} <br className="hidden sm:inline" />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-saffron-600 via-brand-700 to-govgreen">
                 {t.titleHighlight}
               </span>
             </h1>
-            <p className="text-sm sm:text-base lg:text-lg text-slate-700 leading-relaxed font-normal max-w-2xl">
+            <p className="text-xs sm:text-base lg:text-lg text-slate-700 leading-relaxed font-normal max-w-2xl">
               {t.subtitle}
             </p>
           </div>
@@ -560,18 +611,78 @@ export function LandingPage({
       </section>
 
       {/* 4. Footer on Crisp White */}
-      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-600">
+      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-600 mb-16 sm:mb-0">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="font-medium">{t.footerCopy}</p>
-          <div className="flex items-center gap-3 sm:gap-4 font-semibold text-brand-900 text-[11px] sm:text-xs">
-            <span>LM Act 2009</span>
+          <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-4 font-semibold text-brand-900 text-[11px] sm:text-xs">
+            <button
+              type="button"
+              onClick={onOpenRegulatory}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              LM Act 2009
+            </button>
             <span className="text-saffron-500">•</span>
-            <span>LMPC Rules 2011</span>
+            <button
+              type="button"
+              onClick={onOpenRegulatory}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              LMPC Rules 2011
+            </button>
             <span className="text-govgreen">•</span>
-            <span>Rule 12 Unit Pricing</span>
+            <button
+              type="button"
+              onClick={onOpenRegulatory}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              Rule 12 Unit Pricing
+            </button>
+            <span className="text-slate-300">•</span>
+            <button
+              type="button"
+              onClick={onOpenPrivacy}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <span className="text-slate-300">•</span>
+            <button
+              type="button"
+              onClick={onOpenTerms}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              Terms of Service
+            </button>
           </div>
         </div>
       </footer>
+
+      {/* Sticky Mobile CTA Bar (Slides in when user scrolls down on mobile) */}
+      <div
+        className={`sticky-mobile-cta flex items-center justify-between gap-3 md:hidden transition-transform duration-300 ${
+          showStickyCta ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-xl bg-saffron-50 border border-saffron-200 flex items-center justify-center text-saffron-600 shrink-0">
+            <Camera className="h-4 w-4" />
+          </div>
+          <div className="text-left">
+            <p className="text-xs font-black text-brand-950">6-Face Inspection</p>
+            <p className="text-[10px] text-slate-500 font-medium">Verify Rule 12 USP Math</p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onStartScan}
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-saffron-500 via-saffron-600 to-orange-600 hover:from-saffron-600 hover:to-orange-700 text-white font-bold text-xs shadow-md shadow-saffron-500/25 active:scale-95 touch-manipulation cursor-pointer shrink-0"
+        >
+          <span>{t.startScan}</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

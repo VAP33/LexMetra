@@ -35,6 +35,14 @@ export function ConsumerReportModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!retailerName.trim()) {
+      setError("Please specify the store or retailer name where this commodity was found.");
+      return;
+    }
+    if (!location.trim()) {
+      setError("Please enter the city or market area for the complaint location.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {

@@ -1,0 +1,42 @@
+services:
+  # =============================================================================
+  # LexMetra Statutory Legal Metrology Backend Web Service
+  # FastAPI, Uvicorn, Tesseract OCR, OpenCV, Pyzbar Barcode Engine
+  # =============================================================================
+  - type: web
+    name: lexmetra-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: standard
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lexmetra-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://lexmetra-ui.vercel.app,https://rise-sponsor-juvenile.ngrok-free.dev,http://localhost:5173,http://localhost:4173
+      - key: SECRET_KEY
+        generateValue: true
+      - key: OCR_ENGINE
+        value: tesseract
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+# =============================================================================
+# Managed PostgreSQL Database for Statutory Register & Inspections
+# =============================================================================
+databases:
+  - name: lexmetra-db
+    databaseName: lmpc_db
+    user: lmpc_user
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"

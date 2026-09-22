@@ -136,7 +136,7 @@ export function DesktopRail({ view, onNavigate, lang = "en", role }: { view: Vie
       >
         <img
           src="/lexmetra-blue-logo.png"
-          alt="LexMetra"
+          alt="LexMetra Legal Metrology Compliance Platform Logo"
           className="h-10 w-auto object-contain"
           draggable={false}
         />

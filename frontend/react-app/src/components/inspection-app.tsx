@@ -56,6 +56,15 @@ import { CustomerDashboard } from "./customer-dashboard";
 import { SeniorRegionalDashboard } from "./senior-regional-dashboard";
 import { AuthorityDashboardView, MultilingualAssistantWidget } from "./usp-components";
 import { PublicVerificationView } from "./public-verification-view";
+import { MobileMenuDrawer } from "./mobile-menu-drawer";
+import { CookieBanner } from "./cookie-banner";
+import { PrivacyPolicyView } from "./privacy-policy-view";
+import { TermsView } from "./terms-view";
+import { NotFoundView } from "./not-found-view";
+import { ThankYouView } from "./thank-you-view";
+import { EmptyStateView } from "./empty-state-view";
+import { updatePageMetadata } from "@/lib/page-metadata";
+import { trackPageView, trackEvent } from "@/lib/analytics";
 
 export function InspectionApp() {
   const [user, setUser] = useState<AuthedUser | null>(() => {
@@ -89,6 +98,14 @@ export function InspectionApp() {
   const [processingError, setProcessingError] = useState<string | undefined>(undefined);
   const [toast, setToast] = useState<string | undefined>(undefined);
   const [verifyModalId, setVerifyModalId] = useState<string | null>(null);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [submittedDocketId, setSubmittedDocketId] = useState<string | undefined>(undefined);
+
+  // Dynamic Page Title, Description & Analytics Telemetry
+  useEffect(() => {
+    updatePageMetadata(view, lang);
+    trackPageView(view, lang);
+  }, [view, lang]);
 
   useEffect(() => {
     const handleHash = () => {
@@ -201,6 +218,11 @@ export function InspectionApp() {
         "report",
         "history",
         "register",
+        "privacy",
+        "terms",
+        "notFound",
+        "thankYou",
+        "emptyState",
       ];
       if (!allowedViews.includes(targetView)) {
         targetView = "customer";
@@ -303,6 +325,8 @@ export function InspectionApp() {
     setSelected(inspection);
     setInspections((current) => [inspection, ...current]);
     go("result", inspection.id, true);
+    setToast("Package evaluated successfully under Rule 12 & LMPC Rules");
+    trackEvent("scan_completed", { id: inspection.id, status: inspection.status });
     if (inspection?.id) {
       getInspectionDetail(inspection.id)
         .then((row) => {
@@ -318,6 +342,7 @@ export function InspectionApp() {
 
   function handleProcessingError(message: string) {
     setProcessingError(message);
+    trackEvent("scan_error", { error: message });
   }
 
   function handleInspectionUpdated(updated: Inspection) {
@@ -334,6 +359,7 @@ export function InspectionApp() {
       setSelected(saved);
       setInspections((current) => current.map((item) => (item.id === saved.id ? saved : item)));
       setToast("Added to Compliance Register");
+      trackEvent("register_saved", { id: selected.id });
     } catch (err) {
       if (handleAuthExpiry(err)) return;
       setToast(err instanceof ApiError ? err.message : "Could not save — check your connection.");
@@ -355,7 +381,7 @@ export function InspectionApp() {
     }
   }
 
-  if (view === "login" && !user) {
+  if (view === "login") {
     return (
       <LoginView
         onLoggedIn={(u, target) => {
@@ -367,27 +393,28 @@ export function InspectionApp() {
     );
   }
 
-  if (view === "landing" && !user) {
-    return (
-      <LandingPage
-        onStartScan={() => go("scan")}
-        onOfficerLogin={() => go("login")}
-        onConsumerPortal={() => go("customer")}
-        lang={lang}
-        onLanguageChange={handleSetLang}
-      />
-    );
-  }
-
   const content =
     view === "landing" ? (
       <LandingPage
         onStartScan={() => go("scan")}
         onOfficerLogin={() => go("login")}
         onConsumerPortal={() => go("customer")}
+        onOpenPrivacy={() => go("privacy")}
+        onOpenTerms={() => go("terms")}
+        onOpenRegulatory={() => go("regulatory")}
         lang={lang}
         onLanguageChange={handleSetLang}
       />
+    ) : view === "privacy" ? (
+      <PrivacyPolicyView onBack={handleBackNav} lang={lang} />
+    ) : view === "terms" ? (
+      <TermsView onBack={handleBackNav} lang={lang} />
+    ) : view === "notFound" ? (
+      <NotFoundView onNavigate={go} lang={lang} />
+    ) : view === "thankYou" ? (
+      <ThankYouView onNavigate={go} docketId={submittedDocketId} lang={lang} />
+    ) : view === "emptyState" ? (
+      <EmptyStateView onStartScan={() => go("scan")} onBack={handleBackNav} lang={lang} />
     ) : view === "home" ? (
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onLogout={handleLogout} onNavigate={go} onOpen={handleOpen} lang={lang} onSetLang={handleSetLang} />
     ) : view === "history" ? (
@@ -528,13 +555,24 @@ export function InspectionApp() {
       <HomeView inspections={inspections} loading={listLoading} error={listError} onRetry={refreshInspections} onLogout={handleLogout} onNavigate={go} onOpen={handleOpen} lang={lang} onSetLang={handleSetLang} user={user} />
     );
 
-  const isLanding = view === "landing";
+  const isStandalonePage = ["landing", "privacy", "terms", "notFound", "thankYou"].includes(view);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {!isLanding && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
-      {!isLanding ? <div className="md:pl-64">{content}</div> : content}
-      {!isLanding && <BottomNav view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
+    <div className="min-h-screen bg-background text-foreground no-horizontal-scroll">
+      {!isStandalonePage && <DesktopRail view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
+      {!isStandalonePage ? <div className="md:pl-64">{content}</div> : content}
+      {!isStandalonePage && <BottomNav view={view} onNavigate={go} lang={lang} role={user?.role || (user == null ? "customer" : undefined)} />}
+      <MobileMenuDrawer
+        isOpen={isMobileDrawerOpen}
+        onClose={() => setIsMobileDrawerOpen(false)}
+        currentView={view}
+        onNavigate={(v) => go(v as View)}
+        lang={lang}
+        onLanguageChange={handleSetLang}
+        user={user}
+        onLogout={handleLogout}
+      />
+      <CookieBanner onOpenPrivacy={() => go("privacy")} lang={lang} />
       <MultilingualAssistantWidget currentInspection={selected || inspections[0]} lang={lang} onLanguageChange={handleSetLang} />
       {verifyModalId && (
         <PublicVerificationView
