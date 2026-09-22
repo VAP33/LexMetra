@@ -174,6 +174,7 @@ def startup() -> None:
                 ("authority", "password123", "authority", "Statutory Metrology Authority"),
                 ("senior_inspector", "password123", "senior_inspector", "Senior Metrology Officer"),
                 ("inspector", "password123", "inspector", "Field Inspector"),
+                ("inspector2", "password123", "inspector", "Field Inspector (Zone 2)"),
                 ("reviewer", "password123", "reviewer", "Metrology Reviewer"),
                 ("authority", "password123", "reviewer", "Statutory Authority Officer"),
                 ("customer", "password123", "customer", "Citizen Consumer"),
