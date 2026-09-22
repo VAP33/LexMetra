@@ -72,7 +72,7 @@ DATABASE_URL = os.environ.get(
 # Authentication
 # ---------------------------------------------------------------------------
 
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY") or os.environ.get("SECRET_KEY") or ""
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "480"))
 

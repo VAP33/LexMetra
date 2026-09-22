@@ -29,6 +29,12 @@ services:
         value: https://lexmetra-ui.vercel.app,https://rise-sponsor-juvenile.ngrok-free.dev,http://localhost:5173,http://localhost:4173
       - key: SECRET_KEY
         generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: LMPC_DEMO_MODE
+        value: "true"
+      - key: LMPC_BOOTSTRAP_DEMO_USERS
+        value: "true"
       - key: OCR_ENGINE
         value: tesseract
       - key: PYTHONUNBUFFERED
