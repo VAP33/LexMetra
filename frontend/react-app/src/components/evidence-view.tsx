@@ -62,9 +62,10 @@ import {
 import { BeforeAfterSlider } from "./before-after-slider";
 import { type Language, getTranslation } from "@/lib/i18n";
 import { type Declaration, type Inspection, type SurfaceEvidence } from "@/lib/types";
-import { resolveImageUrl, getInspectionDetail, API_BASE } from "@/lib/api-client";
+import { resolveImageUrl, fetchBlobUrl, getInspectionDetail, API_BASE } from "@/lib/api-client";
 import { fromInspectionRow } from "@/lib/adapters";
 import { type View, Button, StatusBadge } from "./ui-primitives";
+import { SafeImage } from "./safe-image";
 
 function getRegionBbox(r: any): { x: number; y: number; width: number; height: number } | undefined {
   if (!r) return undefined;
@@ -126,153 +127,138 @@ export function DynamicEvidenceCrop({
 
     setLoading(true);
     setLoadError(false);
-    const resolvedSrc = resolveImageUrl(imageSrc) || imageSrc;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      setLoading(false);
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+    let active = true;
 
-      const nw = img.naturalWidth;
-      const nh = img.naturalHeight;
-
-      // Add generous padding (40% of dimensions or at least 35-40px)
-      const padX = Math.max(bbox.width * 0.4, 40);
-      const padY = Math.max(bbox.height * 0.4, 30);
-
-      const cropX = Math.max(0, bbox.x - padX);
-      const cropY = Math.max(0, bbox.y - padY);
-      const cropRight = Math.min(nw, bbox.x + bbox.width + padX);
-      const cropBottom = Math.min(nh, bbox.y + bbox.height + padY);
-
-      const cropW = Math.max(1, cropRight - cropX);
-      const cropH = Math.max(1, cropBottom - cropY);
-
-      const targetWidth = 720;
-      const aspect = cropH / cropW;
-      const targetHeight = Math.max(260, Math.min(Math.round(targetWidth * aspect), 520));
-
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-
-      // Clear dark background
-      ctx.fillStyle = "#09090b";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Fit cropped region inside canvas preserving aspect ratio
-      const scale = Math.min(canvas.width / cropW, canvas.height / cropH);
-      const renderW = cropW * scale;
-      const renderH = cropH * scale;
-      const offsetX = (canvas.width - renderW) / 2;
-      const offsetY = (canvas.height - renderH) / 2;
-
-      ctx.drawImage(img, cropX, cropY, cropW, cropH, offsetX, offsetY, renderW, renderH);
-
-      // Bounding box within canvas
-      const boxCanvasX = offsetX + (bbox.x - cropX) * scale;
-      const boxCanvasY = offsetY + (bbox.y - cropY) * scale;
-      const boxCanvasW = bbox.width * scale;
-      const boxCanvasH = bbox.height * scale;
-
-      // Draw tight polygon if available, else rectangle
-      if (polygon && polygon.length >= 3) {
-        ctx.beginPath();
-        const startX = offsetX + (polygon[0][0] - cropX) * scale;
-        const startY = offsetY + (polygon[0][1] - cropY) * scale;
-        ctx.moveTo(startX, startY);
-        for (let i = 1; i < polygon.length; i++) {
-          ctx.lineTo(offsetX + (polygon[i][0] - cropX) * scale, offsetY + (polygon[i][1] - cropY) * scale);
+    fetchBlobUrl(imageSrc)
+      .then((blobOrUrl) => {
+        if (!active) return;
+        const resolvedSrc = blobOrUrl || resolveImageUrl(imageSrc) || imageSrc;
+        const img = new Image();
+        if (!resolvedSrc.startsWith("blob:") && !resolvedSrc.startsWith("data:")) {
+          img.crossOrigin = "anonymous";
         }
-        ctx.closePath();
-        ctx.fillStyle = "rgba(16, 185, 129, 0.22)";
-        ctx.fill();
-        ctx.strokeStyle = "#10b981";
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = "rgba(16, 185, 129, 0.16)";
-        ctx.fillRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
-        ctx.strokeStyle = "#10b981";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
-      }
-
-      // Badge label
-      const badgeText = `${label}${value ? `: ${value}` : ""}${confidence ? ` (${confidence}%)` : ""}`;
-      ctx.font = "bold 13px system-ui, -apple-system, sans-serif";
-      const textMetrics = ctx.measureText(badgeText);
-      const badgeW = textMetrics.width + 16;
-      const badgeH = 24;
-      const badgeX = Math.max(offsetX, Math.min(boxCanvasX, canvas.width - badgeW - 10));
-      const badgeY = Math.max(badgeH + 6, boxCanvasY - 6);
-
-      ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
-      ctx.beginPath();
-      if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(badgeX, badgeY - badgeH, badgeW, badgeH, 6);
-      } else {
-        ctx.rect(badgeX, badgeY - badgeH, badgeW, badgeH);
-      }
-      ctx.fill();
-      ctx.strokeStyle = "#10b981";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.fillStyle = "#34d399";
-      ctx.fillText(badgeText, badgeX + 8, badgeY - 7);
-
-      setCropStats({
-        cropW: Math.round(cropW),
-        cropH: Math.round(cropH),
-        zoomFactor: Number(scale.toFixed(1)),
-        naturalW: nw,
-        naturalH: nh,
-      });
-    };
-
-    img.onerror = () => {
-      // Fallback without protocol/relative differences
-      if (!resolvedSrc.startsWith("http") && typeof window !== "undefined") {
-        const fallbackUrl = `${API_BASE}${resolvedSrc.startsWith("/") ? "" : "/"}${resolvedSrc}`;
-        const retryImg = new Image();
-        retryImg.onload = () => {
+        img.onload = () => {
+          if (!active) return;
           setLoading(false);
           const canvas = canvasRef.current;
           if (!canvas) return;
           const ctx = canvas.getContext("2d");
           if (!ctx) return;
-          const nw = retryImg.naturalWidth;
-          const nh = retryImg.naturalHeight;
+
+          const nw = img.naturalWidth;
+          const nh = img.naturalHeight;
+
+          // Add generous padding (40% of dimensions or at least 35-40px)
           const padX = Math.max(bbox.width * 0.4, 40);
           const padY = Math.max(bbox.height * 0.4, 30);
+
           const cropX = Math.max(0, bbox.x - padX);
           const cropY = Math.max(0, bbox.y - padY);
-          const cropW = Math.max(1, Math.min(nw, bbox.x + bbox.width + padX) - cropX);
-          const cropH = Math.max(1, Math.min(nh, bbox.y + bbox.height + padY) - cropY);
-          canvas.width = 720;
-          canvas.height = Math.max(260, Math.min(Math.round(720 * (cropH / cropW)), 520));
+          const cropRight = Math.min(nw, bbox.x + bbox.width + padX);
+          const cropBottom = Math.min(nh, bbox.y + bbox.height + padY);
+
+          const cropW = Math.max(1, cropRight - cropX);
+          const cropH = Math.max(1, cropBottom - cropY);
+
+          const targetWidth = 720;
+          const aspect = cropH / cropW;
+          const targetHeight = Math.max(260, Math.min(Math.round(targetWidth * aspect), 520));
+
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+
+          // Clear dark background
           ctx.fillStyle = "#09090b";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // Fit cropped region inside canvas preserving aspect ratio
           const scale = Math.min(canvas.width / cropW, canvas.height / cropH);
-          const rw = cropW * scale;
-          const rh = cropH * scale;
-          ctx.drawImage(retryImg, cropX, cropY, cropW, cropH, (canvas.width - rw) / 2, (canvas.height - rh) / 2, rw, rh);
+          const renderW = cropW * scale;
+          const renderH = cropH * scale;
+          const offsetX = (canvas.width - renderW) / 2;
+          const offsetY = (canvas.height - renderH) / 2;
+
+          ctx.drawImage(img, cropX, cropY, cropW, cropH, offsetX, offsetY, renderW, renderH);
+
+          // Bounding box within canvas
+          const boxCanvasX = offsetX + (bbox.x - cropX) * scale;
+          const boxCanvasY = offsetY + (bbox.y - cropY) * scale;
+          const boxCanvasW = bbox.width * scale;
+          const boxCanvasH = bbox.height * scale;
+
+          // Draw tight polygon if available, else rectangle
+          if (polygon && polygon.length >= 3) {
+            ctx.beginPath();
+            const startX = offsetX + (polygon[0][0] - cropX) * scale;
+            const startY = offsetY + (polygon[0][1] - cropY) * scale;
+            ctx.moveTo(startX, startY);
+            for (let i = 1; i < polygon.length; i++) {
+              ctx.lineTo(offsetX + (polygon[i][0] - cropX) * scale, offsetY + (polygon[i][1] - cropY) * scale);
+            }
+            ctx.closePath();
+            ctx.fillStyle = "rgba(16, 185, 129, 0.22)";
+            ctx.fill();
+            ctx.strokeStyle = "#10b981";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = "rgba(16, 185, 129, 0.16)";
+            ctx.fillRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+            ctx.strokeStyle = "#10b981";
+            ctx.lineWidth = 3;
+            ctx.strokeRect(boxCanvasX, boxCanvasY, boxCanvasW, boxCanvasH);
+          }
+
+          // Badge label
+          const badgeText = `${label}${value ? `: ${value}` : ""}${confidence ? ` (${confidence}%)` : ""}`;
+          ctx.font = "bold 13px system-ui, -apple-system, sans-serif";
+          const textMetrics = ctx.measureText(badgeText);
+          const badgeW = textMetrics.width + 16;
+          const badgeH = 24;
+          const badgeX = Math.max(offsetX, Math.min(boxCanvasX, canvas.width - badgeW - 10));
+          const badgeY = Math.max(badgeH + 6, boxCanvasY - 6);
+
+          ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
+          ctx.beginPath();
+          if (typeof ctx.roundRect === "function") {
+            ctx.roundRect(badgeX, badgeY - badgeH, badgeW, badgeH, 6);
+          } else {
+            ctx.rect(badgeX, badgeY - badgeH, badgeW, badgeH);
+          }
+          ctx.fill();
+          ctx.strokeStyle = "#10b981";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.fillStyle = "#34d399";
+          ctx.fillText(badgeText, badgeX + 8, badgeY - 7);
+
+          setCropStats({
+            cropW: Math.round(cropW),
+            cropH: Math.round(cropH),
+            zoomFactor: Number(scale.toFixed(1)),
+            naturalW: nw,
+            naturalH: nh,
+          });
         };
-        retryImg.onerror = () => {
+
+        img.onerror = () => {
+          if (!active) return;
           setLoading(false);
           setLoadError(true);
         };
-        retryImg.src = fallbackUrl;
-      } else {
+
+        img.src = resolvedSrc;
+      })
+      .catch(() => {
+        if (!active) return;
         setLoading(false);
         setLoadError(true);
-      }
-    };
+      });
 
-    img.src = resolvedSrc;
+    return () => {
+      active = false;
+    };
   }, [imageSrc, bbox, polygon, label, confidence]);
 
   if (!bbox || bbox.width <= 0 || bbox.height <= 0) {
@@ -691,31 +677,14 @@ export function EvidenceView({ inspection, onBack }: { inspection: Inspection; o
                   <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-border/60 bg-neutral-950 flex items-center justify-center">
                     {displayUrl ? (
                       <div className="relative flex items-center justify-center h-full w-full">
-                        <img
-                          src={displayUrl}
+                        <SafeImage
+                          src={rawDisplayUrl}
                           alt={`${st.faceLabel || st.surfaceType} scan`}
                           className="max-h-full max-w-full object-contain select-none block"
-                          onError={(e) => {
-                            const img = e.currentTarget;
-                            if (!img.dataset.retried) {
-                              img.dataset.retried = "1";
-                              const cleanUrl = displayUrl.replace("?ngrok-skip-browser-warning=true", "").replace("&ngrok-skip-browser-warning=true", "");
-                              img.src = cleanUrl;
-                            }
-                          }}
-                          ref={(el) => {
-                            if (el && el.complete && el.naturalWidth > 0 && !faceNaturalSizes[st.surfaceType]) {
-                              setFaceNaturalSizes((prev) => ({
-                                ...prev,
-                                [st.surfaceType]: { w: el.naturalWidth, h: el.naturalHeight },
-                              }));
-                            }
-                          }}
-                          onLoad={(e) => {
-                            const img = e.currentTarget;
+                          onLoadedDimensions={({ naturalWidth, naturalHeight }) => {
                             setFaceNaturalSizes((prev) => ({
                               ...prev,
-                              [st.surfaceType]: { w: img.naturalWidth || 800, h: img.naturalHeight || 600 },
+                              [st.surfaceType]: { w: naturalWidth || 800, h: naturalHeight || 600 },
                             }));
                           }}
                         />
