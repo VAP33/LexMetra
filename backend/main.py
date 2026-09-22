@@ -1643,17 +1643,28 @@ async def scan(
 # Health
 # ---------------------------------------------------------------------------
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    """Cheap liveness probe. It deliberately does not require dependencies."""
+    """Cheap liveness probe. Supports both GET and HEAD for uptime monitors (e.g. UptimeRobot) and keeps Supabase warm."""
     from ocr_engine import active_engines
     from datetime import datetime, timezone
     engines, engine_notes = active_engines()
+
+    # Quick keep-alive ping to database connection pool to prevent Supabase inactivity pause
+    db_status = "ok"
+    try:
+        with db.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+    except Exception:
+        db_status = "deferred"
+
     return {
         "success": True,
         "message": "Server is healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "status": "ok",
+        "database": db_status,
         "service": "lmpc-compliance-api",
         "mode": "demo" if config.DEMO_MODE else "production",
         "ocr": {
