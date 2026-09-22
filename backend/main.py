@@ -168,7 +168,7 @@ def startup() -> None:
 
         # Never create predictable credentials implicitly. Demo accounts are an
         # explicit development-only opt-in and are disabled by default.
-        if config.BOOTSTRAP_DEMO_USERS and config.DEV_MODE:
+        if config.BOOTSTRAP_DEMO_USERS and (config.DEV_MODE or config.DEMO_MODE):
             for u, p, r, n in [
                 ("admin", "password123", "admin", "System Admin"),
                 ("authority", "password123", "authority", "Statutory Metrology Authority"),
