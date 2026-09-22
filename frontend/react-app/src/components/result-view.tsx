@@ -261,7 +261,7 @@ function DeclarationRow({
 
           {declaration.canonicalPolygonPx && (
             <p className="mt-2 inline-flex items-center gap-1.5 font-medium text-emerald-500 text-[11px]">
-              <Check className="h-3.5 w-3.5" /> Verified packaging inscription boundary localized
+              <Check className="h-3.5 w-3.5" /> Tight text polygon localized from PaddleOCR
             </p>
           )}
 
@@ -638,7 +638,7 @@ export function ResultView({
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                               : "bg-muted text-muted-foreground border border-border"
                         }`}>
-                          {isExempt ? "STATUTORILY EXEMPT" : isApplicable ? "MANDATORY STATUTORY REQUIREMENT" : "CONDITIONAL REQUIREMENT"}
+                          {rule.evaluation_status || (rule.is_mandatory ? "MANDATORY" : "CONDITIONAL")}
                         </span>
                         <span className="text-[10px] font-semibold text-muted-foreground">
                           {rule.category_scope}
@@ -646,23 +646,25 @@ export function ResultView({
                       </div>
                     </div>
 
-                    <div className="text-xs bg-muted/40 rounded-xl p-3 border border-border/40 space-y-1.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-muted/50 rounded-xl p-3 border border-border/40">
                       <div>
-                        <span className="font-bold text-foreground">Requirement &amp; Context: </span>
+                        <span className="font-bold text-foreground">Contextual Finding: </span>
                         <span className="text-muted-foreground">{rule.context_note || rule.summary}</span>
+                        {rule.exemptions && rule.exemptions.length > 0 && (
+                          <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 italic">
+                            Exemptions: {rule.exemptions.join("; ")}
+                          </div>
+                        )}
                       </div>
-                      {rule.exemptions && rule.exemptions.length > 0 && (
-                        <div className="text-[11px] text-emerald-600 dark:text-emerald-400 italic">
-                          Statutory Exemptions: {rule.exemptions.join("; ")}
+                      <div className="border-t sm:border-t-0 sm:border-l border-border/60 pt-2 sm:pt-0 sm:pl-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-destructive">
+                            Penal Provision: {rule.penal_section}
+                          </span>
                         </div>
-                      )}
-                      <div className="pt-1.5 border-t border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          Statutory Basis: {rule.penal_section}
-                        </span>
-                        <span className="text-[10px] font-mono text-muted-foreground">
-                          LMPC Rules 2011 · Rule 32 Enforcement
-                        </span>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
+                          {rule.penalty_description}
+                        </p>
                       </div>
                     </div>
                   </div>

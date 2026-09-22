@@ -1019,6 +1019,7 @@ def build_inspection_report_pdf(
         ("mrp", "Maximum Retail Price (MRP)", "Rule 6(1)(da)"),
         ("net_quantity", "Net Quantity", "Rule 6(1)(e)"),
         ("unit_sale_price", "Unit Sale Price", "Rule 6(11)"),
+        ("standard_pack_size", "Standard Pack Size", "Rule 5 / Sch II"),
         ("manufacturer_name_address", "Manufacturer Name & Address", "Rule 6(1)(a)"),
         ("marketer_name_address", "Marketer Name & Address", "Rule 6(1)(a)"),
         ("batch_no", "Batch / Lot Number", "Rule 6(1)"),

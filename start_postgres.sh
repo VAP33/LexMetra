@@ -1,4 +1,4 @@
-6#!/usr/bin/env bash
+#!/usr/bin/env bash
 # LexMetra PostgreSQL 18 Service Launcher (Port 5433)
 
 PGDATA="/home/PRC/Downloads/SIH LATEST/backend/db/data_local"

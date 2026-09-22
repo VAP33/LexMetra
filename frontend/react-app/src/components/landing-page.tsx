@@ -15,12 +15,17 @@ import {
   Download,
   Globe,
   Search,
+  Menu,
 } from "lucide-react";
+import { MobileMenuDrawer } from "./mobile-menu-drawer";
 
 interface LandingPageProps {
   onStartScan: () => void;
   onOfficerLogin: () => void;
   onConsumerPortal?: () => void;
+  onOpenPrivacy?: () => void;
+  onOpenTerms?: () => void;
+  onOpenRegulatory?: () => void;
   lang?: "en" | "hi" | "mr";
   onLanguageChange?: (l: "en" | "hi" | "mr") => void;
 }
@@ -29,10 +34,15 @@ export function LandingPage({
   onStartScan,
   onOfficerLogin,
   onConsumerPortal,
+  onOpenPrivacy,
+  onOpenTerms,
+  onOpenRegulatory,
   lang = "en",
   onLanguageChange,
 }: LandingPageProps) {
   const [isLangOpen, setIsLangOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showStickyCta, setShowStickyCta] = useState(false);
   const langMenuRef = useRef<HTMLDivElement>(null);
   const [activeStage, setActiveStage] = useState(0);
 
@@ -64,17 +74,17 @@ export function LandingPage({
     },
     {
       title: "Fast OCR & Polygon Localization",
-      sub: "Text extraction and localized evidence regions",
+      sub: "Sub-Second Text Vectorization & Strict Bounding Box Isolation",
       badge: "Stage 02 · Perception Pipeline",
     },
     {
       title: "LMPC Deterministic Rule Engine",
-      sub: "Versioned rules, applicability conditions and declaration evaluation",
+      sub: "Rule 12 Unit Sale Price Math & Rule 6(1) Declarations Verification",
       badge: "Stage 03 · Statutory Engine",
     },
     {
-      title: "Audit-Ready Report Export",
-      sub: "Structured PDF report with evidence references and inspection findings",
+      title: "Tamper-Proof Audit Docket Export",
+      sub: "ReportLab Official PDF Certificate & Evidence Audit Trail",
       badge: "Stage 04 · Enforcement Action",
     },
   ];
@@ -83,26 +93,26 @@ export function LandingPage({
     en: {
       directorate: "Legal Metrology Compliance · Statutory Packaged Commodities Authority",
       titleMain: "Automated Legal Metrology",
-      titleHighlight: "Inspection & Verification",
+      titleHighlight: "Compliance & Enforcement",
       subtitle:
-        "AI-powered multi-surface inspection under the Legal Metrology Act, 2009 & Packaged Commodities Rules, 2011. Evidence-backed declaration verification, contextual rule evaluation, and audit-ready reporting.",
+        "AI-powered multi-surface inspection under the Legal Metrology Act, 2009 & Packaged Commodities Rules, 2011. Instant mathematical unit-price validation, deterministic statutory compliance, and tamper-proof PDF audit dockets.",
       startScan: "Start Package Inspection",
       officerPortal: "Officer Command Center",
       citizenPortal: "Citizen Grievance & Search",
-      stat1Val: "Versioned Rules",
-      stat1Lbl: "Regulatory Framework",
-      stat2Val: "Evidence-Backed",
-      stat2Lbl: "Declaration Verification",
-      stat3Val: "Multi-Surface",
-      stat3Lbl: "Package Inspection",
-      stat4Val: "Multimodal AI",
-      stat4Lbl: "Label Understanding",
-      cap1Title: "Multi-Surface Inspection",
-      cap1Desc: "Analyze captured package surfaces and connect detected declarations to visual evidence.",
-      cap2Title: "Evidence-Backed Verification",
-      cap2Desc: "Connect extracted declarations with localized evidence and contextual regulatory evaluation.",
-      cap3Title: "Audit-Ready Reporting",
-      cap3Desc: "Generate structured inspection reports with findings, evidence references and regulatory context.",
+      stat1Val: "13 Rules",
+      stat1Lbl: "Statutory Checks",
+      stat2Val: "0% Error",
+      stat2Lbl: "USP Math Tolerance",
+      stat3Val: "6-Face 360°",
+      stat3Lbl: "Package Coverage",
+      stat4Val: "< 1.5s",
+      stat4Lbl: "OCR Perception Speed",
+      cap1Title: "360° Multi-Panel Scan",
+      cap1Desc: "Full-package unobserved evaluation preventing false absences across 6 surfaces.",
+      cap2Title: "Rule 12 Unit Sale Price",
+      cap2Desc: "Deterministic arithmetic cross-check of MRP vs Net Qty with 0% tolerance.",
+      cap3Title: "Official Audit PDF",
+      cap3Desc: "Tamper-proof dockets with localized bounding-box crops and court-admissible proof.",
       footerCopy: "© 2026 LexMetra · Automated Statutory Compliance Platform",
     },
     hi: {
@@ -114,15 +124,15 @@ export function LandingPage({
       startScan: "पैकेज निरीक्षण शुरू करें",
       officerPortal: "अधिकारी पोर्टल",
       citizenPortal: "नागरिक शिकायत पोर्टल",
-      stat1Val: "संस्करणित नियम",
-      stat1Lbl: "नियामक ढाँचा",
-      stat2Val: "साक्ष्य-आधारित",
-      stat2Lbl: "घोषणा सत्यापन",
-      stat3Val: "बहु-सतह",
-      stat3Lbl: "पैकेज निरीक्षण",
-      stat4Val: "मल्टीमॉडल AI",
-      stat4Lbl: "लेबल समझ",
-      cap1Title: "बहु-सतह पैकेज निरीक्षण",
+      stat1Val: "13 नियम",
+      stat1Lbl: "वैधानिक जाँच",
+      stat2Val: "0% त्रुटि",
+      stat2Lbl: "गणितीय सटीकता",
+      stat3Val: "6-सतह 360°",
+      stat3Lbl: "कवरेज",
+      stat4Val: "< 1.5 से.",
+      stat4Lbl: "ओसीआर गति",
+      cap1Title: "360° बहु-सतह स्कैन",
       cap1Desc: "पैकेज की सभी 6 सतहों पर अनिवार्य घोषणाओं का समग्र सत्यापन।",
       cap2Title: "नियम 12 इकाई विक्रय मूल्य",
       cap2Desc: "एमआरपी और शुद्ध मात्रा का सटीक गणितीय सत्यापन।",
@@ -139,15 +149,15 @@ export function LandingPage({
       startScan: "पॅकेज तपासणी सुरू करा",
       officerPortal: "अधिकारी पोर्टल",
       citizenPortal: "नागरिक पोर्टल",
-      stat1Val: "संस्करणित नियम",
-      stat1Lbl: "नियामक चौकट",
-      stat2Val: "पुराव्यावर आधारित",
-      stat2Lbl: "घोषणा पडताळणी",
-      stat3Val: "बहु-पृष्ठभाग",
-      stat3Lbl: "पॅकेज तपासणी",
-      stat4Val: "मल्टीमॉडल AI",
-      stat4Lbl: "लेबल समज",
-      cap1Title: "बहु-पृष्ठभाग पॅकेज तपासणी",
+      stat1Val: "13 नियम",
+      stat1Lbl: "वैधानिक नियम",
+      stat2Val: "0% त्रुटी",
+      stat2Lbl: "गणितीय अचूकता",
+      stat3Val: "6-पृष्ठभाग",
+      stat3Lbl: "कव्हरेज",
+      stat4Val: "< 1.5 से.",
+      stat4Lbl: "ओसीआर वेग",
+      cap1Title: "360° बहु-पृष्ठभाग स्कॅन",
       cap1Desc: "संपूर्ण पॅकेजवरील 6 पृष्ठांवर अनिवार्य घोषणांची अचूक पडताळणी.",
       cap2Title: "नियम 12 युनिट विक्री किंमत",
       cap2Desc: "एमआरपी आणि निव्वळ प्रमाण यांचे तंतोतंत गणितीय परीक्षण.",
@@ -158,45 +168,73 @@ export function LandingPage({
   }[lang] || {
     directorate: "Legal Metrology Division · Statutory Compliance Platform",
     titleMain: "Automated Legal Metrology",
-    titleHighlight: "Inspection & Verification",
+    titleHighlight: "Compliance & Enforcement",
     subtitle: "AI-powered statutory package inspection platform.",
     startScan: "Start Package Inspection",
     officerPortal: "Officer Portal",
     citizenPortal: "Citizen Portal",
-    stat1Val: "Versioned Rules",
-    stat1Lbl: "Regulatory Framework",
-    stat2Val: "Evidence-Backed",
-    stat2Lbl: "Declaration Verification",
-    stat3Val: "Multi-Surface",
-    stat3Lbl: "Package Inspection",
-    stat4Val: "Sub-Second",
+    stat1Val: "13 Rules",
+    stat1Lbl: "Statutory Checks",
+    stat2Val: "0% Error",
+    stat2Lbl: "USP Math Tolerance",
+    stat3Val: "6-Face 360°",
+    stat3Lbl: "Package Coverage",
+    stat4Val: "< 1.5s",
     stat4Lbl: "Perception Speed",
-    cap1Title: "Multi-Surface Inspection",
+    cap1Title: "360° Multi-Panel Scan",
     cap1Desc: "Multi-angle surface analysis preventing false absence.",
-    cap2Title: "Evidence-Backed Verification",
+    cap2Title: "Rule 12 Unit Sale Price",
     cap2Desc: "Deterministic arithmetic cross-check with 0% error tolerance.",
-    cap3Title: "Audit-Ready Reporting",
-    cap3Desc: "Tamper-proof legal dockets with localized statutory evidence crops.",
+    cap3Title: "Official Audit PDF",
+    cap3Desc: "Tamper-proof legal dockets with localized bounding-box crops.",
     footerCopy: "© 2026 LexMetra · Automated Statutory Compliance Platform",
   };
 
+  // Scroll listener for sticky mobile CTA
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowStickyCta(window.scrollY > 240);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-white text-slate-900 flex flex-col justify-between selection:bg-saffron-500 selection:text-white overflow-x-hidden">
+    <div className="min-h-screen bg-white text-slate-900 flex flex-col justify-between selection:bg-saffron-500 selection:text-white overflow-x-hidden no-horizontal-scroll">
+      {/* Mobile Slide-Out Drawer Navigation */}
+      <MobileMenuDrawer
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        currentView="landing"
+        onNavigate={(view) => {
+          if (view === "scan") onStartScan();
+          else if (view === "login") onOfficerLogin();
+          else if (view === "customer") onConsumerPortal?.();
+          else if (view === "privacy") onOpenPrivacy?.();
+          else if (view === "terms") onOpenTerms?.();
+          else if (view === "regulatory") onOpenRegulatory?.();
+          else if (view === "landing") window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        lang={lang}
+        onLanguageChange={onLanguageChange}
+      />
+
       {/* 1. Header with Dark Blue Background and White Logo */}
-      <header className="border-b border-brand-900/60 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white sticky top-0 z-50 shadow-md">
+      <header className="border-b border-brand-900/60 bg-gradient-to-r from-brand-950 via-brand-900 to-brand-800 text-white sticky top-0 z-40 shadow-md">
         <div className="h-1.5 w-full tricolor-stripe" />
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 min-h-[68px] sm:min-h-[76px] py-2 flex items-center justify-between gap-2 sm:gap-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 min-h-[64px] sm:min-h-[76px] py-2 flex items-center justify-between gap-2 sm:gap-4">
           {/* White Logo on Dark Blue Background */}
-          <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
             <button
               type="button"
-              onClick={() => { }}
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
               className="flex items-center gap-2 sm:gap-3 transition-opacity hover:opacity-90 active:scale-[0.98] touch-manipulation cursor-pointer text-left"
+              aria-label="LexMetra Home"
             >
               <img
                 src="/lexmetra-white-logo.png"
-                alt="LexMetra White Logo"
-                className="h-10 sm:h-12 w-auto object-contain drop-shadow-[0_2px_8px_rgba(255,255,255,0.2)]"
+                alt="LexMetra National Statutory Compliance Logo"
+                className="h-9 sm:h-12 w-auto object-contain drop-shadow-[0_2px_8px_rgba(255,255,255,0.2)]"
                 draggable={false}
               />
               <div className="hidden sm:flex flex-col">
@@ -210,8 +248,8 @@ export function LandingPage({
             </button>
           </div>
 
-          {/* Right Action Tools: Language Menu & Sign In */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Right Action Tools: Language Menu & Sign In & Mobile Menu Toggle */}
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* Multilingual Selector */}
             {onLanguageChange && (
               <div className="relative" ref={langMenuRef}>
@@ -250,10 +288,11 @@ export function LandingPage({
                               onLanguageChange(opt.code as "en" | "hi" | "mr");
                               setIsLangOpen(false);
                             }}
-                            className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition touch-manipulation cursor-pointer ${isActive
+                            className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs transition touch-manipulation cursor-pointer ${
+                              isActive
                                 ? "bg-purple-50 text-purple-900 font-bold"
                                 : "text-slate-700 hover:bg-slate-100 font-medium"
-                              }`}
+                            }`}
                           >
                             <div className="flex flex-col text-left">
                               <span>{opt.label}</span>
@@ -272,45 +311,48 @@ export function LandingPage({
             {/* Officer Sign In Button */}
             <button
               type="button"
+              id="officer-login-btn"
+              aria-label="Officer Sign In"
               onClick={onOfficerLogin}
-              className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-700 via-purple-800 to-indigo-800 hover:from-purple-800 hover:to-indigo-900 text-white shadow-md transition-all active:scale-95 touch-manipulation cursor-pointer"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-700 via-purple-800 to-indigo-800 hover:from-purple-800 hover:to-indigo-900 text-white shadow-md transition-all active:scale-95 touch-manipulation cursor-pointer"
             >
               <Lock className="h-3.5 w-3.5 text-white" />
-              <span>{lang === "hi" ? "साइन इन" : lang === "mr" ? "साइन इन करा" : "Sign In"}</span>
+              <span className="hidden sm:inline">{lang === "hi" ? "साइन इन" : lang === "mr" ? "साइन इन करा" : "Sign In"}</span>
+              <span className="sm:hidden">Sign In</span>
+            </button>
+
+            {/* Mobile Hamburger Drawer Button */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              aria-label="Open mobile navigation menu"
+              className="md:hidden flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white hover:bg-white/20 transition active:scale-95 touch-manipulation cursor-pointer"
+            >
+              <Menu className="h-5 w-5" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* 2. Main Hero Section on Crisp Pure White */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center flex-1 bg-white">
+      {/* 2. Main Hero Section on Crisp Pure White (Optimized Above-the-Fold for Mobile) */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-10 lg:py-16 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center flex-1 bg-white">
         {/* Left Column: Punchline & Value Proposition */}
-        <div className="lg:col-span-7 space-y-6 sm:space-y-7">
+        <div className="lg:col-span-7 space-y-4 sm:space-y-6">
           {/* Directorate Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-brand-900 text-xs font-bold shadow-xs">
-            <Sparkles className="h-4 w-4 text-saffron-600 animate-pulse" />
-            <span className="truncate max-w-[280px] sm:max-w-none">{t.directorate}</span>
-          </div>
-
-          {/* Large Blue LexMetra Brand Logo */}
-          <div className="pt-1">
-            <img
-              src="/lexmetra-blue-logo.png"
-              alt="LexMetra"
-              className="h-12 sm:h-16 md:h-20 lg:h-22 w-auto max-w-[240px] sm:max-w-[320px] md:max-w-[380px] object-contain drop-shadow-sm transition-all select-none"
-              draggable={false}
-            />
+          <div className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-1 sm:py-1.5 rounded-full bg-brand-50 border border-brand-200 text-brand-900 text-[11px] sm:text-xs font-bold shadow-xs">
+            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-saffron-600 animate-pulse" />
+            <span className="truncate max-w-[260px] sm:max-w-none">{t.directorate}</span>
           </div>
 
           {/* Heading */}
-          <div className="space-y-3 sm:space-y-4">
-            <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-brand-950 leading-[1.15]">
+          <div className="space-y-2.5 sm:space-y-4">
+            <h1 className="text-2xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-brand-950 leading-[1.15]">
               {t.titleMain} <br className="hidden sm:inline" />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-saffron-600 via-brand-700 to-govgreen">
                 {t.titleHighlight}
               </span>
             </h1>
-            <p className="text-sm sm:text-base lg:text-lg text-slate-700 leading-relaxed font-normal max-w-2xl">
+            <p className="text-xs sm:text-base lg:text-lg text-slate-700 leading-relaxed font-normal max-w-2xl">
               {t.subtitle}
             </p>
           </div>
@@ -399,8 +441,9 @@ export function LandingPage({
                     type="button"
                     onClick={() => setActiveStage(idx)}
                     aria-label={`Switch to Stage ${idx + 1}`}
-                    className={`h-2.5 rounded-full transition-all touch-manipulation cursor-pointer ${activeStage === idx ? "w-6 bg-saffron-500 shadow-xs" : "w-2.5 bg-slate-200"
-                      }`}
+                    className={`h-2.5 rounded-full transition-all touch-manipulation cursor-pointer ${
+                      activeStage === idx ? "w-6 bg-saffron-500 shadow-xs" : "w-2.5 bg-slate-200"
+                    }`}
                   />
                 ))}
               </div>
@@ -430,10 +473,11 @@ export function LandingPage({
 
                 {/* Simulated Bounding Box 1: MRP */}
                 <div
-                  className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 1
+                  className={`p-1.5 rounded border-2 transition-all duration-300 ${
+                    activeStage >= 1
                       ? "border-brand bg-brand-50/80 shadow-sm"
                       : "border-slate-200"
-                    }`}
+                  }`}
                 >
                   <div className="flex items-center justify-between text-[9px]">
                     <span className="text-slate-800 font-mono font-bold">MRP: ₹99.00</span>
@@ -448,10 +492,11 @@ export function LandingPage({
 
                 {/* Simulated Bounding Box 2: FSSAI / Mfg Date */}
                 <div
-                  className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 1
+                  className={`p-1.5 rounded border-2 transition-all duration-300 ${
+                    activeStage >= 1
                       ? "border-govgreen bg-emerald-50/80 shadow-sm"
                       : "border-slate-200"
-                    }`}
+                  }`}
                 >
                   <div className="flex items-center justify-between text-[9px]">
                     <span className="text-slate-800 font-mono font-bold">FSSAI: 10012022000295</span>
@@ -463,10 +508,11 @@ export function LandingPage({
 
                 {/* Simulated Bounding Box 3: Consumer Care */}
                 <div
-                  className={`p-1.5 rounded border-2 transition-all duration-300 ${activeStage >= 2
+                  className={`p-1.5 rounded border-2 transition-all duration-300 ${
+                    activeStage >= 2
                       ? "border-saffron-500 bg-saffron-50/80"
                       : "border-slate-200"
-                    }`}
+                  }`}
                 >
                   <div className="text-[8px] text-slate-800 truncate font-mono font-semibold">
                     Care: 1800-425-4444
@@ -505,7 +551,7 @@ export function LandingPage({
               </div>
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-saffron-600 hover:text-saffron-700 touch-manipulation cursor-pointer">
                 <Download className="h-3.5 w-3.5" />
-                PDF Reporting
+                ReportLab Engine Ready
               </span>
             </div>
           </div>
@@ -517,10 +563,10 @@ export function LandingPage({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10 space-y-2">
             <p className="text-xs font-bold uppercase tracking-widest text-saffron-600">
-              Evidence & Regulatory Architecture
+              Deterministic Statutory Architecture
             </p>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-brand-950">
-              Built for Real-World Inspection
+              Engineered for Real-World Field Enforcement
             </h2>
           </div>
 
@@ -565,18 +611,78 @@ export function LandingPage({
       </section>
 
       {/* 4. Footer on Crisp White */}
-      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-600">
+      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-600 mb-16 sm:mb-0">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="font-medium">{t.footerCopy}</p>
-          <div className="flex items-center gap-3 sm:gap-4 font-semibold text-brand-900 text-[11px] sm:text-xs">
-            <span>LM Act 2009</span>
+          <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-4 font-semibold text-brand-900 text-[11px] sm:text-xs">
+            <button
+              type="button"
+              onClick={onOpenRegulatory}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              LM Act 2009
+            </button>
             <span className="text-saffron-500">•</span>
-            <span>LMPC Rules 2011</span>
+            <button
+              type="button"
+              onClick={onOpenRegulatory}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              LMPC Rules 2011
+            </button>
             <span className="text-govgreen">•</span>
-            <span>Declaration & Unit-Price Checks</span>
+            <button
+              type="button"
+              onClick={onOpenRegulatory}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              Rule 12 Unit Pricing
+            </button>
+            <span className="text-slate-300">•</span>
+            <button
+              type="button"
+              onClick={onOpenPrivacy}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <span className="text-slate-300">•</span>
+            <button
+              type="button"
+              onClick={onOpenTerms}
+              className="hover:text-saffron-600 hover:underline transition cursor-pointer"
+            >
+              Terms of Service
+            </button>
           </div>
         </div>
       </footer>
+
+      {/* Sticky Mobile CTA Bar (Slides in when user scrolls down on mobile) */}
+      <div
+        className={`sticky-mobile-cta flex items-center justify-between gap-3 md:hidden transition-transform duration-300 ${
+          showStickyCta ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-xl bg-saffron-50 border border-saffron-200 flex items-center justify-center text-saffron-600 shrink-0">
+            <Camera className="h-4 w-4" />
+          </div>
+          <div className="text-left">
+            <p className="text-xs font-black text-brand-950">6-Face Inspection</p>
+            <p className="text-[10px] text-slate-500 font-medium">Verify Rule 12 USP Math</p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onStartScan}
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-saffron-500 via-saffron-600 to-orange-600 hover:from-saffron-600 hover:to-orange-700 text-white font-bold text-xs shadow-md shadow-saffron-500/25 active:scale-95 touch-manipulation cursor-pointer shrink-0"
+        >
+          <span>{t.startScan}</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

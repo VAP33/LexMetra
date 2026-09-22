@@ -145,26 +145,13 @@ def find_dynamic_bbox(
     if field_key in ("barcode", "gtin"):
         try:
             bc_det = cv2.barcode.BarcodeDetector()
-            ret = bc_det.detectAndDecode(image_bgr)
-            points = None
-            if ret and len(ret) >= 2:
-                for item in ret:
-                    if isinstance(item, np.ndarray) and item.size > 0:
-                        points = item
-                        break
-            if points is not None and len(points) > 0:
+            ok, decoded_info, _, points = bc_det.detectAndDecode(image_bgr)
+            if ok and points is not None and len(points) > 0:
                 pts = points[0].astype(int)
                 bx = max(0, int(min(pts[:, 0])))
                 by = max(0, int(min(pts[:, 1])))
                 bw = min(iw - bx, int(max(pts[:, 0]) - bx))
                 bh = min(ih - by, int(max(pts[:, 1]) - by))
-                # Add light contextual padding to capture full barcode bars and printed digits
-                pad_x = min(10, bx)
-                pad_y = min(10, by)
-                bx = bx - pad_x
-                by = by - pad_y
-                bw = min(iw - bx, bw + 2 * pad_x)
-                bh = min(ih - by, bh + 2 * pad_y)
                 if bw > 15 and bh > 10:
                     return [bx, by, bw, bh]
         except Exception:
@@ -478,7 +465,7 @@ DEMO_REFERENCE_PACKAGES: Dict[str, Dict[str, Any]] = {
         "inspection_bboxes": {
             "canon": {
                 "product_name": [100, 680, 380, 180],
-                "barcode": [180, 365, 240, 75],
+                "barcode": [185, 340, 200, 110],
                 "fssai_license_number": [115, 136, 175, 25],
                 "mrp": [135, 415, 85, 35],
                 "unit_sale_price": [220, 425, 125, 40],
@@ -491,7 +478,7 @@ DEMO_REFERENCE_PACKAGES: Dict[str, Dict[str, Any]] = {
             },
             "raw": {
                 "product_name": [100, 680, 380, 180],
-                "barcode": [180, 365, 240, 75],
+                "barcode": [185, 340, 200, 110],
                 "fssai_license_number": [200, 538, 140, 28],
                 "mrp": [150, 882, 90, 35],
                 "unit_sale_price": [235, 886, 120, 35],

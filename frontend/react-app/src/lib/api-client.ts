@@ -9,18 +9,42 @@ import type { ScanDetails } from "./types";
 function getApiBase(): string {
   if (typeof window !== "undefined" && window.location?.hostname) {
     const { protocol, hostname } = window.location;
-    const envUrl = (import.meta as unknown as { env?: Record<string, string> })?.env?.VITE_API_BASE_URL;
-    if (envUrl && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
-      return envUrl;
+    // When hosted on Vercel or any public non-localhost domain, always target the public Ngrok tunnel:
+    if (hostname.includes("vercel.app") || (!hostname.includes("localhost") && !hostname.includes("127.0.0.1"))) {
+      return "https://rise-sponsor-juvenile.ngrok-free.dev";
     }
-    // When accessing from a mobile phone or laptop on LAN (e.g. 192.168.x.x:5173),
-    // point API requests directly to port 8000 on that same laptop hostname:
+    // For local LAN or local dev, use explicit env if non-localhost, else host:8000
+    const envUrl = import.meta.env.VITE_API_BASE_URL;
+    if (envUrl && typeof envUrl === "string" && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
+      return envUrl.replace(/\/+$/, "");
+    }
     return `${protocol}//${hostname}:8000`;
   }
   return "http://localhost:8000";
 }
 
 export const API_BASE: string = getApiBase();
+
+// Install transparent fetch hook to bypass ngrok free tier browser warning
+// and attach ngrok-skip-browser-warning header to all API calls.
+if (typeof window !== "undefined" && window.fetch) {
+  const _origFetch = window.fetch;
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      const urlStr = typeof input === "string" ? input : (input instanceof Request ? input.url : input.toString());
+      if (urlStr.includes("ngrok") || (API_BASE && urlStr.startsWith(API_BASE))) {
+        const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+        if (!headers.has("ngrok-skip-browser-warning")) {
+          headers.set("ngrok-skip-browser-warning", "true");
+        }
+        return await _origFetch(input, { ...init, headers });
+      }
+    } catch {
+      // ignore header enhancement error and fall back to raw fetch
+    }
+    return _origFetch(input, init);
+  };
+}
 
 export function resolveImageUrl(url?: string | null): string | undefined {
   if (!url) return undefined;
@@ -89,7 +113,10 @@ export async function login(username: string, password: string): Promise<AuthedU
   try {
     response = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "ngrok-skip-browser-warning": "true",
+      },
       body,
     });
   } catch {

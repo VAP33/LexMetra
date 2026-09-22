@@ -20,6 +20,41 @@ This document contains detailed engineering instructions, development setup step
 4. **Browser Navigation & History**:
    - All modal views, details views, evidence views, and reports must push hash history (`#detail/<id>`, `#evidence/<id>`, `#report/<id>`).
    - The native browser **Back** and **Forward** buttons must transition between views without exiting the platform.
+5. **Mobile-First & Zero Horizontal Scroll**:
+   - All components must render cleanly on mobile viewports down to 320px width without horizontal blowout (`overflow-x: hidden`).
+   - Touch targets must adhere to a minimum size of 44x44px.
+   - All images must include meaningful, descriptive `alt` attributes.
+
+### 1.2. Responsive Breakpoints & Viewport Matrix
+
+| Breakpoint | Minimum Width | Target Devices | Layout Behavior |
+| :--- | :--- | :--- | :--- |
+| **`xs`** | `320px - 479px` | Compact smartphones (iPhone SE, Galaxy S) | Single-column, stacked CTAs, sticky mobile CTA bar |
+| **`sm`** | `640px` | Large smartphones, mini tablets | 2-column stat cards, expanded header buttons |
+| **`md`** | `768px` | Tablets, iPad Mini | Desktop rail navigation activates, bottom nav hidden |
+| **`lg`** | `1024px` | Laptops, desktop monitors | Full 12-column grid, split-screen live scanner simulation |
+| **`xl`** | `1280px+` | Wide monitors, command centers | High-density multi-panel evidence inspector |
+
+### 1.3. Page Metadata & Telemetry Architecture
+
+- **Page Metadata**: Managed dynamically by `src/lib/page-metadata.ts` on every view transition. Updates `document.title`, `<meta name="description">`, `og:title`, and `twitter:title`.
+- **Analytics & Telemetry**: Managed by `src/lib/analytics.ts`. Dispatches `lexmetra_telemetry` events while strictly respecting user cookie preferences configured via `CookieBanner`.
+
+### 1.4. Frontend Design Tokens & Custom CSS Utilities Matrix
+
+The UI design system in `frontend/react-app/src/index.css` implements specific utility classes for responsive behavior, accessibility, and statutory feedback:
+
+| CSS Selector / Utility | Styling Rules Applied | Functional & Accessibility Impact |
+| :--- | :--- | :--- |
+| `.no-horizontal-scroll` | `max-width: 100vw; overflow-x: hidden;` | Prevents mobile horizontal scrolling and layout clipping on small viewports. |
+| `.touch-target` | `min-height: 44px; min-width: 44px;` | Enforces WCAG 2.1 AA touch target sizing for buttons and interactive controls. |
+| `.sticky-mobile-cta` | `position: fixed; bottom: 0; z-index: 50; backdrop-filter: blur(12px);` | Provides instant one-tap scanning accessibility when scrolling through long pages. |
+| `.table-responsive-container` | `overflow-x: auto; -webkit-overflow-scrolling: touch;` | Enables smooth kinetic touch scrolling for dense tabular inspection data. |
+| `.loading-skeleton` | `background: linear-gradient(...); animation: shimmer 1.5s infinite;` | High-fidelity shimmer skeleton placeholder during async vision perception runs. |
+| `.form-input-error` | `border-color: #ef4444; box-shadow: 0 0 0 1px #ef4444;` | Highlights invalid fields with accessible ARIA invalid feedback and red focus rings. |
+| `.form-input-success` | `border-color: #10b981; box-shadow: 0 0 0 1px #10b981;` | Confirms valid statutory entries (e.g., compliant 14-digit FSSAI licenses). |
+| `.badge-violation` | `background: #fef2f2; color: #991b1b; border: 1px solid #fecaca;` | Standardized statutory non-compliance callout badge. |
+| `.badge-pass` | `background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;` | Standardized statutory compliance verification badge. |
 
 ---
 
@@ -166,24 +201,47 @@ find backend frontend -type f \( -name "*.py" -o -name "*.tsx" -o -name "*.ts" \
 ```
 *Expected: The highest line count must be under 1600 lines.*
 
+### 5.4. Test Suite & Automated Coverage Matrix
+
+| Test Suite File | Domain / Component Tested | Test Scenarios & Cases | Execution Command | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| `test_rule_engine.py` | LMPC 2011 Rule Evaluation | 40 unit tests covering MRP, USP math, PDP height, Country of origin | `pytest backend/tests/test_rule_engine.py` | ✅ **40/40 Passed** |
+| `test_qwen_perception_v1.py` | Multimodal Vision Perception | 17 tests covering bounding box parsing, surface alignment, failovers | `pytest backend/tests/test_qwen_perception_v1.py` | ✅ **17/17 Passed** |
+| `test_generalized_date_association.py` | Regex & Date Classification | 30 tests covering dual dates, month-year normalization, batch extractors | `pytest backend/tests/test_generalized_date_association.py` | ✅ **30/30 Passed** |
+| `test_three_additions.py` | Anti-Tamper & Package Integrity | 4 integration tests on sticker overlay detection and spec comparison | `pytest backend/tests/test_three_additions.py` | ✅ **4/4 Passed** |
+| `e2e/lexmetra.spec.ts` | Playwright E2E UI Suite | 3 browser end-to-end tests: inspector login, mobile 390x844, citizen portal | `npx playwright test` | ✅ **3/3 Passed** |
+
 ---
 
 ## 6. Database Schema & Architecture
 
-The PostgreSQL database (`lmpc`) contains the following primary tables:
+The PostgreSQL database (`lmpc`) contains 11 production-verified tables:
 
-1. **`users`**:
-   - `user_id` (UUID), `username`, `hashed_password`, `role`, `full_name`, `created_at`
-2. **`audit_events`**:
-   - `event_id`, `action`, `actor_username`, `resource_type`, `resource_id`, `detail`, `timestamp`
-3. **`inspections`**:
-   - `inspection_id`, `product_id`, `product_name`, `sale_type`, `overall_status`, `facts`, `findings`, `created_at`
-4. **`sessions` & `captures`**:
-   - Stores multi-surface capture sessions, face images (`Face 1`, `Face 2`, `Face 3`), canonical rectified textures, and calibration metadata.
-5. **`package_integrity_records`**:
-   - Historical manufacturer reference declarations, version history, and difference logs.
-6. **`authority_cases`**:
-   - Enforcement case IDs, violation classifications, status (`PENDING_REVIEW`, `NOTICE_ISSUED`, `COMPOUNDED`), and officer actions.
+### 6.1. Database Tables & Key Columns Matrix
+
+| Table Name | Primary Key | Key Relational Columns & Constraints | Purpose & Storage Content |
+| :--- | :--- | :--- | :--- |
+| **`users`** | `user_id` (UUID) | `username` (UNIQUE), `hashed_password`, `role` | Stores officer and administrator accounts with password hashes. |
+| **`audit_events`** | `event_id` (UUID) | `actor_username`, `action`, `resource_id`, `timestamp` | Append-only audit trail recording every state change and legal action. |
+| **`inspections`** | `inspection_id` (UUID) | `product_id`, `product_name`, `overall_status`, `created_at` | Primary record for each packaging evaluation and overall status. |
+| **`inspection_facts`** | `fact_id` (UUID) | `inspection_id` (FK), `field_name`, `raw_value`, `confidence` | Normalized values and spatial bounding boxes for each declaration. |
+| **`inspection_findings`**| `finding_id` (UUID) | `inspection_id` (FK), `rule_id`, `status`, `severity` | Detailed per-rule statutory determinations (Rule 6, Rule 7, Rule 12). |
+| **`sessions`** | `session_id` (UUID) | `inspector_id` (FK), `status`, `product_type`, `created_at` | Multi-surface capture workflow sessions for packaging inspections. |
+| **`captures`** | `capture_id` (UUID) | `session_id` (FK), `face_index`, `image_url`, `rectified_url` | Surface images (PDP, Back, Sides), rectified crops, and lighting stats. |
+| **`package_integrity_records`**| `record_id` (UUID)| `barcode`, `brand_name`, `canonical_facts`, `updated_at` | Reference packaging specifications provided by registered brand owners. |
+| **`authority_cases`** | `case_id` (UUID) | `inspection_id` (FK), `status`, `severity`, `hearing_date` | Statutory cases under adjudication for compounding or prosecution. |
+| **`officer_actions`** | `action_id` (UUID) | `case_id` (FK), `officer_id` (FK), `action_type`, `timestamp` | Immutable trail of notices issued, compounding fees, and hearings. |
+| **`consumer_grievances`**| `docket_id` (UUID) | `consumer_phone`, `retailer_name`, `violation_type`, `status` | Public complaints on dual MRP, missing declarations, or overpricing. |
+
+### 6.2. Multi-Lingual Statutory Dictionaries Matrix
+
+LexMetra supports statutory inspection across three official languages:
+
+| Language Code | Language Name | Primary Usage Surface | Covered Statutory Terminology |
+| :--- | :--- | :--- | :--- |
+| **`en`** | English | Technical inspection reports & gazette rules | Rule 6 mandatory declarations, USP, FSSAI verification, Panchnama |
+| **`hi`** | Hindi (हिन्दी) | Citizen grievance portal & mobile UI | कानूनी मापविज्ञान, शुद्ध मात्रा, अधिकतम खुदरा मूल्य, उपभोक्ता शिकायत |
+| **`mr`** | Marathi (मराठी) | State controller dashboard & field alerts | कायदेशीर मापशास्त्र, निव्वळ वजन, किरकोळ विक्री किंमत, तपासणी अहवाल |
 
 You can inspect and query the database using TablePlus, DBeaver, or `psql`:
 ```bash

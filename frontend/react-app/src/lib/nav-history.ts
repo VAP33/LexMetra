@@ -22,7 +22,12 @@ export type AppView =
   | "regulatory"
   | "authority"
   | "customer"
-  | "seniorRegional";
+  | "seniorRegional"
+  | "privacy"
+  | "terms"
+  | "notFound"
+  | "thankYou"
+  | "emptyState";
 
 export interface NavRouteState {
   view: AppView;
@@ -49,6 +54,11 @@ const VIEW_HASH_MAP: Record<AppView, string> = {
   authority: "authority",
   customer: "customer",
   seniorRegional: "regional",
+  privacy: "privacy",
+  terms: "terms",
+  notFound: "404",
+  thankYou: "thank-you",
+  emptyState: "empty",
 };
 
 const HASH_VIEW_MAP: Record<string, AppView> = {
@@ -74,6 +84,17 @@ const HASH_VIEW_MAP: Record<string, AppView> = {
   customer: "customer",
   regional: "seniorRegional",
   seniorregional: "seniorRegional",
+  privacy: "privacy",
+  "privacy-policy": "privacy",
+  terms: "terms",
+  "terms-and-conditions": "terms",
+  "404": "notFound",
+  "not-found": "notFound",
+  notfound: "notFound",
+  "thank-you": "thankYou",
+  thankyou: "thankYou",
+  empty: "emptyState",
+  emptystate: "emptyState",
 };
 
 /**
@@ -102,7 +123,8 @@ export function parseRouteHash(rawHash = window.location.hash): NavRouteState | 
   if (view) {
     return { view, id };
   }
-  return null;
+  // Unknown route hash defaults to custom 404 page
+  return { view: "notFound" };
 }
 
 /**

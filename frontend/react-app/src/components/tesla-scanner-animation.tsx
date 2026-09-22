@@ -51,14 +51,14 @@ const STAGES = [
     subMr: "नियम 6(1) अनिवार्य घोषणा व नियम 6(11) युनिट विक्री किंमत तपासणी",
   },
   {
-    id: "evidence_grounding",
+    id: "vlm",
     icon: Eye,
-    en: "Statutory Evidence Grounding & Audit Verification",
-    hi: "वैधानिक साक्ष्य सत्यापन एवं अंतिम ऑडिट",
-    mr: "वैधानिक पुरावा पडताळणी आणि अंतिम नोंद",
-    subEn: "Verifying packaging evidence boundaries and tamper-proof compliance logging",
-    subHi: "पैकेजिंग साक्ष्य सीमा सत्यापन एवं डिजिटल ऑडिट लॉगिंग",
-    subMr: "पॅकेजिंग पुरावा सीमा पडताळणी आणि डिजिटल नोंद",
+    en: "VLM Visual Grounding & Audit Verification",
+    hi: "VLM विजुअल ग्राउंडिंग व अंतिम ऑडिट",
+    mr: "VLM व्हिज्युअल ग्राउंडिंग व पुरावा मॅपिंग",
+    subEn: "Verifying bounding polygon evidence and tamper-proof compliance logging",
+    subHi: "बाउंडिंग पॉलीगॉन साक्ष्य सत्यापन एवं डिजिटल ऑडिट लॉगिंग",
+    subMr: "बाउंडिंग पॉलीगॉन पुरावा पडताळणी आणि डिजिटल नोंद",
   },
 ];
 

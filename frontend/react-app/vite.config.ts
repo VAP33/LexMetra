@@ -5,7 +5,8 @@ import path from 'path'
 export default defineConfig(({ mode }) => ({
   // FastAPI mounts the production bundle at /app. Vite development remains at
   // / so `npm run dev` continues to work at http://localhost:5173/.
-  base: mode === 'production' ? '/app/' : '/',
+  // In Vercel deployment, base remains / unless overridden.
+  base: (process.env.VERCEL || process.env.VITE_BASE === '/') ? '/' : (mode === 'production' ? (process.env.VITE_BASE || '/app/') : '/'),
   plugins: [react()],
   resolve: {
     alias: {

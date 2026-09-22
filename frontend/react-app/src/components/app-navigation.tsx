@@ -132,12 +132,12 @@ export function DesktopRail({ view, onNavigate, lang = "en", role }: { view: Vie
       <button
         type="button"
         onClick={() => onNavigate("landing")}
-        className="mb-6 w-full transition-opacity hover:opacity-80 active:scale-[0.98] flex items-center justify-center px-2"
+        className="mb-6 w-full transition-opacity hover:opacity-80 active:scale-[0.98] flex items-center justify-center"
       >
         <img
           src="/lexmetra-blue-logo.png"
-          alt="LexMetra"
-          className="h-13 sm:h-14 max-h-14 w-auto max-w-[200px] object-contain"
+          alt="LexMetra Legal Metrology Compliance Platform Logo"
+          className="h-10 w-auto object-contain"
           draggable={false}
         />
       </button>

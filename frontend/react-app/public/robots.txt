@@ -1,0 +1,17 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+Allow: /#landing
+Allow: /#customer
+Allow: /#regulatory
+Allow: /#privacy
+Allow: /#terms
+Allow: /#verify:
+
+# Disallow administrative and temporary processing endpoints
+Disallow: /api/
+Disallow: /#review-queue
+Disallow: /#regional
+Disallow: /#profile
+
+Sitemap: https://lexmetra-ui.vercel.app/sitemap.xml
