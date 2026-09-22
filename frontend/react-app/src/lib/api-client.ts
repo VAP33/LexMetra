@@ -9,14 +9,18 @@ import type { ScanDetails } from "./types";
 function getApiBase(): string {
   if (typeof window !== "undefined" && window.location?.hostname) {
     const { protocol, hostname } = window.location;
-    // When hosted on Vercel or any public non-localhost domain, always target the public Ngrok tunnel:
+    // When served directly from Render
+    if (hostname.includes("onrender.com")) {
+      return window.location.origin;
+    }
+    // Explicit env variable takes priority if configured
+    const envUrl = import.meta.env.VITE_API_BASE_URL;
+    if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0 && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
+      return envUrl.replace(/\/+$/, "");
+    }
+    // When hosted on Vercel or any public non-localhost domain, default to the active Ngrok tunnel:
     if (hostname.includes("vercel.app") || (!hostname.includes("localhost") && !hostname.includes("127.0.0.1"))) {
       return "https://rise-sponsor-juvenile.ngrok-free.dev";
-    }
-    // For local LAN or local dev, use explicit env if non-localhost, else host:8000
-    const envUrl = import.meta.env.VITE_API_BASE_URL;
-    if (envUrl && typeof envUrl === "string" && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
-      return envUrl.replace(/\/+$/, "");
     }
     return `${protocol}//${hostname}:8000`;
   }
