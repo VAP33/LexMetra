@@ -1,0 +1,1803 @@
+# =========================================================================
+# LEXMETRA — Legal Metrology (Packaged Commodities) Rules, 2011
+# Comprehensive deterministic rule set
+# Source: G.S.R. 202(E), 7th March, 2011
+# =========================================================================
+
+metadata:
+  rulesetId: "LMPC-2011"
+  rulesetVersion: "2011.1.1"
+  effectiveFrom: "2011-04-01"
+  effectiveTo: null
+  jurisdiction: "IN"
+  authority: "Legal Metrology Statutory Division"
+  legalInstrument: "Legal Metrology (Packaged Commodities) Rules, 2011"
+  legalCitation: "G.S.R. 202(E), 7th March 2011"
+  companionAct: "Legal Metrology Act, 2009 (Act 1 of 2010)"
+  supersedes: "Standards of Weights and Measures (Packaged Commodities) Rules, 1977"
+  sourceDocument: "https://consumeraffairs.gov.in/"
+  notes: |
+    Rule set based on the notified G.S.R. 202(E) text.
+    Chapter II (Rules 3-23) governs retail packages.
+    Chapter III (Rule 24) governs wholesale packages.
+    Chapter IV (Rule 25) governs export packages.
+    Chapter V (Rule 26) provides exemptions.
+    Chapter VI (Rules 27-30) governs registration.
+    Chapter VII (Rules 31-34) governs general provisions.
+
+# =========================================================================
+# GLOBAL CONFIGURATION
+# =========================================================================
+
+config:
+  minEvidenceConfidence: 0.75
+  recognisedLanguages: ["hi", "en"]
+  currency: "INR"
+
+  siUnitSymbols:
+    mass:    ["g", "kg", "mg"]
+    volume:  ["ml", "l", "cl"]
+    length:  ["mm", "cm", "m"]
+    area:    ["cm2", "dm2", "m2"]
+    number:  ["N", "U"]
+
+  dateFields:
+    - manufacturedDate
+    - packedDate
+    - importedDate
+    - expiryDate
+    - bestBeforeDate
+
+  numericFields:
+    - mrp
+    - netQuantityValue
+    - retailSalePrice
+    - unitSalePrice
+
+# =========================================================================
+# REUSABLE DEFINITIONS
+# =========================================================================
+
+definitions:
+  productCategories:
+    food:            { label: "Food commodity" }
+    drug:            { label: "Drug / pharmaceutical formulation" }
+    cosmetic:        { label: "Cosmetic or personal-care product" }
+    medicalDevice:   { label: "Medical device" }
+    household:       { label: "Household / non-food consumable" }
+    agricultural:    { label: "Agricultural input" }
+    industrial:      { label: "Industrial / commercial input" }
+    other:           { label: "Uncategorised" }
+
+  roles:
+    manufacturer: { label: "Manufacturer" }
+    packer:       { label: "Packer" }
+    importer:     { label: "Importer" }
+    marketer:     { label: "Marketer" }
+
+  saleTypes:
+    retail:        { label: "Retail sale to consumer" }
+    wholesale:     { label: "Wholesale (Rule 24)" }
+    ecommerce:     { label: "E-commerce listing" }
+    export:        { label: "Export (Rule 25)" }
+    industrial:    { label: "Direct to industrial consumer" }
+    institutional: { label: "Direct to institutional consumer" }
+
+  verificationOutcomes:
+    - VALID
+    - INVALID
+    - UNVERIFIED
+    - API_UNAVAILABLE
+    - MALFORMED
+
+# =========================================================================
+# APPLICABILITY (Rules 3, 26)
+# =========================================================================
+
+applicability:
+
+  - id: "APL-R3-CHAPTER-II-SCOPE"
+    ruleReference: "Rule 3"
+    description: |
+      Chapter II does not apply to: (a) packages of commodities
+      containing more than 25 kg or 25 litres, EXCLUDING cement and
+      fertiliser sold in bags up to 50 kg; and (b) packaged commodities
+      meant for industrial or institutional consumers.
+    logic:
+      anyOf:
+        - allOf:
+            - quantityExceeds: { value: 25, unit: "kg" }
+            - not:
+                allOf:
+                  - commodityTypeMatches: ["cement", "fertiliser", "fertilizer"]
+                  - quantityAtMost: { value: 50, unit: "kg" }
+        - allOf:
+            - quantityExceeds: { value: 25, unit: "l" }
+            - not:
+                allOf:
+                  - commodityTypeMatches: ["cement", "fertiliser", "fertilizer"]
+                  - quantityAtMost: { value: 50, unit: "kg" }
+        - saleType: "industrial"
+        - saleType: "institutional"
+    outcomeWhenApplicable: APPLICABLE
+    outcomeWhenNot: NOT_APPLICABLE
+
+  - id: "APL-R26-A-SMALL-PACK"
+    ruleReference: "Rule 26(a)"
+    description: |
+      Exemption for packages whose net weight or measure is 10 g or
+      10 ml or less. For packages between 10 g and 20 g (10 ml and
+      20 ml), only MRP and net quantity declarations are required.
+    logic:
+      anyOf:
+        - quantityAtMost: { value: 10, unit: "g" }
+        - quantityAtMost: { value: 10, unit: "ml" }
+    outcome: EXEMPT
+    partialRequirementBand:
+      min: { value: 10, unit: "g_or_ml" }
+      max: { value: 20, unit: "g_or_ml" }
+      requiredFields: ["mrp", "netQuantityValue", "netQuantityUnit"]
+
+  - id: "APL-R26-B-FAST-FOOD"
+    ruleReference: "Rule 26(b)"
+    description: |
+      Packages containing fast food items packed by restaurant or hotel
+      and the like are exempt.
+    logic:
+      allOf:
+        - productCategory: "food"
+        - packedByEstablishmentType: ["restaurant", "hotel", "quickService"]
+    outcome: EXEMPT
+
+  - id: "APL-R26-C-DPCO"
+    ruleReference: "Rule 26(c)"
+    description: |
+      Scheduled and non-scheduled formulations covered under the
+      Drugs (Price Control) Order, 1995 are exempt.
+    logic:
+      allOf:
+        - productCategory: "drug"
+        - coveredByDpco: true
+    outcome: EXEMPT
+
+  - id: "APL-R26-D-AGRI-BULK"
+    ruleReference: "Rule 26(d)"
+    description: |
+      Agricultural farm produce in packages above 50 kg is exempt.
+    logic:
+      allOf:
+        - commodityTypeMatches: ["agriculturalFarmProduce"]
+        - quantityExceeds: { value: 50, unit: "kg" }
+    outcome: EXEMPT
+
+# =========================================================================
+# RULES
+# =========================================================================
+
+rules:
+
+  # =======================================================================
+  # RULE 6 — Declarations on every package
+  # =======================================================================
+
+  - id: "R6-1-A-MANUFACTURER"
+    ruleReference: "Rule 6(1)(a)"
+    version: "2011.1"
+    title: "Manufacturer / Packer / Importer name and full address"
+    description: |
+      Every package must bear the name and complete address of the
+      manufacturer, or where the manufacturer is not the packer, both
+      manufacturer and packer; imported packages must bear the importer.
+      Explanation III to Rule 6(1)(a): for food packages this sub-rule
+      does not apply; instead the PFA Act, 1954 applies.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      productCategory: "any"
+    exemptWhen:
+      anyOf:
+        - applicabilityId: "APL-R26-A-SMALL-PACK"
+        - productCategory: "food"
+    requires:
+      anyOf:
+        - field: "manufacturer"
+          companionField: "manufacturerAddress"
+        - allOf:
+            - field: "manufacturer"
+            - field: "packer"
+            - field: "packerAddress"
+        - allOf:
+            - field: "importer"
+            - field: "importerAddress"
+    validations:
+      - id: "V-NAME-PRESENT"
+        type: "presence"
+        fields: ["manufacturer|packer|importer"]
+        failAction: FAIL
+      - id: "V-ADDRESS-PRESENT"
+        type: "presence"
+        fields: ["manufacturerAddress|packerAddress|importerAddress"]
+        failAction: FAIL
+      - id: "V-ADDRESS-COMPLETENESS"
+        type: "compositeAddress"
+        requiresComponents: ["cityOrDistrict", "stateOrUt"]
+        optionalComponents: ["street", "premisesNumber", "pinCode"]
+        onMissingCritical: UNCERTAIN
+    severity: critical
+    reviewPolicy: onUncertain
+    notes: |
+      Rule 10 Explanation defines "complete address" as the postal
+      address of the factory, or street name, premises number, city,
+      state and PIN code in other cases.
+
+  - id: "R6-1-B-COMMON-NAME"
+    ruleReference: "Rule 6(1)(b)"
+    version: "2011.1"
+    title: "Common or generic name of the commodity"
+    description: |
+      The common or generic name of the commodity must be declared.
+      For packages with more than one product, the name and number or
+      quantity of each product must be stated.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      productCategory: "any"
+    exemptWhen:
+      applicabilityId: "APL-R26-A-SMALL-PACK"
+    requires:
+      field: "genericName|commonName|productName"
+    validations:
+      - id: "V-COMMON-NAME-PRESENT"
+        type: "presence"
+        fields: ["genericName|commonName|productName"]
+        failAction: FAIL
+      - id: "V-COMMON-NAME-NOT-BRAND"
+        type: "notEqual"
+        field: "genericName"
+        forbiddenMatches: ["brand", "productName"]
+        failAction: UNCERTAIN
+        note: "Product name is not the same as generic name."
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R6-1-C-NET-QUANTITY"
+    ruleReference: "Rule 6(1)(c)"
+    version: "2011.1"
+    title: "Net quantity declaration"
+    description: |
+      The net quantity in terms of the standard unit of weight, measure
+      or number must be declared.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      productCategory: "any"
+    requires:
+      allOf:
+        - field: "netQuantityValue"
+        - field: "netQuantityUnit"
+    validations:
+      - id: "V-NET-QTY-PRESENT"
+        type: "presence"
+        fields: ["netQuantityValue", "netQuantityUnit"]
+        failAction: FAIL
+      - id: "V-NET-QTY-POSITIVE"
+        type: "numericPositive"
+        field: "netQuantityValue"
+        failAction: FAIL
+      - id: "V-NET-UNIT"
+        type: "unitMembership"
+        field: "netQuantityUnit"
+        allowedUnits:
+          mass:   ["g", "kg", "mg"]
+          volume: ["ml", "l"]
+          length: ["mm", "cm", "m"]
+          area:   ["cm2", "dm2", "m2"]
+          number: ["N", "U"]
+        failAction: FAIL
+      - id: "V-NET-QTY-DECLARATION-MANNER"
+        type: "forbiddenSubstring"
+        field: "netQuantityRawText"
+        caseInsensitive: true
+        forbidden:
+          - "minimum"
+          - "not less than"
+          - "average"
+          - "about"
+          - "approximately"
+          - "approx"
+        failAction: FAIL
+    severity: critical
+    reviewPolicy: onUncertain
+
+  - id: "R6-1-D-MANUFACTURE-DATE"
+    ruleReference: "Rule 6(1)(d)"
+    version: "2011.1"
+    title: "Month and year of manufacture / packing / import"
+    description: |
+      The month and year in which the commodity was manufactured,
+      pre-packed or imported must be declared. Provisos in the Act
+      exempt food (PFA 1954) and cosmetic (Drugs & Cosmetics Rules
+      1945) packages from this requirement.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      productCategory: "any"
+    exemptWhen:
+      anyOf:
+        - applicabilityId: "APL-R26-A-SMALL-PACK"
+        - productCategory: "food"
+        - productCategory: "cosmetic"
+        - commodityTypeMatches: ["bidi", "incenseSticks"]
+        - specialCase: "domesticLpgCylinder14_2kg"
+        - specialCase: "domesticLpgCylinder5kg"
+    requires:
+      anyOf:
+        - field: "manufacturedDate"
+        - field: "packedDate"
+        - field: "importedDate"
+    validations:
+      - id: "V-DATE-PRESENT"
+        type: "presence"
+        fields: ["manufacturedDate|packedDate|importedDate"]
+        failAction: FAIL
+      - id: "V-DATE-VALID"
+        type: "dateIso"
+        fields: ["manufacturedDate|packedDate|importedDate"]
+        failAction: UNCERTAIN
+      - id: "V-DATE-NOT-FUTURE"
+        type: "dateNotAfter"
+        field: "manufacturedDate|packedDate|importedDate"
+        compareTo: "inspectionDate"
+        failAction: UNCERTAIN
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R6-1-E-RETAIL-PRICE"
+    ruleReference: "Rule 6(1)(e)"
+    version: "2011.1"
+    title: "Retail sale price (MRP) declaration"
+    description: |
+      The retail sale price (Maximum Retail Price, inclusive of all
+      taxes) must be declared. Proviso exempts bidi packages and
+      domestic LPG cylinders under administrative price mechanism.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      productCategory: "any"
+    exemptWhen:
+      anyOf:
+        - applicabilityId: "APL-R26-A-SMALL-PACK"
+        - commodityTypeMatches: ["bidi"]
+        - specialCase: "domesticLpgCylinderAdministrativePrice"
+    requires:
+      field: "mrp"
+    validations:
+      - id: "V-MRP-PRESENT"
+        type: "presence"
+        field: "mrp"
+        failAction: FAIL
+      - id: "V-MRP-POSITIVE"
+        type: "numericPositive"
+        field: "mrp"
+        failAction: FAIL
+      - id: "V-MRP-FORMAT"
+        type: "regex"
+        field: "mrpRawText"
+        pattern: "(?i)\\b(mrp|maximum\\s+retail|max\\.?\\s*retail)\\b"
+        failAction: UNCERTAIN
+        severityOverride: minor
+    severity: critical
+    reviewPolicy: onUncertain
+
+  - id: "R6-1-F-DIMENSIONS"
+    ruleReference: "Rule 6(1)(f)"
+    version: "2011.1"
+    title: "Dimensions of commodity where relevant"
+    description: |
+      Where the sizes of the commodity contained in the package are
+      relevant, the dimensions must be declared. If different pieces
+      have different dimensions, the dimensions of each piece must be
+      stated. The Act does not enumerate commodities; applicability
+      depends on whether sizes are relevant.
+    appliesWhen:
+      commodityTypeIn:
+        - "bedSheet"
+        - "hemmedFabric"
+        - "dhoti"
+        - "saree"
+        - "napkin"
+        - "pillowCover"
+        - "towel"
+        - "tableCloth"
+        - "readyMadeGarment"
+        - "electricCable"
+        - "electricWire"
+        - "fencingWire"
+    requires:
+      field: "finishedDimensions"
+    validations:
+      - id: "V-DIMENSIONS-PRESENT"
+        type: "presence"
+        field: "finishedDimensions"
+        failAction: FAIL
+      - id: "V-DIMENSIONS-COMPLETE"
+        type: "compositeDimension"
+        requiresComponents: ["length", "width"]
+        optionalComponents: ["depth", "height"]
+        failAction: UNCERTAIN
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R6-2-CONSUMER-CARE"
+    ruleReference: "Rule 6(2)"
+    version: "2011.1"
+    title: "Consumer care contact details"
+    description: |
+      Every package must bear the name, address, telephone number and,
+      where available, e-mail address of the person or office that can
+      be contacted for consumer complaints.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      productCategory: "any"
+    exemptWhen:
+      applicabilityId: "APL-R26-A-SMALL-PACK"
+    requires:
+      anyOf:
+        - field: "customerCare"
+        - field: "customerCarePhone"
+        - field: "customerCareEmail"
+        - field: "customerCareAddress"
+    validations:
+      - id: "V-CONSUMER-CARE-PRESENT"
+        type: "presence"
+        fields: ["customerCare|customerCarePhone|customerCareEmail"]
+        failAction: UNCERTAIN
+      - id: "V-CONSUMER-CARE-CHANNELS"
+        type: "atLeastOneOf"
+        channels: ["phone", "email", "address"]
+        failAction: UNCERTAIN
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R6-3-NO-DECLARATION-STICKER"
+    ruleReference: "Rule 6(3)"
+    version: "2011.1"
+    title: "Stickers altering declarations prohibited (MRP-lowering exception)"
+    description: |
+      Affixing stickers that alter or replace required declarations is
+      prohibited. Exception: a sticker lowering the MRP (with revised
+      lower MRP, inclusive of all taxes) may be affixed, provided it
+      does not cover the original MRP declaration.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    requires:
+      field: "stickerSuspects"
+    validations:
+      - id: "V-STICKER-OVER-REQUIRED-FIELD"
+        type: "regionOverlapCheck"
+        overlappingField: "mrp|netQuantity|manufacturedDate|manufacturer"
+        failAction: UNCERTAIN
+      - id: "V-MRP-STICKER-LOWER-ONLY"
+        type: "priceComparison"
+        primaryField: "mrp"
+        stickerField: "mrpSticker"
+        allowedRelation: "stickerLtePrimary"
+        failAction: FAIL
+    severity: major
+    reviewPolicy: always
+    tags: ["sticker", "alteration", "MRP-revision"]
+
+  # =======================================================================
+  # RULE 7 — Principal Display Panel
+  # =======================================================================
+
+  - id: "R7-1-PDP-5CC"
+    ruleReference: "Rule 7(1)"
+    version: "2011.1"
+    title: "PDP for packages <= 5 cm3"
+    description: |
+      For packages with capacity 5 cubic centimetres or less, the PDP
+      may be a card or tape affixed firmly to the package.
+    appliesWhen:
+      packageCapacityAtMost: { value: 5, unit: "cm3" }
+    validations:
+      - id: "V-PDP-CARD-PRESENT"
+        type: "presence"
+        field: "pdpType"
+        allowedValues: ["card", "tape", "packageSurface"]
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R7-2-PDP-NUMERAL-HEIGHT-WEIGHT-VOLUME"
+    ruleReference: "Rule 7(2)(i)"
+    version: "2011.1"
+    title: "PDP numeral height (weight or volume) — Table I"
+    description: |
+      Minimum height of numerals for net quantity declared in weight
+      or volume. Table I: up to 200 g/ml → 1 mm normal / 2 mm blown;
+      above 200 up to 500 → 2 mm / 4 mm; above 500 → 4 mm / 6 mm.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      netQuantityMeasuredBy: ["weight", "volume"]
+    requires:
+      field: "netQuantityNumeralHeightMm"
+    validations:
+      - id: "V-NUMERAL-HEIGHT-WEIGHT-VOLUME"
+        type: "thresholdLookup"
+        field: "netQuantityNumeralHeightMm"
+        lookupBy: "netQuantityValue|netQuantityUnit"
+        table:
+          - whenQuantityAtMost: { value: 200, unit: "g_or_ml" }
+            minHeightMm: { normal: 1, blownOrMolded: 2 }
+          - whenQuantityBetween: { low: { value: 200, unit: "g_or_ml" }, high: { value: 500, unit: "g_or_ml" } }
+            minHeightMm: { normal: 2, blownOrMolded: 4 }
+          - whenQuantityAbove: { value: 500, unit: "g_or_ml" }
+            minHeightMm: { normal: 4, blownOrMolded: 6 }
+        failAction: FAIL
+        uncertainIfMeasurementUncalibrated: true
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R7-2-PDP-NUMERAL-HEIGHT-LENGTH-AREA-NUMBER"
+    ruleReference: "Rule 7(2)(ii)"
+    version: "2011.1"
+    title: "PDP numeral height (length, area, or number) — Table II"
+    description: |
+      Minimum height of numerals for net quantity declared in length,
+      area or number, based on PDP area. Table II: up to 100 cm2 → 1/2 mm;
+      up to 500 → 2/4 mm; up to 2500 → 4/6 mm; above 2500 → 6/6 mm.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+      netQuantityMeasuredBy: ["length", "area", "number"]
+    requires:
+      field: "netQuantityNumeralHeightMm"
+    validations:
+      - id: "V-NUMERAL-HEIGHT-LENGTH-AREA-NUMBER"
+        type: "thresholdLookup"
+        field: "netQuantityNumeralHeightMm"
+        lookupBy: "pdpAreaCm2"
+        table:
+          - whenPdpAreaAtMostCm2: 100
+            minHeightMm: { normal: 1, blownOrMolded: 2 }
+          - whenPdpAreaBetweenCm2: { low: 100, high: 500 }
+            minHeightMm: { normal: 2, blownOrMolded: 4 }
+          - whenPdpAreaBetweenCm2: { low: 500, high: 2500 }
+            minHeightMm: { normal: 4, blownOrMolded: 6 }
+          - whenPdpAreaAboveCm2: 2500
+            minHeightMm: { normal: 6, blownOrMolded: 6 }
+        failAction: FAIL
+        uncertainIfMeasurementUncalibrated: true
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R7-3-PDP-LETTER-HEIGHT"
+    ruleReference: "Rule 7(3)"
+    version: "2011.1"
+    title: "PDP letter height and aspect"
+    description: |
+      Height of letters must be >= 1 mm in normal case, >= 2 mm when
+      blown, formed, molded, embossed or perforated.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    requires:
+      field: "letterHeightMm"
+    validations:
+      - id: "V-LETTER-HEIGHT-MIN"
+        type: "numericMin"
+        field: "letterHeightMm"
+        minValue: 1
+        failAction: FAIL
+        uncertainIfMeasurementUncalibrated: true
+      - id: "V-LETTER-HEIGHT-MIN-BLOWN"
+        type: "numericMin"
+        field: "letterHeightMm"
+        minValue: 2
+        when: "packageSurfaceMethod == 'blown'"
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R7-4-PDP-OVERRIDE"
+    ruleReference: "Rule 7(4)"
+    version: "2011.1"
+    title: "PDP font-size requirements suspended where other law applies"
+    description: |
+      Rule 7(1)-(3) do not apply where the same information must be
+      specified under any other law in force.
+    appliesWhen:
+      otherLawApplies: true
+    outcome: NOT_APPLICABLE
+
+  # =======================================================================
+  # RULE 8 — Declaration where to appear
+  # =======================================================================
+
+  - id: "R8-1-PDP-PLACEMENT"
+    ruleReference: "Rule 8(1)"
+    version: "2011.1"
+    title: "Declarations must appear on PDP with quantity clearance"
+    description: |
+      Every required declaration must appear on the PDP. The area
+      surrounding the quantity declaration must be free from printed
+      information: above and below at least the height of the numeral;
+      left and right at least twice that height.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    requires:
+      field: "declarationOnPdp"
+    validations:
+      - id: "V-ON-PDP"
+        type: "presence"
+        field: "declarationOnPdp"
+        failAction: UNCERTAIN
+      - id: "V-QUANTITY-CLEARANCE"
+        type: "clearanceCheck"
+        declaration: "netQuantity"
+        clearSpaceMm:
+          above: "numeralHeight"
+          below: "numeralHeight"
+          left:  "2 * numeralHeight"
+          right: "2 * numeralHeight"
+        failAction: UNCERTAIN
+        uncertainIfMeasurementUncalibrated: true
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R8-2-RETURNABLE-BOTTLE-PRICE"
+    ruleReference: "Rule 8(2)"
+    version: "2011.1"
+    title: "Retail price on crown cap or bottle for returnable bottles"
+    description: |
+      For soft drink, ready-to-serve fruit beverages or the like, the
+      bottle which is returnable by the consumer for being refilled,
+      the retail sale price may be printed on the crown cap, the bottle,
+      or both.
+    appliesWhen:
+      packageType: ["returnableBottle"]
+      commodityTypeMatches: ["softDrink", "fruitBeverage"]
+    validations:
+      - id: "V-PRICE-ON-CAP-OR-BOTTLE"
+        type: "presenceAny"
+        fields: ["crownCapPrice", "bottlePrice", "packagePrice"]
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 9 — Manner in which declaration shall be made
+  # =======================================================================
+
+  - id: "R9-1-MANNER"
+    ruleReference: "Rule 9(1)"
+    version: "2011.1"
+    title: "Declarations must be legible and prominent"
+    description: |
+      Every declaration must be legible and prominent. MRP and net
+      quantity numerals must be printed in a colour contrasting
+      conspicuously with the background.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-MRP-CONTRAST"
+        type: "colourContrast"
+        declarationField: "mrpRegionBbox"
+        backgroundField: "backgroundColourSample"
+        minContrastRatio: 3.0
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R9-2-NOT-THROUGH-LIQUID"
+    ruleReference: "Rule 9(2)"
+    version: "2011.1"
+    title: "Declarations must not require reading through liquid"
+    description: |
+      No declaration shall be made so as to require it to be read
+      through any liquid commodity contained in the package.
+    appliesWhen:
+      containsLiquid: true
+    validations:
+      - id: "V-NOT-THROUGH-LIQUID"
+        type: "manualReview"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R9-3-OUTER-WRAPPER"
+    ruleReference: "Rule 9(3)"
+    version: "2011.1"
+    title: "Outer container must bear declarations"
+    description: |
+      Where a package has an outside container or wrapper, the outer
+      container must also bear all required declarations, unless the
+      outer container is transparent and the declarations on the inner
+      package are easily readable through it.
+    appliesWhen:
+      hasOuterWrapper: true
+    validations:
+      - id: "V-OUTER-DECLARATIONS"
+        type: "presence"
+        field: "outerWrapperDeclarations"
+        failAction: FAIL
+      - id: "V-OUTER-TRANSPARENT-EXCEPTION"
+        type: "boolean"
+        field: "outerWrapperTransparent"
+        ifTrue: skipRule
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R9-4-LANGUAGE"
+    ruleReference: "Rule 9(4)"
+    version: "2011.1"
+    title: "Declarations in Hindi (Devanagari) or English"
+    description: |
+      Declarations must be in Hindi (Devanagari script) or English.
+      Other languages may be used in addition.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-LANGUAGE"
+        type: "languageMembership"
+        field: "declarationLanguage"
+        allowed: ["hi", "en"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 10 — Manufacturer name and address
+  # =======================================================================
+
+  - id: "R10-1-FULL-ADDRESS"
+    ruleReference: "Rule 10(1)"
+    version: "2011.1"
+    title: "Full address of manufacturer / packer / importer"
+    description: |
+      Subject to Rule 6, every package must conspicuously bear the
+      name and complete address of the manufacturer, or where the
+      manufacturer is not the packer, the name and address of both.
+      Imported packages must bear the importer's name and address.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    exemptWhen:
+      anyOf:
+        - packageCapacityAtMost: { value: 5, unit: "cm3" }
+        - productCategory: "food"
+    requires:
+      field: "manufacturerAddress|packerAddress|importerAddress"
+    validations:
+      - id: "V-ADDRESS-PRESENT"
+        type: "presence"
+        fields: ["manufacturerAddress|packerAddress|importerAddress"]
+        failAction: FAIL
+      - id: "V-ADDRESS-COMPLETE"
+        type: "compositeAddress"
+        requiresComponents: ["premisesNumberOrStreet", "cityOrDistrict", "stateOrUt"]
+        optionalComponents: ["pinCode"]
+        onMissingOptional: PASS
+        onMissingCritical: UNCERTAIN
+    severity: critical
+    reviewPolicy: onUncertain
+    notes: |
+      Rule 10 Explanation: "complete address" means the postal address
+      where the factory is situated, and in other cases the street name,
+      number assigned to the premises, city, state and PIN code.
+
+  - id: "R10-1-PROVISO-5CC-MARK"
+    ruleReference: "Rule 10(1) proviso"
+    version: "2011.1"
+    title: "Small packages <= 5 cm3 may bear a mark/inscription"
+    description: |
+      For packages of capacity 5 cubic cm or less, a mark or
+      inscription sufficient to identify the manufacturer / packer /
+      importer is sufficient compliance.
+    appliesWhen:
+      packageCapacityAtMost: { value: 5, unit: "cm3" }
+    validations:
+      - id: "V-MARK-PRESENT"
+        type: "presence"
+        field: "identifyingMarkOrInscription"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R10-1-PROVISO-REPACKED-IMPORT"
+    ruleReference: "Rule 10(1) second proviso"
+    version: "2011.1"
+    title: "Foreign-manufactured, India-packed — packer/importer on PDP"
+    description: |
+      Where a commodity manufactured outside India is packed in India,
+      the package must also contain on the PDP the name and complete
+      address of the packer or the importer in India.
+    appliesWhen:
+      manufacturedOutsideIndia: true
+      packedInIndia: true
+    requires:
+      field: "packerAddress|importerAddress"
+    validations:
+      - id: "V-PACKER-IMPORTER-ON-PDP"
+        type: "presenceOnPdp"
+        fields: ["packerAddress|importerAddress"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R10-2-CORPORATE-NAME"
+    ruleReference: "Rule 10(2)"
+    version: "2011.1"
+    title: "Name must be actual corporate name or business name"
+    description: |
+      The manufacturer / packer / importer name must be the actual
+      corporate name, or if not incorporated, the name under which
+      the business is conducted in India.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-CORPORATE-NAME-FORM"
+        type: "regex"
+        field: "manufacturer|packer|importer"
+        pattern: "(?i)(pvt\\.?\\s*ltd|private\\s+limited|\\bltd\\b|limited|llp|inc\\.?|corp\\.?)"
+        missingPatternAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 11 — General provisions on quantity
+  # =======================================================================
+
+  - id: "R11-1-EXCLUDE-WRAPPER"
+    ruleReference: "Rule 11(1)"
+    version: "2011.1"
+    title: "Net quantity excludes wrapper and packaging weight"
+    description: |
+      In declaring the net quantity, the weight of wrappers and
+      materials other than the commodity shall be excluded.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-NET-QTY-EXCLUDES-WRAPPER"
+        type: "documentedExclusion"
+        field: "netQuantityValue"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R11-2-NO-WHEN-PACKED"
+    ruleReference: "Rule 11(2)"
+    version: "2011.1"
+    title: "Quantity declaration not qualified by 'when packed'"
+    description: |
+      Where a commodity is not likely to undergo variations in weight
+      or measure due to environmental conditions, the declared quantity
+      must not be qualified by the words "when packed" or the like.
+    appliesWhen:
+      commodityVariesWithEnvironment: false
+    validations:
+      - id: "V-NO-WHEN-PACKED-PHRASE"
+        type: "forbiddenSubstring"
+        field: "netQuantityRawText"
+        forbidden: ["when packed", "when-pack"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R11-3-VARIATION-NEGLIGIBLE"
+    ruleReference: "Rule 11(3)"
+    version: "2011.1"
+    title: "Negligible environmental variation"
+    description: |
+      Where a commodity is likely to undergo negligible variations in
+      weight or measure due to environmental conditions, the declared
+      quantity must account for the variation so the consumer receives
+      not less than the declared quantity. The declaration shall not
+      be qualified by "when packed".
+    appliesWhen:
+      commodityVariesWithEnvironment: "negligible"
+    validations:
+      - id: "V-VARIATION-ACCOUNTED"
+        type: "manualReview"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R11-4-WHEN-PACKED-ALLOWED"
+    ruleReference: "Rule 11(4)"
+    version: "2011.1"
+    title: "'When packed' qualifier required for specified commodities"
+    description: |
+      For commodities listed in the Third Schedule (all kinds of soaps,
+      lotions, cream other than cream of milk), the quantity declaration
+      must be qualified by "when packed".
+    appliesWhen:
+      commodityTypeIn: ["soap", "lotion", "cream"]
+    validations:
+      - id: "V-WHEN-PACKED-REQUIRED"
+        type: "requiredSubstring"
+        field: "netQuantityRawText"
+        required: "when packed"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 12 — Manner in which declaration of quantity shall be
+  # =======================================================================
+
+  - id: "R12-1-ADEQUATE-UNIT"
+    ruleReference: "Rule 12(1)"
+    version: "2011.1"
+    title: "Quantity expressed in adequate and accurate unit"
+    description: |
+      The declaration of quantity shall be expressed in terms of such
+      unit of weight, measure or number (or a combination) as would
+      give accurate and adequate information to the consumer.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-UNIT-ADEQUATE"
+        type: "unitDomain"
+        field: "netQuantityUnit"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R12-2-CORRECT-UNIT-FAMILY"
+    ruleReference: "Rule 12(2)"
+    version: "2011.1"
+    title: "Quantity declared in correct unit family"
+    description: |
+      Except for commodities in the Fourth Schedule, declaration must
+      be in mass for solids/semi-solids/viscous/mixtures, length for
+      linear measure, area for area measure, volume for liquids/cubic
+      measure, or number.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    exemptWhen:
+      commodityTypeInFourthSchedule: true
+    validations:
+      - id: "V-UNIT-FAMILY-MATCH"
+        type: "unitFamilyConsistency"
+        stateField: "commodityPhysicalState"
+        unitField: "netQuantityUnit"
+        mapping:
+          solid:             ["g", "kg", "mg"]
+          semiSolid:         ["g", "kg"]
+          viscous:           ["g", "kg", "ml", "l"]
+          liquid:            ["ml", "l"]
+          solidAndLiquidMix: ["g", "kg", "ml", "l"]
+          linear:            ["mm", "cm", "m"]
+          area:              ["cm2", "dm2", "m2"]
+          count:             ["N", "U"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R12-3-ADDITIONAL-NUMBER-DECLARATION"
+    ruleReference: "Rule 12(3)"
+    version: "2011.1"
+    title: "Optional additional declaration of number when quantity in mass"
+    description: |
+      Where the declaration of quantity is in terms of mass, the
+      manufacturer / importer / packer may, at his option, make an
+      additional declaration of the number of commodities.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-OPTIONAL-NOT-REQUIRED"
+        type: "manualReview"
+        failAction: PASS
+    severity: informational
+    reviewPolicy: never
+
+  - id: "R12-4-DIMENSIONS-SUPPLEMENT"
+    ruleReference: "Rule 12(4)"
+    version: "2011.1"
+    title: "Dimensions declared where quantity is insufficient"
+    description: |
+      Where the declaration of quantity by weight or measure or number
+      is not sufficient to give full information about the commodity's
+      dimensions or number, such declaration shall be accompanied by a
+      declaration of the dimensions or number, or both.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-DIMENSIONS-SUPPLEMENT"
+        type: "compositeDimension"
+        requiresComponents: ["length", "width"]
+        optionalComponents: ["depth", "height"]
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R12-6-NO-MISLEADING-QUALIFIER"
+    ruleReference: "Rule 12(6)"
+    version: "2011.1"
+    title: "No misleading qualifiers in quantity declaration"
+    description: |
+      The declaration of quantity shall not contain any word or
+      expression which tends to create an exaggerated, misleading or
+      inadequate impression. Examples: "minimum", "not less than",
+      "average", "about", "approximately".
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-NO-MISLEADING-WORDS"
+        type: "forbiddenSubstring"
+        field: "netQuantityRawText"
+        caseInsensitive: true
+        forbidden:
+          - "minimum"
+          - "not less than"
+          - "average"
+          - "about"
+          - "approximately"
+          - "approx"
+          - "approx."
+          - "more or less"
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R12-7-SMALL-PACKAGE-TAG"
+    ruleReference: "Rule 12(7)"
+    version: "2011.1"
+    title: "Quantity on tag/card/tape for packages <= 5 cm3"
+    description: |
+      For packages of capacity 5 cubic cm or less, the declaration of
+      quantity shall be on a tag, card, tape or similar device affixed
+      so it cannot be removed without opening the container. Each such
+      tag/card shall contain a mark enabling consumer to identify the
+      manufacturer or packer.
+    appliesWhen:
+      packageCapacityAtMost: { value: 5, unit: "cm3" }
+    validations:
+      - id: "V-TAG-PRESENT"
+        type: "presence"
+        field: "quantityTagOrCard"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 13 — Statement of units
+  # =======================================================================
+
+  - id: "R13-2-3-UNIT-SELECTION"
+    ruleReference: "Rule 13(2)-(3)"
+    version: "2011.1"
+    title: "Correct unit selection by magnitude"
+    description: |
+      Below 1 kg → gram; below 1 m → centimetre; below 1 m2 → dm2;
+      below 1 m3 → cm3; below 1 cubic dm → cm3; below 1 l → millilitre.
+      At or above these thresholds, use the larger unit.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-UNIT-MAGNITUDE"
+        type: "unitMagnitudeMatch"
+        rules:
+          - { unitFamily: "mass",   threshold: { value: 1, unit: "kg" }, below: "g",  atOrAbove: "kg" }
+          - { unitFamily: "length", threshold: { value: 1, unit: "m"  }, below: "cm", atOrAbove: "m"  }
+          - { unitFamily: "area",   threshold: { value: 1, unit: "m2" }, below: "dm2", atOrAbove: "m2" }
+          - { unitFamily: "volume", threshold: { value: 1, unit: "l"  }, below: "ml", atOrAbove: "l"  }
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "R13-4-NO-DOZEN-SCORE"
+    ruleReference: "Rule 13(4)"
+    version: "2011.1"
+    title: "No dozen, score, gross, great gross"
+    description: |
+      No number called the dozen, score, gross, great gross or the like
+      shall be specified or indicated on any package.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-NO-DOZEN-SCORE"
+        type: "forbiddenSubstring"
+        field: "netQuantityRawText"
+        caseInsensitive: true
+        forbidden: ["dozen", "score", "gross", "great gross", "doz"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "R13-5-SYMBOLS"
+    ruleReference: "Rule 13(5)"
+    version: "2011.1"
+    title: "SI unit symbols; N or U for count"
+    description: |
+      Only the International System of Units shall be used in
+      furnishing the net quantity. For items sold by number, the
+      symbol should be N or U.
+    appliesWhen:
+      saleType: ["retail", "ecommerce"]
+    validations:
+      - id: "V-SI-UNIT-SYMBOLS"
+        type: "unitMembership"
+        field: "netQuantityUnit"
+        allowedSymbols:
+          mass:   ["g", "kg", "mg"]
+          volume: ["ml", "l"]
+          length: ["mm", "cm", "m"]
+          area:   ["cm2", "dm2", "m2"]
+          number: ["N", "U"]
+        rejectSymbols:
+          - "lbs"
+          - "oz"
+          - "ft"
+          - "inch"
+          - "in"
+          - "yd"
+          - "gal"
+          - "qt"
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 14 — Dimensions of certain commodities
+  # =======================================================================
+
+  - id: "R14-DIMENSIONS"
+    ruleReference: "Rule 14"
+    version: "2011.1"
+    title: "Dimensions of finished-size commodities"
+    description: |
+      Packages containing bed-sheets, hemmed fabric materials, dhoties,
+      sarees, napkins, pillow-covers, towels, table cloths or similar
+      commodities must declare the number and dimensions of the
+      finished size. Where the package contains more than one piece of
+      different dimensions, the dimensions and MRP of each piece must
+      be declared.
+    appliesWhen:
+      commodityTypeIn:
+        - "bedSheet"
+        - "hemmedFabric"
+        - "dhoti"
+        - "saree"
+        - "napkin"
+        - "pillowCover"
+        - "towel"
+        - "tableCloth"
+    requires:
+      field: "finishedDimensions"
+    validations:
+      - id: "V-FINISHED-DIM-PRESENT"
+        type: "presence"
+        field: "finishedDimensions"
+        failAction: FAIL
+      - id: "V-PIECE-LEVEL-DIM-PRESENT"
+        type: "presenceIfCondition"
+        condition: "packageContainsMultiplePiecesOfDifferentDimensions"
+        field: "perPieceDimensionsAndMrp"
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 15 — Dimensions and weight where related to price
+  # =======================================================================
+
+  - id: "R15-DIM-WEIGHT-PRICE"
+    ruleReference: "Rule 15"
+    version: "2011.1"
+    title: "Dimensions/weight declared where related to price"
+    description: |
+      Where the dimensions and weight, or combination thereof, of a
+      commodity has or have a relationship to the price, the
+      declaration of quantity on the package containing such commodity
+      shall also include a declaration as to such dimensions, weight
+      or combination.
+    appliesWhen:
+      dimensionsOrWeightAffectPrice: true
+    validations:
+      - id: "V-DIM-WEIGHT-DECLARED"
+        type: "presence"
+        field: "dimensionsAndWeightDeclaration"
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 16 — Number of usable sheets
+  # =======================================================================
+
+  - id: "R16-USABLE-SHEETS"
+    ruleReference: "Rule 16"
+    version: "2011.1"
+    title: "Number and dimensions of usable sheets"
+    description: |
+      Packages containing sheets like aluminum foil, facial tissues,
+      waxed paper, toilet paper or any other type of sheet must declare
+      the number of usable sheets and the dimensions of each sheet.
+    appliesWhen:
+      commodityTypeIn:
+        - "aluminiumFoil"
+        - "facialTissue"
+        - "waxedPaper"
+        - "toiletPaper"
+        - "sheetProduct"
+    requires:
+      allOf:
+        - field: "usableSheetsCount"
+        - field: "sheetDimensions"
+    validations:
+      - id: "V-SHEETS-PRESENT"
+        type: "presence"
+        fields: ["usableSheetsCount", "sheetDimensions"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 17 — Container-type commodities
+  # =======================================================================
+
+  - id: "R17-CONTAINER-DECLARATIONS"
+    ruleReference: "Rule 17"
+    version: "2011.1"
+    title: "Declarations for container-type commodities"
+    description: |
+      Commodities designed and sold in retail trade as containers (bags,
+      boxes, cups, pans or the like) must be labelled with declaration
+      of quantity per shape category.
+    appliesWhen:
+      commodityTypeIn:
+        - "bagType"
+        - "boxType"
+        - "cupType"
+        - "panType"
+        - "containerType"
+    validations:
+      - id: "V-BAG-TYPE"
+        when: "commodityType == 'bagType'"
+        type: "presence"
+        fields: ["numberOfBags", "linearDimensions"]
+        failAction: FAIL
+      - id: "V-BOX-TYPE"
+        when: "commodityType == 'boxType'"
+        type: "presence"
+        fields: ["numberOfContainers", "length", "width"]
+        optional: ["depth"]
+        failAction: FAIL
+      - id: "V-CUP-TYPE"
+        when: "commodityType == 'cupType'"
+        type: "presence"
+        fields: ["numberOfCommodities", "diameter"]
+        optional: ["depth"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 18 — Provisions relating to wholesale and retail dealers
+  # =======================================================================
+
+  - id: "R18-1-NO-SALE-UNLESS-COMPLIANT"
+    ruleReference: "Rule 18(1)"
+    version: "2011.1"
+    title: "No sale unless package complies in all respects"
+    description: |
+      No wholesale dealer or retail dealer or importer shall sell,
+      distribute, deliver, display or store for sale any commodity in
+      packaged form unless the package complies in all respects with
+      the Act and these rules.
+    appliesWhen:
+      saleType: ["retail", "wholesale", "ecommerce"]
+    validations:
+      - id: "V-OVERALL-COMPLIANCE"
+        type: "derivedCheck"
+        failAction: UNCERTAIN
+    severity: critical
+    reviewPolicy: onUncertain
+
+  - id: "R18-2-NO-SALE-ABOVE-MRP"
+    ruleReference: "Rule 18(2)"
+    version: "2011.1"
+    title: "No sale above MRP"
+    description: |
+      No retail dealer or other person including manufacturer, packer,
+      importer and wholesale dealer shall make any sale of any
+      commodity in packed form at a price exceeding the retail sale
+      price.
+    appliesWhen:
+      transactionSalePriceKnown: true
+    validations:
+      - id: "V-SALE-PRICE-LTE-MRP"
+        type: "numericCompare"
+        lhsField: "transactionSalePrice"
+        rhsField: "mrp"
+        relation: "<="
+        failAction: FAIL
+    severity: critical
+    reviewPolicy: onFail
+
+  - id: "R18-5-NO-MRP-OBLITERATION"
+    ruleReference: "Rule 18(5)"
+    version: "2011.1"
+    title: "No obliteration or alteration of MRP on label"
+    description: |
+      No wholesale dealer or retail dealer or other person shall
+      obliterate, smudge or alter the retail sale price indicated by
+      the manufacturer, packer or importer on the package or label.
+    appliesWhen:
+      saleType: ["retail", "wholesale", "ecommerce"]
+    validations:
+      - id: "V-MRP-NOT-OBLITERATED"
+        type: "regionAlterationCheck"
+        field: "mrpRegionBbox"
+        failAction: UNCERTAIN
+    severity: major
+    reviewPolicy: always
+
+  - id: "R18-7-ELECTRONIC-WEIGHING-MACHINE"
+    ruleReference: "Rule 18(7)"
+    version: "2011.1"
+    title: "Electronic weighing machine at retail premises"
+    description: |
+      Retailers covered under VAT or TOT selling packaged commodities
+      by weight or volume must maintain an electronic weighing machine
+      of at least accuracy class III, smallest division 1 g, with
+      printed-receipt facility, at a prominent place, free of cost.
+    appliesWhen:
+      saleType: "retail"
+      retailerRegisteredUnderVatOrTot: true
+    validations:
+      - id: "V-WEIGHING-MACHINE-PRESENT"
+        type: "premisesEquipmentCheck"
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: always
+
+  # =======================================================================
+  # RULE 24 — Wholesale package declarations
+  # =======================================================================
+
+  - id: "R24-WHOLESALE-DECLARATIONS"
+    ruleReference: "Rule 24"
+    version: "2011.1"
+    title: "Wholesale package declarations"
+    description: |
+      Every wholesale package shall bear a legible, definite, plain
+      and conspicuous declaration of: (a) manufacturer or importer
+      name and address, or where not the packer, of the packer;
+      (b) identity of the commodity; (c) total number of retail
+      packages contained, or net quantity in standard units.
+    appliesWhen:
+      saleType: "wholesale"
+    requires:
+      anyOf:
+        - field: "manufacturer"
+        - field: "importer"
+        - field: "packer"
+    validations:
+      - id: "V-WHOLESALE-MFG-PRESENT"
+        type: "presence"
+        fields: ["manufacturer|importer|packer"]
+        failAction: FAIL
+      - id: "V-WHOLESALE-IDENTITY"
+        type: "presence"
+        field: "commodityIdentity"
+        failAction: FAIL
+      - id: "V-WHOLESALE-COUNT-OR-QTY"
+        type: "presenceAny"
+        fields: ["totalRetailPackageCount", "netQuantityValue"]
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onUncertain
+
+  # =======================================================================
+  # RULE 25 — Restrictions on sale of export packages in India
+  # =======================================================================
+
+  - id: "R25-EXPORT-REPACK"
+    ruleReference: "Rule 25"
+    version: "2011.1"
+    title: "Export packages must be repacked/relabelled before Indian sale"
+    description: |
+      An export package shall not be sold in India unless the
+      manufacturer or packer has re-packed or re-labelled the commodity
+      in accordance with the provisions contained in Chapter II.
+    appliesWhen:
+      originallyMarkedExport: true
+      beingSoldInIndia: true
+    validations:
+      - id: "V-REPACK-EVIDENCE"
+        type: "presence"
+        field: "repackOrRelabelEvidence"
+        failAction: FAIL
+    severity: critical
+    reviewPolicy: onFail
+    notes: |
+      When isExportOnly is true and sale is domestic retail, this rule
+      applies. An export-marked package sold domestically without repack
+      evidence is a Rule 25 violation.
+
+  # =======================================================================
+  # RULE 31 — Advertisements
+  # =======================================================================
+
+  - id: "R31-ADVERTISEMENT-NET-QUANTITY"
+    ruleReference: "Rule 31(1)"
+    version: "2011.1"
+    title: "Advertisement with retail price must declare net quantity"
+    description: |
+      Any advertisement mentioning the retail sale price of a
+      pre-packaged commodity shall contain a declaration as to the net
+      quantity or number of the commodity contained in the package.
+    appliesWhen:
+      saleType: "ecommerce"
+      advertisementMentionsPrice: true
+    validations:
+      - id: "V-AD-NET-QTY-PRESENT"
+        type: "presence"
+        field: "advertisementNetQuantity"
+        failAction: FAIL
+    severity: major
+    reviewPolicy: onFail
+
+  - id: "R31-2-FONT-SIZE-EQUALITY"
+    ruleReference: "Rule 31(2)"
+    version: "2011.1"
+    title: "Net quantity font size in advertisement equals retail price"
+    description: |
+      The font size of the net quantity in the advertisement shall be
+      the same as that of the retail sale price.
+    appliesWhen:
+      saleType: "ecommerce"
+      advertisementMentionsPrice: true
+    validations:
+      - id: "V-FONT-SIZE-EQUAL"
+        type: "numericRatioEqual"
+        lhsField: "advertisementNetQuantityFontHeightMm"
+        rhsField: "advertisementPriceFontHeightMm"
+        tolerance: 0.15
+        failAction: UNCERTAIN
+    severity: minor
+    reviewPolicy: onUncertain
+
+# =========================================================================
+# CROSS-FIELD / CHRONOLOGY RULES
+# =========================================================================
+
+crossFieldRules:
+
+  - id: "XR-CHRONOLOGY-MFG-EXP"
+    title: "Manufacturing date must not be after expiry date"
+    fields: ["manufacturedDate|packedDate", "expiryDate"]
+    validations:
+      - id: "V-CHRON-MFG-LTE-EXP"
+        type: "dateCompare"
+        relation: "lte"
+        failAction: FAIL
+    severity: critical
+    reviewPolicy: onFail
+
+  - id: "XR-CHRONOLOGY-MFG-NOT-TOO-OLD"
+    title: "Manufacturing date is implausibly old"
+    fields: ["manufacturedDate|packedDate"]
+    validations:
+      - id: "V-CHRON-MFG-AGE"
+        type: "dateDeltaMax"
+        reference: "inspectionDate"
+        maxYears: 5
+        failAction: UNCERTAIN
+    severity: major
+    reviewPolicy: onUncertain
+
+  - id: "XR-CHRONOLOGY-EXPIRY-NOT-PAST"
+    title: "Expiry date is in the past"
+    fields: ["expiryDate"]
+    validations:
+      - id: "V-CHRON-EXP-FUTURE"
+        type: "dateCompare"
+        compareTo: "inspectionDate"
+        relation: "gte"
+        failAction: UNCERTAIN
+        note: |
+          An expired product is not automatically a legal breach - the
+          pack was compliant at time of manufacture. Flag for review.
+    severity: minor
+    reviewPolicy: onUncertain
+
+  - id: "XR-PRICE-VS-NET-QUANTITY"
+    title: "MRP and net quantity must be internally consistent"
+    validations:
+      - id: "V-UNIT-PRICE-CONSISTENT"
+        type: "derivedCheck"
+        derivedFrom:
+          mrp: "mrp"
+          quantity: "netQuantityValue"
+          unit: "netQuantityUnit"
+          declaredUnitPrice: "unitSalePrice"
+        failAction: UNCERTAIN
+    severity: major
+    reviewPolicy: onUncertain
+
+# =========================================================================
+# VERIFICATION ADAPTERS
+# =========================================================================
+
+verification:
+
+  - id: "VER-FSSAI"
+    authority: "FSSAI"
+    appliesWhen:
+      productCategory: "food"
+      fieldPresent: "fssaiLicense"
+    adapter: "fssaiLicenseStructural"
+    expectedFormat: "^\\d{14}$"
+    onMismatch: UNCERTAIN
+    onUnavailable: API_UNAVAILABLE
+    notes: |
+      Structural validation only. Live lookup requires FSSAI FoSCoS
+      API credentials not currently provisioned.
+
+  - id: "VER-GSTIN"
+    authority: "GST"
+    appliesWhen:
+      fieldPresent: "gstin"
+    adapter: "gstinStructural"
+    expectedFormat: "^\\d{2}[A-Z]{5}\\d{4}[A-Z]{1}[A-Z\\d]{1}[Z]{1}[A-Z\\d]{1}$"
+    onMismatch: UNCERTAIN
+    onUnavailable: API_UNAVAILABLE
+
+  - id: "VER-BIS"
+    authority: "BIS"
+    appliesWhen:
+      productCategory: ["industrial", "household"]
+      fieldPresent: "bisLicense"
+    adapter: "bisLookup"
+    onUnavailable: API_UNAVAILABLE
+    notes: "BIS ISI-mark verification API not yet integrated."
+
+# =========================================================================
+# SCHEDULES
+# =========================================================================
+
+schedules:
+
+  firstSchedule:
+    title: "Maximum Permissible Error"
+    reference: "Rule 2(e), First Schedule"
+    maximumPermissibleError:
+      byWeightOrVolume:
+        reference: "Table I"
+        bands:
+          - declaredQuantity: { min: 0,     max: 50,    inclusive: true,      unit: "g_or_ml" }
+            errorPercent: 9
+          - declaredQuantity: { min: 50,    max: 100,   inclusive: "minOnly", unit: "g_or_ml" }
+            errorValue: 4.5
+            errorUnit: "g_or_ml"
+          - declaredQuantity: { min: 100,   max: 200,   inclusive: true,      unit: "g_or_ml" }
+            errorPercent: 4.5
+          - declaredQuantity: { min: 200,   max: 300,   inclusive: "minOnly", unit: "g_or_ml" }
+            errorValue: 9
+            errorUnit: "g_or_ml"
+          - declaredQuantity: { min: 300,   max: 500,   inclusive: true,      unit: "g_or_ml" }
+            errorPercent: 3
+          - declaredQuantity: { min: 500,   max: 1000,  inclusive: "minOnly", unit: "g_or_ml" }
+            errorValue: 15
+            errorUnit: "g_or_ml"
+          - declaredQuantity: { min: 1000,  max: 10000, inclusive: true,      unit: "g_or_ml" }
+            errorPercent: 1.5
+          - declaredQuantity: { min: 10000, max: 15000, inclusive: "minOnly", unit: "g_or_ml" }
+            errorValue: 150
+            errorUnit: "g_or_ml"
+          - declaredQuantity: { min: 15000, max: null,                        unit: "g_or_ml" }
+            errorPercent: 1.0
+      byLengthAreaOrNumber:
+        reference: "Table II"
+        bands:
+          - declaredQuantity: { min: 0,   max: 100, inclusive: true, unit: "cm_or_number" }
+            errorPercent: 10
+          - declaredQuantity: { min: 100, max: 500, inclusive: true, unit: "cm_or_number" }
+            errorPercent: 5
+          - declaredQuantity: { min: 500, max: null,                 unit: "cm_or_number" }
+            errorPercent: 2.5
+
+  secondSchedule:
+    title: "Standard Package Quantities"
+    reference: "Rule 5, Second Schedule"
+    statusNote: |
+      Rule 5 imposes standard pack sizes for listed commodities.
+      Where an exemption exists (10 g - 20 g / 10 ml - 20 ml range),
+      the standard size may be departed from, provided the label
+      prominently declares a non-standard pack size.
+    commodities:
+      - id: "SS-BABY_FOOD"
+        label: "Baby food"
+        unit: "g"
+        standardSizes: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 2000, 5000, 10000]
+      - id: "SS-WEANING_FOOD"
+        label: "Weaning food"
+        unit: "g"
+        standardSizes: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 2000, 5000, 10000]
+      - id: "SS-BISCUITS"
+        label: "Biscuits"
+        unit: "g"
+        standardSizes: [25, 50, 75, 100, 150, 200, 250, 300]
+        additionalPattern: { aboveG: 1000, stepG: 1000 }
+      - id: "SS-BREAD"
+        label: "Bread including brown bread but excluding bun"
+        unit: "g"
+        standardSizes: [100]
+        additionalPattern: { aboveG: 100, stepG: 100 }
+      - id: "SS-BUTTER_GHEE"
+        label: "Uncanned packages of butter and margarine"
+        unit: "g"
+        standardSizes: [25, 50, 100, 200, 500, 1000, 2000, 5000]
+        additionalPattern: { aboveG: 5000, stepG: 5000 }
+      - id: "SS-CEREALS_PULSES"
+        label: "Cereals and Pulses"
+        unit: "g"
+        standardSizes: [100, 200, 500, 1000, 2000, 5000]
+        additionalPattern: { aboveG: 5000, stepG: 5000 }
+      - id: "SS-COFFEE"
+        label: "Coffee"
+        unit: "g"
+        standardSizes: [25, 50, 100, 200, 250, 500, 1000]
+        additionalPattern: { aboveG: 1000, stepG: 1000 }
+      - id: "SS-TEA"
+        label: "Tea"
+        unit: "g"
+        standardSizes: [25, 50, 100, 125, 250, 500, 1000]
+        additionalPattern: { aboveG: 1000, stepG: 1000 }
+      - id: "SS-BEVERAGES"
+        label: "Materials which may be constituted (beverages)"
+        unit: "g"
+        standardSizes: [25, 50, 100, 125, 200, 500, 1000]
+        additionalPattern: { aboveG: 1000, stepG: 1000 }
+      - id: "SS-EDIBLE_OILS"
+        label: "Edible Oils, Vanaspati, Ghee, Butter oil"
+        unit: "ml_or_l"
+        standardSizes: [50, 100, 200, 500, 1000, 2000, 3000, 5000]
+        additionalPattern: { aboveValue: 5000, step: 5000 }
+        note: "If net quantity is declared by volume, the equivalent quantity in mass must be declared in brackets in same size of letters/numerals."
+      - id: "SS-MILK_POWDER"
+        label: "Milk Powder"
+        unit: "g"
+        standardSizes: [50, 100, 200, 500, 1000]
+        belowValueNoRestriction: 50
+        additionalPattern: { aboveG: 1000, stepG: 500 }
+      - id: "SS-DETERGENTS_POWDER"
+        label: "Non-soapy detergents (powder)"
+        unit: "g"
+        standardSizes: [50, 100, 200, 500, 700, 1000, 1500, 2000]
+        belowValueNoRestriction: 50
+        additionalPattern: { aboveG: 2000, stepG: 1000 }
+      - id: "SS-RICE_FLOUR_ATTA_RAWA_SUJI"
+        label: "Rice (powdered), Flour, Atta, Rawa, Suji"
+        unit: "g"
+        standardSizes: [100, 200, 500, 1000, 2000, 5000]
+        additionalPattern: { aboveG: 5000, stepG: 5000 }
+      - id: "SS-SALT"
+        label: "Salt"
+        unit: "g"
+        standardSizes: [50, 100, 200, 500, 750, 1000, 2000, 5000]
+        belowValuePattern: { belowG: 50, stepG: 10 }
+        additionalPattern: { aboveG: 5000, stepG: 5000 }
+      - id: "SS-LAUNDRY_SOAP"
+        label: "Laundry Soap"
+        unit: "g"
+        standardSizes: [50, 75, 100]
+        additionalPattern: { aboveG: 100, stepG: 50 }
+      - id: "SS-NON_SOAPY_DETERGENT_CAKES"
+        label: "Non-soapy detergent cakes / bars"
+        unit: "g"
+        standardSizes: [50, 75, 100, 125, 150, 200, 250, 300]
+        additionalPattern: { aboveG: 300, stepG: 100 }
+      - id: "SS-TOILET_SOAP"
+        label: "Toilet Soap including all kinds of bath soap (cakes)"
+        unit: "g"
+        standardSizes: [25, 50, 75, 100, 125, 150]
+        additionalPattern: { aboveG: 150, stepG: 50 }
+      - id: "SS-AERATED_SOFT_DRINKS"
+        label: "Aerated soft drinks, non-alcoholic beverages"
+        unit: "ml"
+        standardSizes: [65, 100, 125, 150, 200, 250, 300, 330, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000]
+        note: "65 ml and 125 ml for fruit-based drinks only. 330 ml for cans only."
+      - id: "SS-MINERAL_WATER"
+        label: "Mineral water and packaged drinking water"
+        unit: "ml"
+        standardSizes: [100, 150, 200, 250, 300, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000]
+      - id: "SS-CEMENT"
+        label: "Cement in bags"
+        unit: "kg"
+        standardSizes: [1000, 2000, 5000, 10000, 20000, 25000, 40000, 50000]
+      - id: "SS-PAINT_VARNISH"
+        label: "Paint, varnish, varnish stains, enamels"
+        categories:
+          - subtype: "pastePaintOrSolidPaint"
+            unit: "g"
+            standardSizes: [500, 1000, 1500, 2000, 3000, 5000, 7000]
+            additionalPattern: { aboveG: 5000, stepG: 5000 }
+          - subtype: "basePaint"
+            unit: "ml"
+            standardSizes: [450, 500, 900, 925, 950, 975, 1000, 3600, 3700, 3800, 3900, 4000]
+            note: "No restriction above 4 litre."
+          - subtype: "otherPaintVarnish"
+            unit: "ml"
+            standardSizes: [50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000]
+            additionalPattern: { aboveMl: 5000, stepMl: 5000 }
+
+  thirdSchedule:
+    title: "Commodities that may be qualified by 'when packed'"
+    reference: "Rule 11(4), Third Schedule"
+    commodities:
+      - "All kinds of soaps"
+      - "Lotions"
+      - "Cream (other than cream of milk)"
+
+  fourthSchedule:
+    title: "Exceptions to Rule 12(2)"
+    reference: "Rule 12(2), Fourth Schedule"
+    exceptions:
+      - commodity: "Aerosol products"
+        allowed: ["weight", "volume", "weightAndVolume"]
+      - commodity: "Acids in liquid form"
+        allowed: ["weight", "volume"]
+      - commodity: "Compressed or liquefied air (not LPG)"
+        allowed: ["volumeAtStatedTempPressure"]
+      - commodity: "Curd"
+        allowed: ["weight", "equivalentVolume"]
+      - commodity: "Electric cables"
+        allowed: ["length", "weight"]
+      - commodity: "Electric wire"
+        allowed: ["length", "weight"]
+      - commodity: "Fencing wire"
+        allowed: ["length", "weight"]
+      - commodity: "Fruits, all kinds"
+        allowed: ["number", "weight"]
+      - commodity: "Furnace oil"
+        allowed: ["weight", "volume"]
+      - commodity: "Non-edible vegetable oil"
+        allowed: ["weight", "volume"]
+      - commodity: "Edible oil, Vanaspati ghee, Butter oil"
+        allowed: ["weight", "volume"]
+      - commodity: "Heavy residual fuel oil"
+        allowed: ["weight", "volume"]
+      - commodity: "Industrial diesel fuel"
+        allowed: ["weight", "volume"]
+      - commodity: "Honey, malt extract, golden syrup, treacle"
+        allowed: ["weight"]
+      - commodity: "Ice cream and similar frozen products"
+        allowed: ["volume"]
+      - commodity: "Liquid chemicals"
+        allowed: ["weight", "volume"]
+      - commodity: "Liquefied petroleum gas"
+        allowed: ["weight"]
+      - commodity: "Nails, wood screws"
+        allowed: ["number", "weight"]
+      - commodity: "Paints (other than paste paint or solid paint), varnish, varnish stains, enamels"
+        allowed: ["volume"]
+      - commodity: "Paste paint, solid paint"
+        allowed: ["weight"]
+      - commodity: "Rasgulla, Gulab jamun and other sweet preparations"
+        allowed: ["weight"]
+      - commodity: "Ready-made garments"
+        allowed: ["number"]
+      - commodity: "Sauces, all kinds"
+        allowed: ["weight"]
+      - commodity: "Tyres and tubes"
+        allowed: ["number"]
+      - commodity: "Yarn"
+        allowed: ["weight", "length"]
+      - commodity: "Cosmetics including creams, shampoo, lotions and perfumes"
+        allowed: ["weight", "volume"]
+
+# =========================================================================
+# PENALTIES (Rule 32)
+# =========================================================================
+
+penalties:
+  - id: "PEN-R32-1"
+    ruleReference: "Rule 32(1)"
+    appliesTo: ["R27", "R28", "R29", "R30", "R31"]
+    punishment: "Fine up to Rs 4,000"
+  - id: "PEN-R32-2"
+    ruleReference: "Rule 32(2)"
+    appliesTo: "any other rule"
+    punishment: "Fine up to Rs 2,000"
+
+# =========================================================================
+# END OF RULESET
+# =========================================================================
