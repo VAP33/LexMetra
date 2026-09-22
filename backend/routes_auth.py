@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
@@ -85,17 +85,20 @@ def register_by_admin(
 
 
 @router.post("/auth/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
+def login(
+    background_tasks: BackgroundTasks,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+):
     user = auth.authenticate_user(form_data.username, form_data.password)
     if not user:
-        db.record_audit_event(action="login_failed", actor_username=form_data.username)
+        background_tasks.add_task(db.record_audit_event, action="login_failed", actor_username=form_data.username)
         raise HTTPException(
             status_code=401,
             detail="Incorrect username or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     token = auth.create_access_token(user.username, user.role)
-    db.record_audit_event(action="login_success", actor_username=user.username)
+    background_tasks.add_task(db.record_audit_event, action="login_success", actor_username=user.username)
     return {
         "access_token": token,
         "token_type": "bearer",

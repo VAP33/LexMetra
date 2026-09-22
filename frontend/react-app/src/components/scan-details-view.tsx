@@ -19,6 +19,7 @@ import { extractPreview, resolveImageUrl, type ExtractPreviewResponse } from "@/
 import { dataUrlToBlob } from "@/lib/data-url";
 import { type View, Button } from "./ui-primitives";
 import { Header as AppHeader } from "./app-header";
+import { SafeImage } from "./safe-image";
 
 export const CATEGORY_OPTIONS = ["food", "beverage", "personal_care", "household", "other"];
 export const UNIT_OPTIONS = ["g", "kg", "ml", "l", "number"];
@@ -145,7 +146,7 @@ export function ScanDetailsView({
         <section className="flex gap-3 overflow-x-auto rounded-2xl border border-border/70 bg-card p-4 hide-scrollbar">
           {images.map((img, i) => (
             <div key={i} className="relative h-24 w-20 shrink-0 overflow-hidden rounded-xl border border-border">
-              <img src={resolveImageUrl(img) || img} alt={`Face ${i + 1}`} className="h-full w-full object-cover" />
+              <SafeImage src={img} alt={`Face ${i + 1}`} className="h-full w-full object-cover" />
               <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
                 Face {i + 1}
               </span>

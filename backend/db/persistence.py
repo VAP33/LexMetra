@@ -57,11 +57,22 @@ import config  # noqa: E402
 # as a production credential.
 DATABASE_URL = config.DATABASE_URL
 
+_POOL: Any = None
+
+def get_pool():
+    global _POOL
+    if _POOL is None or getattr(_POOL, "closed", False):
+        if psycopg2 is not None:
+            from psycopg2 import pool
+            _POOL = pool.ThreadedConnectionPool(minconn=1, maxconn=15, dsn=DATABASE_URL)
+    return _POOL
+
 
 @contextmanager
 def get_conn():
     """
-    Open one database connection and commit/rollback as a single transaction.
+    Open or acquire one database connection and commit/rollback as a single transaction.
+    Uses connection pooling to eliminate remote TLS handshake latency on repeated requests.
     """
     if psycopg2 is None:
         raise RuntimeError(
@@ -70,15 +81,44 @@ def get_conn():
             "The pure serialization helpers in this module do not need it."
         )
 
-    conn = psycopg2.connect(DATABASE_URL)
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    p = get_pool()
+    if p is not None:
+        conn = p.getconn()
+        try:
+            if conn.closed:
+                p.putconn(conn, close=True)
+                conn = p.getconn()
+            yield conn
+            conn.commit()
+        except psycopg2.OperationalError:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            p.putconn(conn, close=True)
+            raise
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            try:
+                if not conn.closed:
+                    p.putconn(conn)
+            except Exception:
+                pass
+    else:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 
 def init_schema() -> None:

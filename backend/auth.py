@@ -17,9 +17,10 @@ Roles (least to most privileged):
 from __future__ import annotations
 
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
 _BACKEND_DIR = str(Path(__file__).resolve().parent)
 if _BACKEND_DIR not in sys.path:
@@ -123,8 +124,25 @@ def decode_access_token(token: str) -> TokenData:
 # Authentication
 # ---------------------------------------------------------------------------
 
-def authenticate_user(username: str, password: str) -> Optional[CurrentUser]:
+_USER_CACHE: Dict[str, Tuple[float, dict]] = {}
+_USER_CACHE_TTL = 60.0  # 60s cache for fast auth lookups
+
+def get_cached_user_record(username: str) -> Optional[dict]:
+    now = time.time()
+    if username in _USER_CACHE:
+        cached_time, record = _USER_CACHE[username]
+        if now - cached_time < _USER_CACHE_TTL:
+            return record
     record = db.get_user_by_username(username)
+    if record:
+        _USER_CACHE[username] = (now, record)
+    return record
+
+def invalidate_user_cache(username: str) -> None:
+    _USER_CACHE.pop(username, None)
+
+def authenticate_user(username: str, password: str) -> Optional[CurrentUser]:
+    record = get_cached_user_record(username)
     if not record:
         return None
     if not verify_password(password, record["hashed_password"]):
@@ -162,7 +180,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     data = decode_access_token(token)
-    record = db.get_user_by_username(data.username)
+    record = get_cached_user_record(data.username)
     if not record or not record.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

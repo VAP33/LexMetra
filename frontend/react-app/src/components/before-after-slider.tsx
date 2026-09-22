@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import { SlidersHorizontal } from "lucide-react";
+import { SafeImage } from "./safe-image";
 
 interface BeforeAfterSliderProps {
   originalUrl: string;
@@ -86,7 +87,7 @@ export function BeforeAfterSlider({
         className="relative aspect-[4/3] w-full cursor-ew-resize select-none overflow-hidden rounded-xl border border-neutral-200 bg-neutral-950"
       >
         {/* Underneath: Canonical Rectified Image */}
-        <img
+        <SafeImage
           src={canonicalUrl}
           alt="Canonical Preprocessed Scan"
           className="absolute inset-0 h-full w-full object-contain pointer-events-none"
@@ -97,7 +98,7 @@ export function BeforeAfterSlider({
           style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
           className="absolute inset-0 h-full w-full overflow-hidden"
         >
-          <img
+          <SafeImage
             src={originalUrl}
             alt="Original Camera Photograph"
             className="absolute inset-0 h-full w-full object-contain pointer-events-none"

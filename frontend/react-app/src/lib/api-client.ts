@@ -76,6 +76,42 @@ export function resolveImageUrl(url?: string | null): string | undefined {
   return resolved;
 }
 
+const _blobUrlCache = new Map<string, string>();
+const _pendingBlobFetches = new Map<string, Promise<string>>();
+
+export async function fetchBlobUrl(url?: string | null): Promise<string | undefined> {
+  if (!url) return undefined;
+  if (url.startsWith("data:") || url.startsWith("blob:")) return url;
+
+  const resolved = resolveImageUrl(url) || url;
+  if (_blobUrlCache.has(resolved)) {
+    return _blobUrlCache.get(resolved);
+  }
+  if (_pendingBlobFetches.has(resolved)) {
+    return _pendingBlobFetches.get(resolved);
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(resolved, {
+        headers: { "ngrok-skip-browser-warning": "true" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      _blobUrlCache.set(resolved, blobUrl);
+      return blobUrl;
+    } catch {
+      return resolved;
+    } finally {
+      _pendingBlobFetches.delete(resolved);
+    }
+  })();
+
+  _pendingBlobFetches.set(resolved, fetchPromise);
+  return fetchPromise;
+}
+
 const TOKEN_STORAGE_KEY = "lmpc_access_token";
 const USER_STORAGE_KEY = "lmpc_user";
 
