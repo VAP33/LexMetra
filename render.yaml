@@ -8,7 +8,7 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
-    plan: standard
+    plan: free
     region: oregon
     healthCheckPath: /health
     autoDeploy: true
