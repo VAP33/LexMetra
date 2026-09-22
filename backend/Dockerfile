@@ -105,10 +105,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run as non-root for defence-in-depth.
-# Create a dedicated user with no login shell and no home directory writes.
-RUN groupadd --system lmpc && useradd --system --gid lmpc --no-create-home lmpc \
-    && chown -R lmpc:lmpc /app/backend/uploads 2>/dev/null || true \
-    && chown -R lmpc:lmpc /app/backend/reports 2>/dev/null || true
+# Create dedicated directories and user
+RUN mkdir -p /app/backend/uploads /app/backend/reports /tmp/uploads \
+    && groupadd --system lmpc && useradd --system --gid lmpc --no-create-home lmpc \
+    && chown -R lmpc:lmpc /app /tmp/uploads
 
 USER lmpc
 
