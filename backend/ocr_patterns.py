@@ -680,7 +680,11 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                     if entry.get("numeric_unit") and entry.get("numeric_value") is not None:
                         val_str = str(entry.get("value") or "")
                         if "/" not in val_str:
-                            entry["value"] = f"₹{entry['numeric_value']:g}/{entry['numeric_unit']}"
+                            try:
+                                nv_str = f"{float(entry['numeric_value']):g}"
+                            except (ValueError, TypeError):
+                                nv_str = str(entry['numeric_value'])
+                            entry["value"] = f"₹{nv_str}/{entry['numeric_unit']}"
                 found[f] = entry
 
             elif f == "batch_no":
@@ -809,7 +813,11 @@ def classify_fields(lines: List[OcrLine]) -> Dict[str, dict]:
                     if entry.get("numeric_unit") and entry.get("numeric_value") is not None:
                         val_str = str(entry.get("value") or "")
                         if "/" not in val_str:
-                            entry["value"] = f"₹{entry['numeric_value']:g}/{entry['numeric_unit']}"
+                            try:
+                                nv_str = f"{float(entry['numeric_value']):g}"
+                            except (ValueError, TypeError):
+                                nv_str = str(entry['numeric_value'])
+                            entry["value"] = f"₹{nv_str}/{entry['numeric_unit']}"
             elif f == "batch_no":
                 entry["batch_code"] = val
             found[f] = entry
