@@ -17,9 +17,11 @@ services:
         value: 8000
       - key: ENVIRONMENT
         value: production
-      # Database connection to persistent Supabase instance (configured in Render Dashboard or Environment)
+      # Database connection to Render managed PostgreSQL (lexmetra-db)
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: lexmetra-db
+          property: connectionString
       - key: CORS_ORIGINS
         value: https://lexmetra-ui.vercel.app,https://rise-sponsor-juvenile.ngrok-free.dev,http://localhost:5173,http://localhost:4173
       - key: SECRET_KEY
