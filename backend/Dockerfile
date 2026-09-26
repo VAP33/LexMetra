@@ -112,4 +112,4 @@ RUN mkdir -p /app/backend/uploads /app/backend/reports /tmp/uploads \
 
 USER lmpc
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

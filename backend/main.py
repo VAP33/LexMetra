@@ -23,6 +23,7 @@ import io
 import logging
 import os
 import re
+import shutil
 import sys
 import time
 import uuid
@@ -196,6 +197,41 @@ def startup() -> None:
             f"Database initialization deferred (PostgreSQL unavailable at startup: {exc})."
         )
 
+    _seed_upload_images()
+
+
+def _seed_upload_images() -> None:
+    """Pre-seed sample and reference package images into UPLOAD_DIR on startup."""
+    try:
+        if not config.UPLOAD_DIR:
+            return
+        config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        search_dirs = [
+            Path(__file__).resolve().parent.parent / "dataset" / "Reference Images",
+            Path(__file__).resolve().parent.parent / "dataset" / "New Real Images",
+            Path(__file__).resolve().parent.parent / "dataset",
+            Path(__file__).resolve().parent / "data",
+        ]
+        for sdir in search_dirs:
+            if sdir.is_dir():
+                for p in sdir.glob("*"):
+                    if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
+                        target = config.UPLOAD_DIR / p.name
+                        if not target.exists():
+                            try:
+                                shutil.copy2(p, target)
+                            except Exception:
+                                pass
+                        if "REFERENCE" in p.name.upper():
+                            ref_target = config.UPLOAD_DIR / f"ref_{p.name}"
+                            if not ref_target.exists():
+                                try:
+                                    shutil.copy2(p, ref_target)
+                                except Exception:
+                                    pass
+    except Exception as e:
+        logger.warning(f"Error seeding upload images: {e}")
+
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 _REACT_DIST_DIR = _FRONTEND_DIR / "react-app" / "dist"
@@ -210,7 +246,54 @@ if _FRONTEND_DIR.exists():
 
 if config.UPLOAD_DIR:
     config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(config.UPLOAD_DIR)), name="uploads")
+
+
+@app.api_route("/uploads/{filename:path}", methods=["GET", "HEAD"], include_in_schema=False)
+def serve_upload(filename: str):
+    target = config.UPLOAD_DIR / filename
+    if target.is_file():
+        return FileResponse(str(target))
+
+    search_dirs = [
+        Path(__file__).resolve().parent.parent / "dataset" / "Reference Images",
+        Path(__file__).resolve().parent.parent / "dataset" / "New Real Images",
+        Path(__file__).resolve().parent.parent / "dataset",
+        Path(__file__).resolve().parent / "data",
+    ]
+    # 1. Exact match in datasets
+    for sdir in search_dirs:
+        cand = sdir / filename
+        if cand.is_file():
+            try:
+                shutil.copy2(cand, target)
+            except Exception:
+                pass
+            return FileResponse(str(cand))
+
+    # 2. Match with ref_[a-f0-9]+_ prefix stripped
+    clean_name = re.sub(r"^ref_[a-f0-9]+_", "", filename)
+    clean_name = re.sub(r"^ref_", "", clean_name)
+    for sdir in search_dirs:
+        cand = sdir / clean_name
+        if cand.is_file():
+            try:
+                shutil.copy2(cand, target)
+            except Exception:
+                pass
+            return FileResponse(str(cand))
+
+    # 3. Case-insensitive or partial match
+    for sdir in search_dirs:
+        if sdir.is_dir():
+            for p in sdir.glob("*"):
+                if p.is_file() and p.name.lower() in (filename.lower(), clean_name.lower()):
+                    try:
+                        shutil.copy2(p, target)
+                    except Exception:
+                        pass
+                    return FileResponse(str(p))
+
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 @app.api_route("/dca-logo.png", methods=["GET", "HEAD"], include_in_schema=False)
@@ -1290,14 +1373,16 @@ async def scan(
                     }
                     break
 
-    # If still not found, check vertical orientation (270 / 90 degrees) for FMCG codes printed vertically beside barcode
-    if not label_product_id:
+    # If still not found and product_id was not explicitly supplied, check vertical orientation (270 / 90 degrees)
+    if not label_product_id and not (product_id and product_id.strip() and not product_id.strip().startswith("SCAN-") and product_id.strip() != "PACKAGE"):
         for item in uploaded_items:
             p_img = item.get("pil_img")
             if p_img is None:
                 continue
             for rot in (270, 90):
                 r_img = p_img.rotate(rot, expand=True)
+                if max(r_img.size) > 1200:
+                    r_img.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
                 txt = pytesseract.image_to_string(r_img, config="--psm 11")
                 for line_str in txt.splitlines():
                     m_pid = re.search(r"\b(\d{7,10})\b", line_str)

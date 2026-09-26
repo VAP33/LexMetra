@@ -18,9 +18,9 @@ function getApiBase(): string {
     if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0 && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
       return envUrl.replace(/\/+$/, "");
     }
-    // When hosted on Vercel or any public non-localhost domain, default to the active Ngrok tunnel:
+    // When hosted on Vercel or any public non-localhost domain, default to the cloud Render backend:
     if (hostname.includes("vercel.app") || (!hostname.includes("localhost") && !hostname.includes("127.0.0.1"))) {
-      return "https://rise-sponsor-juvenile.ngrok-free.dev";
+      return "https://lexmetra-backend.onrender.com";
     }
     return `${protocol}//${hostname}:8000`;
   }
@@ -61,6 +61,11 @@ export function resolveImageUrl(url?: string | null): string | undefined {
   if (url.startsWith("http://localhost:8000") || url.startsWith("http://127.0.0.1:8000")) {
     if (API_BASE && !API_BASE.includes("localhost") && !API_BASE.includes("127.0.0.1")) {
       resolved = url.replace(/^http:\/\/(?:localhost|127\.0\.0\.1):8000/, API_BASE);
+    }
+  } else if (url.includes("ngrok-free.dev") || url.includes("ngrok.io") || url.includes("ngrok-free.app")) {
+    // If an image URL previously pointed to ngrok, rewrite it to current API_BASE so it loads when ngrok is offline
+    if (API_BASE && !API_BASE.includes("ngrok")) {
+      resolved = url.replace(/^https?:\/\/[^\/]+/, API_BASE);
     }
   } else if (!url.startsWith("http://") && !url.startsWith("https://")) {
     if (url.startsWith("/")) {

@@ -105,7 +105,13 @@ if not JWT_SECRET_KEY:
 
 ALLOWED_ORIGINS = _env_list(
     "ALLOWED_ORIGINS",
-    ["http://localhost:5173", "http://localhost:8000", "http://127.0.0.1:5500"],
+    _env_list("CORS_ORIGINS", [
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:5500",
+        "https://lexmetra-ui.vercel.app",
+        "https://lexmetra-backend.onrender.com",
+    ]),
 )
 
 # ---------------------------------------------------------------------------
